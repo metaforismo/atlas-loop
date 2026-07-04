@@ -96,6 +96,7 @@ Recommended additional tool names:
 - `atlas.health`
 - `atlas.listSessions`
 - `atlas.getLatestSession`
+- `atlas.sessionReady`
 - `atlas.build`
 - `atlas.install`
 - `atlas.launch`
@@ -116,6 +117,43 @@ Tool calls should return structured JSON content:
   "data": {}
 }
 ```
+
+`atlas.sessionReady` is the compact pre-action helper for agents. It reads
+`GET /sessions/:id/summary`, resolves aliases such as `latest`, and combines
+the summary with a local viewer URL. It should not call the session list route
+or add a daemon endpoint. The response is structured JSON:
+
+```json
+{
+  "ok": true,
+  "data": {
+    "sessionId": "sess_123",
+    "requestedSessionId": "latest",
+    "status": "running",
+    "storage": {
+      "source": "memory",
+      "artifactBacked": true,
+      "warningCount": 0
+    },
+    "artifactDir": "artifacts/sessions/sess_123",
+    "latestScreenshotPath": "artifacts/sessions/sess_123/screenshots/latest.png",
+    "latestAction": {
+      "id": "act_123",
+      "ok": true
+    },
+    "viewerUrl": "http://127.0.0.1:5173?daemonUrl=http%3A%2F%2F127.0.0.1%3A4317&sessionId=sess_123",
+    "daemonUrl": "http://127.0.0.1:4317",
+    "viewerBaseUrl": "http://127.0.0.1:5173",
+    "canMutate": true,
+    "hasScreenshot": true
+  }
+}
+```
+
+`latestError` is included when the session summary contains one. `canMutate`
+must only be true when the summary reports `storage.source` as `memory` and the
+status is not terminal (`ended` or `failed`). Disk-backed sessions are readable
+evidence only, even when their persisted status says `running`.
 
 Daemon and validation failures should return structured tool errors with the
 Atlas Loop error code and message preserved:

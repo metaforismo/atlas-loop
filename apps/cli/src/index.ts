@@ -27,6 +27,33 @@ interface EvidenceClient {
   latestScreenshot(sessionId: string): Promise<ArtifactRef>;
 }
 
+interface SessionReadyClient {
+  getSessionSummary(sessionId: string): Promise<SessionSummary>;
+}
+
+export interface SessionReadiness {
+  sessionId: string;
+  requestedSessionId: string;
+  status: string;
+  storage: {
+    source: string;
+    artifactBacked: boolean;
+    warningCount: number;
+  };
+  artifactDir: string;
+  latestScreenshotPath: string | null;
+  latestAction?: {
+    id: string;
+    ok: boolean;
+  };
+  latestError?: SessionSummary["events"]["latestError"];
+  viewerUrl: string;
+  daemonUrl: string;
+  viewerBaseUrl: string;
+  canMutate: boolean;
+  hasScreenshot: boolean;
+}
+
 interface LocalEvidenceExportMetadata {
   schemaVersion: "atlas-loop.evidence-export.v1";
   sessionId: string;
@@ -90,6 +117,14 @@ export async function main(args: Args): Promise<number> {
     }
     if (subcommand === "status" || subcommand === "summary") {
       printJson(await client.getSessionSummary(requireFlag(flags, "session")));
+      return 0;
+    }
+    if (subcommand === "ready") {
+      printJson(await buildSessionReadiness(client, {
+        sessionId: requireFlag(flags, "session"),
+        daemonUrl,
+        viewerBaseUrl: stringFlag(flags, "viewer-base-url")
+      }));
       return 0;
     }
     if (subcommand === "stop" || subcommand === "end") {
@@ -246,6 +281,45 @@ export async function buildEvidenceSummary(
     viewerUrl: buildViewerUrl({ daemonUrl: params.daemonUrl, sessionId, viewerBaseUrl }),
     daemonUrl: params.daemonUrl,
     viewerBaseUrl
+  };
+}
+
+export async function buildSessionReadiness(
+  client: SessionReadyClient,
+  params: { sessionId: string; daemonUrl: string; viewerBaseUrl?: string }
+): Promise<SessionReadiness> {
+  const summary = await client.getSessionSummary(params.sessionId);
+  const sessionId = firstString(summary.session?.id) ?? params.sessionId;
+  const status = firstString(summary.session?.status) ?? "unknown";
+  const artifactDir = firstString(summary.paths?.artifactDir);
+  if (!artifactDir) throw new Error("session summary did not include paths.artifactDir");
+
+  const storageSource = firstString(summary.storage?.source) ?? "unknown";
+  const storageWarnings = Array.isArray(summary.storage?.warnings) ? summary.storage.warnings : [];
+  const latestScreenshotPath = firstString(summary.artifacts?.latestScreenshot?.path)
+    ?? firstString(summary.artifacts?.latestScreenshotPath)
+    ?? null;
+  const latestAction = latestActionSummary(summary.events?.latestAction);
+  const viewerBaseUrl = trimTrailingSlash(params.viewerBaseUrl ?? DEFAULT_VIEWER_BASE_URL);
+
+  return {
+    sessionId,
+    requestedSessionId: params.sessionId,
+    status,
+    storage: {
+      source: storageSource,
+      artifactBacked: Boolean(summary.storage?.artifactBacked),
+      warningCount: storageWarnings.length
+    },
+    artifactDir,
+    latestScreenshotPath,
+    ...(latestAction ? { latestAction } : {}),
+    ...(summary.events?.latestError ? { latestError: summary.events.latestError } : {}),
+    viewerUrl: buildViewerUrl({ daemonUrl: params.daemonUrl, sessionId, viewerBaseUrl }),
+    daemonUrl: params.daemonUrl,
+    viewerBaseUrl,
+    canMutate: storageSource === "memory" && isLiveSessionStatus(status),
+    hasScreenshot: latestScreenshotPath !== null
   };
 }
 
@@ -424,6 +498,19 @@ function csvFlag(flags: Map<string, string | boolean>, name: string): string[] |
   return value ? value.split(",").filter(Boolean) : undefined;
 }
 
+function firstString(value: unknown): string | undefined {
+  return typeof value === "string" && value ? value : undefined;
+}
+
+function latestActionSummary(action: SessionSummary["events"]["latestAction"] | undefined): SessionReadiness["latestAction"] | undefined {
+  if (!action?.actionId) return undefined;
+  return { id: action.actionId, ok: action.ok };
+}
+
+function isLiveSessionStatus(status: string): boolean {
+  return status !== "ended" && status !== "failed" && status !== "unknown";
+}
+
 function configurationFlag(flags: Map<string, string | boolean>): "Debug" | "Release" | undefined {
   const value = stringFlag(flags, "configuration");
   if (value === undefined || value === "Debug" || value === "Release") return value;
@@ -470,6 +557,7 @@ Usage:
   atlas-loop session list [--json]
   atlas-loop session latest
   atlas-loop session status --session <id|latest>
+  atlas-loop session ready --session <id|latest>
   atlas-loop session stop --session <id|latest>
   atlas-loop build --session <id|latest> --project <path> --scheme <scheme>
   atlas-loop install --session <id|latest> --app <path.app>

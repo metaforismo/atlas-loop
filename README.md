@@ -82,6 +82,7 @@ atlas-loop session start --simulator "iPhone 16" --viewer
 atlas-loop session list
 atlas-loop session latest
 atlas-loop session status --session latest
+atlas-loop session ready --session latest
 atlas-loop build --session <id> --project apps/ios-commerce-demo/CommerceDemo.xcodeproj --scheme CommerceDemo
 atlas-loop install --session <id> --app <path-to-app>
 atlas-loop launch --session <id> --bundle-id app.atlasloop.CommerceDemo
@@ -120,9 +121,15 @@ calls such as `atlas.createSession`, `atlas.performAction`, `atlas.build`,
 `atlas.install`, `atlas.launch`, `atlas.listArtifacts`,
 `atlas.getArtifactPath`, `atlas.getLatestScreenshotPath`, and
 `atlas.getViewerUrl` forward to the local daemon at `ATLAS_LOOP_DAEMON_URL` or
-`http://127.0.0.1:4317` by default. `atlas.exportEvidence` reads the session
-summary and copies the referenced local artifact directory into a caller-chosen
-local directory; it does not upload artifacts. See
+`http://127.0.0.1:4317` by default. Before acting, agents can call
+`atlas.sessionReady` to resolve `latest` into a concrete session id and get a
+compact JSON status with storage source, warning count, artifact directory,
+latest screenshot path, latest action id/result, latest error, viewer URL,
+`hasScreenshot`, and `canMutate`. `canMutate` is true only for live in-memory
+sessions, never for disk-backed evidence discovered after a daemon restart.
+`atlas.exportEvidence` reads the session summary and copies the referenced
+local artifact directory into a caller-chosen local directory; it does not
+upload artifacts. See
 [docs/daemon-api.md](docs/daemon-api.md) for the JSON-RPC and daemon contract.
 
 ## Evidence Layout
@@ -171,6 +178,7 @@ After a daemon restart, read-only routes can discover sessions from
 ```bash
 npm run cli -- session list
 npm run cli -- session status --session latest
+npm run cli -- session ready --session latest
 npm run cli -- artifacts path --session <session-id>
 npm run cli -- artifacts open --session <session-id>
 npm run cli -- viewer url --session <session-id>
