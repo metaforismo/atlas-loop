@@ -5,10 +5,11 @@ import {
   fetchHealth,
   fetchLatestScreenshot,
   fetchSession,
+  fetchSessionSummary,
   fetchSessions
 } from "./api.js";
 import { buildTimelineItems, mergeTraceEvents, sortArtifacts } from "./timeline.js";
-import type { ArtifactRef, HealthState, ScreenshotState, Session, SessionListItem, TraceEvent, ViewerParams } from "./types.js";
+import type { ArtifactRef, HealthState, ScreenshotState, Session, SessionListItem, SessionSummary, TraceEvent, ViewerParams } from "./types.js";
 import {
   artifactDetailRows,
   artifactDisplayName,
@@ -58,6 +59,7 @@ function useAtlasLoopData(params: ViewerParams) {
   const [sessionListStatus, setSessionListStatus] = useState<"loading" | "ready" | "error">("loading");
   const [sessionListError, setSessionListError] = useState<string | undefined>();
   const [session, setSession] = useState<Session | undefined>();
+  const [sessionSummary, setSessionSummary] = useState<SessionSummary | undefined>();
   const [artifacts, setArtifacts] = useState<ArtifactRef[]>([]);
   const [events, setEvents] = useState<TraceEvent[]>([]);
   const [screenshot, setScreenshot] = useState<ScreenshotState>({ status: "loading" });
@@ -74,6 +76,7 @@ function useAtlasLoopData(params: ViewerParams) {
 
   useEffect(() => {
     setSession(undefined);
+    setSessionSummary(undefined);
     setArtifacts([]);
     setEvents([]);
     setScreenshot({ status: "loading" });
@@ -121,12 +124,14 @@ function useAtlasLoopData(params: ViewerParams) {
 
     const load = async (): Promise<void> => {
       try {
-        const [nextSession, nextArtifacts] = await Promise.all([
+        const [nextSession, nextSummary, nextArtifacts] = await Promise.all([
           fetchSession(params, controller.signal),
+          fetchSessionSummary(params, controller.signal),
           fetchArtifacts(params, controller.signal)
         ]);
         if (controller.signal.aborted) return;
         setSession(nextSession);
+        setSessionSummary(nextSummary);
         setArtifacts(sortArtifacts(nextArtifacts));
         setLastError(undefined);
       } catch (error) {
@@ -246,6 +251,7 @@ function useAtlasLoopData(params: ViewerParams) {
     sessionListStatus,
     sessionListError,
     session,
+    sessionSummary,
     artifacts,
     events,
     screenshot,
@@ -267,7 +273,7 @@ function parseEventMessage(data: string, type?: string): TraceEvent | undefined 
 
 export function App() {
   const params = useViewerParams();
-  const { health, sessions, sessionListStatus, sessionListError, session, artifacts, screenshot, eventMode, lastError, timeline } =
+  const { health, sessions, sessionListStatus, sessionListError, session, sessionSummary, artifacts, screenshot, eventMode, lastError, timeline } =
     useAtlasLoopData(params);
   const [draft, setDraft] = useState(params);
   const [artifactTypeFilter, setArtifactTypeFilter] = useState("all");
@@ -319,6 +325,7 @@ export function App() {
         : sessionListStatus === "loading"
           ? "Loading sessions."
           : `Session list unavailable. ${sessionListError ?? ""}`.trim();
+  const storageWarnings = sessionSummary?.storage.warnings ?? [];
   const selectedArtifact = useMemo(
     () => filteredArtifacts.find((artifact) => artifact.id === selectedArtifactId) ?? filteredArtifacts[0],
     [filteredArtifacts, selectedArtifactId]
@@ -423,6 +430,8 @@ export function App() {
           <StatusRow label="Daemon" value={health} tone={healthTone(health)} />
           <StatusRow label="Events" value={eventMode} tone={eventModeTone(eventMode)} />
           <StatusRow label="Session" value={session?.status ?? "pending"} tone={sessionTone(session?.status)} />
+          <StatusRow label="Storage" value={sessionSummary?.storage.source ?? "--"} tone={sessionSummary?.storage.source === "disk" ? "warn" : "neutral"} />
+          <StatusRow label="Warnings" value={String(storageWarnings.length)} tone={storageWarnings.length > 0 ? "warn" : "neutral"} />
           <StatusRow label="Artifacts" value={String(artifacts.length)} tone="neutral" />
         </section>
 
@@ -474,6 +483,7 @@ export function App() {
             <span>{session?.updatedAt ? formatTime(session.updatedAt) : "--"}</span>
           </div>
           {session ? <MetadataGrid session={session} /> : <MetadataSkeleton />}
+          {sessionSummary ? <SummaryEvidence summary={sessionSummary} /> : null}
           {session?.error ? <ErrorNotice message={session.error.message} compact /> : null}
         </section>
 
@@ -719,6 +729,51 @@ function MetadataSkeleton() {
         <span key={index} />
       ))}
     </div>
+  );
+}
+
+function SummaryEvidence({ summary }: { summary: SessionSummary }) {
+  const latestAction = summary.events.latestAction;
+  const latestError = summary.events.latestError;
+  const warnings = summary.storage.warnings ?? [];
+
+  return (
+    <section className="summary-evidence" aria-label="Evidence storage summary">
+      <div className="summary-evidence-grid">
+        <div>
+          <span>Storage</span>
+          <strong>{summary.storage.source}</strong>
+          <small>{summary.storage.artifactBacked ? "artifact-backed" : "not artifact-backed"}</small>
+        </div>
+        <div>
+          <span>Events</span>
+          <strong>{summary.events.total}</strong>
+          <small>{latestAction ? `${latestAction.ok ? "last passed" : "last failed"} at ${formatDateTime(latestAction.endedAt)}` : "no action results"}</small>
+        </div>
+        <div>
+          <span>Artifacts</span>
+          <strong>{summary.artifacts.total}</strong>
+          <small>{summary.artifacts.latestScreenshotId ? `latest ${summary.artifacts.latestScreenshotId}` : "no screenshots"}</small>
+        </div>
+      </div>
+
+      {latestError ? <ErrorNotice message={`${latestError.code ?? "ERROR"}: ${latestError.message}`} compact /> : null}
+
+      {warnings.length > 0 ? (
+        <div className="warning-list" role="status" aria-live="polite">
+          <strong>{warnings.length} evidence warning{warnings.length === 1 ? "" : "s"}</strong>
+          <ul>
+            {warnings.slice(0, 3).map((warning) => (
+              <li key={`${warning.path}:${warning.message}`}>
+                <span>{warning.message}</span>
+                <code>{warning.path}</code>
+              </li>
+            ))}
+          </ul>
+          {warnings.length > 3 ? <small>+{warnings.length - 3} more warning{warnings.length - 3 === 1 ? "" : "s"}</small> : null}
+        </div>
+      ) : null}
+    </section>
   );
 }
 

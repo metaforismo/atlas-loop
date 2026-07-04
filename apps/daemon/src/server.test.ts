@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
@@ -346,6 +346,86 @@ describe("daemon session summary", () => {
 
     expect(sessions.filter((session) => session.id === created.id)).toHaveLength(1);
   });
+
+  it("records HID success metadata as durable evidence", async () => {
+    const artifactRoot = await mkdtemp(join(tmpdir(), "atlas-loop-hid-success-"));
+    tempDirs.push(artifactRoot);
+    const daemon = await startDaemonServer({
+      port: 0,
+      artifactRoot,
+      hidHelperPath: "/tmp/atlas-loop/helper",
+      simulator: fakeSimulator(),
+      hidClientFactory: () => fakeHidClient() as never
+    });
+    startedDaemons.push(daemon);
+
+    const created = await requestJson<{ id: string }>(daemon.url, "/sessions", {
+      method: "POST",
+      body: JSON.stringify({ simulator: { name: "iPhone 16", udid: "SIM-123" } })
+    });
+    const result = await requestJson<Record<string, any>>(daemon.url, `/sessions/${created.id}/actions`, {
+      method: "POST",
+      body: JSON.stringify({ action: { kind: "tap", x: 0.5, y: 0.75 } })
+    });
+    const summary = await requestJson<Record<string, any>>(daemon.url, `/sessions/${created.id}/summary`);
+    const metadataArtifact = result.artifacts[0];
+    const metadataText = await readFile(metadataArtifact.path, "utf8");
+
+    expect(result).toMatchObject({ ok: true, artifacts: [expect.objectContaining({ type: "metadata" })] });
+    expect(metadataArtifact.metadata).toMatchObject({
+      actionId: result.actionId,
+      actionKind: "tap",
+      operation: "hid-action",
+      hidAction: true,
+      ok: true
+    });
+    expect(JSON.parse(metadataText)).toMatchObject({
+      schemaVersion: "atlas-loop.hid-action.v1",
+      helperPath: "/tmp/atlas-loop/helper",
+      helperTarget: "SIM-123",
+      simulator: { udid: "SIM-123", name: "iPhone 16" },
+      action: { kind: "tap", x: 0.5, y: 0.75 },
+      result: { ok: true }
+    });
+    expect(summary.events.latestAction).toMatchObject({ ok: true, artifactCount: 1 });
+  });
+
+  it("records HID failure metadata on the failed action result", async () => {
+    const artifactRoot = await mkdtemp(join(tmpdir(), "atlas-loop-hid-failure-"));
+    tempDirs.push(artifactRoot);
+    const daemon = await startDaemonServer({
+      port: 0,
+      artifactRoot,
+      simulator: fakeSimulator(),
+      hidClientFactory: () => fakeHidClient(new Error("tap target rejected")) as never
+    });
+    startedDaemons.push(daemon);
+
+    const created = await requestJson<{ id: string }>(daemon.url, "/sessions", {
+      method: "POST",
+      body: JSON.stringify({ simulator: { name: "iPhone 16" } })
+    });
+    const result = await requestJson<Record<string, any>>(daemon.url, `/sessions/${created.id}/actions`, {
+      method: "POST",
+      body: JSON.stringify({ action: { kind: "tap", x: 0.1, y: 0.2 } })
+    });
+    const summary = await requestJson<Record<string, any>>(daemon.url, `/sessions/${created.id}/summary`);
+    const metadataArtifact = result.artifacts[0];
+    const metadata = JSON.parse(await readFile(metadataArtifact.path, "utf8"));
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: "HID_FAILED", message: "tap target rejected" },
+      artifacts: [expect.objectContaining({ type: "metadata" })]
+    });
+    expect(metadata).toMatchObject({
+      schemaVersion: "atlas-loop.hid-action.v1",
+      action: { kind: "tap", x: 0.1, y: 0.2 },
+      result: { ok: false, error: { code: "HID_FAILED", message: "tap target rejected" } }
+    });
+    expect(summary.session).toMatchObject({ status: "failed", error: { code: "HID_FAILED" } });
+    expect(summary.events.latestAction).toMatchObject({ ok: false, artifactCount: 1 });
+  });
 });
 
 async function requestJson<T>(baseUrl: string, path: string, init: RequestInit = {}): Promise<T> {
@@ -388,4 +468,18 @@ function fakeSimulator(): SimulatorApi {
       };
     }
   } satisfies SimulatorApi;
+}
+
+function fakeHidClient(error?: Error): {
+  attach: () => Promise<void>;
+  performAction: () => Promise<void>;
+  close: () => void;
+} {
+  return {
+    attach: async () => undefined,
+    performAction: async () => {
+      if (error) throw error;
+    },
+    close: () => undefined
+  };
 }

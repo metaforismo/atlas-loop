@@ -471,10 +471,17 @@ async function performAction(state: DaemonState, sessionState: SessionState, inp
         try {
           await hid.attach(simulatorAttachOptions(sessionState.session));
           await hid.performAction(simulatorTarget(sessionState.session), action);
+          return [await recordHidActionMetadata(state, sessionState, action, { ok: true })];
+        } catch (error) {
+          const atlasLoopError = normalizeError(error, "HID_FAILED");
+          const artifact = await recordHidActionMetadata(state, sessionState, action, {
+            ok: false,
+            error: atlasLoopError
+          });
+          throw { ...atlasLoopError, artifacts: [artifact] };
         } finally {
           hid.close();
         }
-        return [];
       }
       default:
         throw atlasError("INVALID_REQUEST", `unsupported action kind: ${(action as { kind: string }).kind}`);
@@ -503,13 +510,14 @@ async function executeAction(
     return result;
   } catch (error) {
     const atlasLoopError = normalizeError(error);
+    const artifacts = artifactRefsFromError(error);
     const endedAt = nowIso();
     const result: ActionResult = {
       actionId: action.id,
       ok: false,
       startedAt,
       endedAt,
-      artifacts: [],
+      artifacts,
       error: atlasLoopError
     };
     await appendActionRecord(sessionState.layout, action, result);
@@ -518,6 +526,41 @@ async function executeAction(
     await failSession(sessionState, atlasLoopError);
     return result;
   }
+}
+
+async function recordHidActionMetadata(
+  state: DaemonState,
+  sessionState: SessionState,
+  action: Extract<Action, { kind: "tap" | "typeText" | "swipe" | "edgeGesture" }>,
+  result: { ok: boolean; error?: AtlasLoopError }
+): Promise<ArtifactRef> {
+  const target = simulatorTarget(sessionState.session);
+  const attachOptions = simulatorAttachOptions(sessionState.session);
+  const sequence = action.sequence ?? 0;
+  const artifact = await writeMetadata(
+    sessionState.layout,
+    `hid-action-${sequence || action.id}.json`,
+    {
+      schemaVersion: "atlas-loop.hid-action.v1",
+      sessionId: sessionState.session.id,
+      createdAt: nowIso(),
+      helperPath: state.config.hidHelperPath,
+      backend: sessionState.session.backend ?? "local-daemon",
+      helperTarget: target,
+      simulator: sessionState.session.simulator,
+      attachOptions,
+      action,
+      result
+    },
+    {
+      ...actionMetadata(action),
+      operation: "hid-action",
+      hidAction: true,
+      ok: result.ok,
+      backend: sessionState.session.backend ?? "local-daemon"
+    }
+  );
+  return addArtifact(sessionState, artifact);
 }
 
 async function captureScreenshot(
@@ -766,6 +809,21 @@ function isAtlasLoopError(error: unknown): error is AtlasLoopError {
     typeof (error as { code?: unknown }).code === "string" &&
     typeof (error as { message?: unknown }).message === "string"
   );
+}
+
+function artifactRefsFromError(error: unknown): ArtifactRef[] {
+  if (!error || typeof error !== "object") return [];
+  const artifacts = (error as { artifacts?: unknown }).artifacts;
+  if (!Array.isArray(artifacts)) return [];
+  return artifacts.filter((artifact): artifact is ArtifactRef => (
+    Boolean(
+      artifact &&
+      typeof artifact === "object" &&
+      typeof (artifact as { id?: unknown }).id === "string" &&
+      typeof (artifact as { type?: unknown }).type === "string" &&
+      typeof (artifact as { path?: unknown }).path === "string"
+    )
+  ));
 }
 
 function statusForError(error: AtlasLoopError): number {

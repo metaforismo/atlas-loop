@@ -130,6 +130,9 @@ activate_simulator_window
 if [[ -f native/ios-hid-helper/Package.swift ]]; then
   echo "[smoke-ios] building native iOS HID helper"
   swift build --package-path native/ios-hid-helper
+  node scripts/check-hid-helper-protocol.mjs \
+    native/ios-hid-helper/.build/debug/ios-hid-helper \
+    --out "$LOG_DIR/hid-helper-protocol.ndjson" >"$LOG_DIR/hid-helper-protocol.json"
 else
   echo "[smoke-ios] native/ios-hid-helper/Package.swift not found; helper build skipped"
 fi
@@ -209,6 +212,8 @@ if [[ -d "$DEMO_APP_PATH" ]]; then
 
   ARTIFACT_SESSION_ID="$SESSION_ID"
   stop_session "$LOG_DIR/stop.json"
+  run_cli evidence report --session "$ARTIFACT_SESSION_ID" --out "$LOG_DIR/evidence.md" >"$LOG_DIR/evidence-report.json"
+  npm run --silent verify:artifacts -- --json "artifacts/sessions/$ARTIFACT_SESSION_ID" >"$LOG_DIR/verify-artifacts.json"
   npm run --silent verify:artifacts -- "artifacts/sessions/$ARTIFACT_SESSION_ID"
 else
   echo "[smoke-ios] demo app path not found after build; Atlas Loop install/launch/screenshot smoke skipped"

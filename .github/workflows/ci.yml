@@ -23,6 +23,8 @@ jobs:
       - uses: actions/checkout@v5
       - name: Build native HID helper
         run: swift build --package-path native/ios-hid-helper
+      - name: Check native HID helper protocol
+        run: node scripts/check-hid-helper-protocol.mjs native/ios-hid-helper/.build/debug/ios-hid-helper --out artifacts/ci/hid-helper-protocol.ndjson
       - name: Build deterministic iOS demo
         run: |
           xcodebuild \
