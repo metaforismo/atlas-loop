@@ -206,6 +206,93 @@ describe("CLI agent workflow helpers", () => {
       { action: { kind: "wait", durationMs: 1200 } }
     ]);
   });
+
+  it("serializes build, install, and launch commands to daemon runtime requests", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "atlas-loop-cli-runtime-"));
+    const originalCwd = process.cwd();
+    const originalLog = console.log;
+    const logged: string[] = [];
+    const requests: Array<{ path: string; body: unknown }> = [];
+    const server = await startRecordingDaemon(requests);
+    const daemonUrl = `http://127.0.0.1:${server.port}`;
+
+    await writeFile(join(tempDir, "atlas-loop.config.json"), JSON.stringify({ daemonUrl }, null, 2));
+    console.log = (value?: unknown) => {
+      logged.push(String(value));
+    };
+
+    try {
+      process.chdir(tempDir);
+      await expect(main([
+        "build",
+        "--session",
+        "sess_cli",
+        "--project",
+        "apps/ios-commerce-demo/CommerceDemo.xcodeproj",
+        "--scheme",
+        "CommerceDemo",
+        "--configuration",
+        "Debug",
+        "--derived-data",
+        "artifacts/DerivedData"
+      ])).resolves.toBe(0);
+      await expect(main(["install", "--session", "sess_cli", "--app", "artifacts/Build/CommerceDemo.app"])).resolves.toBe(0);
+      await expect(main(["launch", "--session", "sess_cli", "--bundle-id", "dev.atlas-loop.CommerceDemo", "--args", "-UITest,checkout"])).resolves.toBe(0);
+    } finally {
+      process.chdir(originalCwd);
+      console.log = originalLog;
+      await server.close();
+      await rm(tempDir, { recursive: true, force: true });
+    }
+
+    expect(logged).toHaveLength(3);
+    expect(requests.map((request) => request.path)).toEqual([
+      "/sessions/sess_cli/build",
+      "/sessions/sess_cli/install",
+      "/sessions/sess_cli/launch"
+    ]);
+    expect(requests.map((request) => request.body)).toEqual([
+      {
+        projectPath: "apps/ios-commerce-demo/CommerceDemo.xcodeproj",
+        scheme: "CommerceDemo",
+        configuration: "Debug",
+        derivedDataPath: "artifacts/DerivedData"
+      },
+      { appPath: "artifacts/Build/CommerceDemo.app" },
+      { bundleId: "dev.atlas-loop.CommerceDemo", arguments: ["-UITest", "checkout"] }
+    ]);
+  });
+
+  it("rejects invalid build configuration values before daemon I/O", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "atlas-loop-cli-invalid-config-"));
+    const originalCwd = process.cwd();
+    const requests: Array<{ path: string; body: unknown }> = [];
+    const server = await startRecordingDaemon(requests);
+    const daemonUrl = `http://127.0.0.1:${server.port}`;
+
+    await writeFile(join(tempDir, "atlas-loop.config.json"), JSON.stringify({ daemonUrl }, null, 2));
+
+    try {
+      process.chdir(tempDir);
+      await expect(main([
+        "build",
+        "--session",
+        "sess_cli",
+        "--project",
+        "apps/ios-commerce-demo/CommerceDemo.xcodeproj",
+        "--scheme",
+        "CommerceDemo",
+        "--configuration",
+        "Beta"
+      ])).rejects.toThrow("--configuration must be Debug or Release");
+    } finally {
+      process.chdir(originalCwd);
+      await server.close();
+      await rm(tempDir, { recursive: true, force: true });
+    }
+
+    expect(requests).toEqual([]);
+  });
 });
 
 async function startFakeDaemon(summaryForPath: (requestPath: string) => SessionSummary): Promise<{
@@ -241,7 +328,7 @@ async function startRecordingDaemon(requests: Array<{ path: string; body: unknow
   close: () => Promise<void>;
 }> {
   const server = createServer(async (request, response) => {
-    if (request.method !== "POST" || !request.url?.endsWith("/actions")) {
+    if (request.method !== "POST" || !request.url?.startsWith("/sessions/")) {
       response.writeHead(404, { "content-type": "application/json" });
       response.end(JSON.stringify({
         ok: false,
@@ -255,16 +342,16 @@ async function startRecordingDaemon(requests: Array<{ path: string; body: unknow
     const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
     requests.push({ path: request.url, body });
     response.writeHead(200, { "content-type": "application/json" });
-    response.end(JSON.stringify({
-      ok: true,
-      data: {
+    const data = request.url.endsWith("/actions")
+      ? {
         actionId: "act_cli",
         ok: true,
         startedAt: "2026-07-04T12:00:00.000Z",
         endedAt: "2026-07-04T12:00:00.100Z",
         artifacts: []
       }
-    }));
+      : { ok: true, route: request.url.split("/").at(-1) };
+    response.end(JSON.stringify({ ok: true, data }));
   });
 
   await new Promise<void>((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));

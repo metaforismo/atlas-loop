@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
+  markScreenshotFetchFailed,
+  mergeScreenshotFetchResult,
   normalizeArtifactList,
   normalizeEventList,
   normalizeScreenshotPayload,
   normalizeSessionList,
+  screenshotArtifactIdentity,
+  screenshotObjectUrl,
   toResourceUrl
 } from "../../apps/viewer/src/api.js";
+import type { ArtifactRef, ScreenshotState, SessionSummary } from "../../apps/viewer/src/types.js";
 
 describe("viewer api normalizers", () => {
   it("accepts raw artifact arrays and wrapped artifact collections", () => {
@@ -77,5 +82,76 @@ describe("viewer api normalizers", () => {
     expect(toResourceUrl("artifacts/session/log.txt", "http://127.0.0.1:4317/")).toBe(
       "http://127.0.0.1:4317/artifacts/session/log.txt"
     );
+  });
+
+  it("builds a stable screenshot identity from summary or artifact metadata", () => {
+    const summary = {
+      artifacts: {
+        latestScreenshotId: "shot-2",
+        latestScreenshotPath: "screenshots/two.png",
+        latestScreenshotCreatedAt: "2026-07-04T09:00:02.000Z"
+      }
+    } as SessionSummary;
+    const artifacts: ArtifactRef[] = [
+      {
+        id: "shot-1",
+        type: "screenshot",
+        path: "screenshots/one.png",
+        createdAt: "2026-07-04T09:00:01.000Z",
+        sha256: "abc"
+      }
+    ];
+
+    expect(screenshotArtifactIdentity(summary, artifacts)).toBe("summary:shot-2|screenshots/two.png|2026-07-04T09:00:02.000Z");
+    expect(screenshotArtifactIdentity(undefined, artifacts)).toBe("artifact|shot-1|screenshots/one.png|2026-07-04T09:00:01.000Z|abc");
+    expect(screenshotArtifactIdentity(undefined, [{ id: "log-1", type: "log", path: "logs/run.log" }])).toBeUndefined();
+  });
+
+  it("marks the previous displayable screenshot stale after a transient fetch failure", () => {
+    const ready: ScreenshotState = {
+      status: "ready",
+      src: "blob:latest",
+      source: "blob",
+      mediaType: "image/png",
+      updatedAt: "2026-07-04T09:00:00.000Z"
+    };
+
+    expect(markScreenshotFetchFailed(ready, "503 Service Unavailable", "2026-07-04T09:00:05.000Z")).toEqual({
+      status: "stale",
+      src: "blob:latest",
+      source: "blob",
+      mediaType: "image/png",
+      updatedAt: "2026-07-04T09:00:00.000Z",
+      message: "503 Service Unavailable",
+      staleAt: "2026-07-04T09:00:05.000Z"
+    });
+    expect(markScreenshotFetchFailed({ status: "loading" }, "network down")).toEqual({ status: "error", message: "network down" });
+    expect(screenshotObjectUrl(ready)).toBe("blob:latest");
+    expect(screenshotObjectUrl({ ...ready, source: "url", src: "http://127.0.0.1/shot.png" })).toBeUndefined();
+  });
+
+  it("keeps a stable latest screenshot stale when the next fetch returns empty", () => {
+    const ready: ScreenshotState = {
+      status: "ready",
+      src: "blob:latest",
+      source: "blob",
+      mediaType: "image/png",
+      updatedAt: "2026-07-04T09:00:00.000Z"
+    };
+    const empty: ScreenshotState = { status: "empty", message: "No screenshot captured yet." };
+
+    expect(mergeScreenshotFetchResult(ready, empty, {
+      hasStableArtifactKey: true,
+      staleAt: "2026-07-04T09:00:05.000Z"
+    })).toEqual({
+      status: "stale",
+      src: "blob:latest",
+      source: "blob",
+      mediaType: "image/png",
+      updatedAt: "2026-07-04T09:00:00.000Z",
+      message: "No screenshot captured yet.",
+      staleAt: "2026-07-04T09:00:05.000Z"
+    });
+    expect(mergeScreenshotFetchResult(ready, empty, { hasStableArtifactKey: false })).toEqual(empty);
   });
 });

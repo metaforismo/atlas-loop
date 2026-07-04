@@ -123,6 +123,65 @@ export async function fetchLatestScreenshot(params: ViewerParams, signal?: Abort
   return { status: "empty", message: "Latest screenshot endpoint returned no image." };
 }
 
+export function screenshotArtifactIdentity(summary: SessionSummary | undefined, artifacts: ArtifactRef[]): string | undefined {
+  const summaryParts = [
+    summary?.artifacts.latestScreenshotId,
+    summary?.artifacts.latestScreenshotPath,
+    summary?.artifacts.latestScreenshotCreatedAt
+  ].filter(isNonEmptyString);
+
+  if (summaryParts.length > 0) return `summary:${summaryParts.join("|")}`;
+
+  const artifact = artifacts.find((candidate) => candidate.type === "screenshot");
+  if (!artifact) return undefined;
+
+  return [
+    "artifact",
+    artifact.id,
+    artifact.path,
+    artifact.createdAt,
+    artifact.sha256,
+    artifact.url
+  ]
+    .filter(isNonEmptyString)
+    .join("|");
+}
+
+export function screenshotObjectUrl(state: ScreenshotState): string | undefined {
+  return isDisplayableScreenshot(state) && state.source === "blob" ? state.src : undefined;
+}
+
+export function isDisplayableScreenshot(
+  state: ScreenshotState
+): state is Extract<ScreenshotState, { status: "ready" | "stale" }> {
+  return state.status === "ready" || state.status === "stale";
+}
+
+export function markScreenshotFetchFailed(previous: ScreenshotState, message: string, staleAt = new Date().toISOString()): ScreenshotState {
+  if (!isDisplayableScreenshot(previous)) return { status: "error", message };
+
+  return {
+    status: "stale",
+    src: previous.src,
+    source: previous.source,
+    mediaType: previous.mediaType,
+    updatedAt: previous.updatedAt,
+    message,
+    staleAt
+  };
+}
+
+export function mergeScreenshotFetchResult(
+  previous: ScreenshotState,
+  next: ScreenshotState,
+  options: { hasStableArtifactKey: boolean; staleAt?: string }
+): ScreenshotState {
+  if (options.hasStableArtifactKey && next.status === "empty" && isDisplayableScreenshot(previous)) {
+    return markScreenshotFetchFailed(previous, next.message, options.staleAt);
+  }
+  return next;
+}
+
 export function normalizeArtifactList(value: unknown): ArtifactRef[] {
   const list = Array.isArray(value)
     ? value
@@ -216,6 +275,10 @@ export function toResourceUrl(value: string, daemonUrl: string): string {
 
 function firstString(...values: unknown[]): string | undefined {
   return values.find((value): value is string => typeof value === "string" && value.trim().length > 0);
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
 }
 
 function normalizeSessionListItem(value: unknown): SessionListItem | undefined {

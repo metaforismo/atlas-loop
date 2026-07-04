@@ -83,7 +83,7 @@ export async function main(args: Args): Promise<number> {
       workspacePath: stringFlag(flags, "workspace"),
       projectPath: stringFlag(flags, "project"),
       scheme: requireFlag(flags, "scheme"),
-      configuration: stringFlag(flags, "configuration") as "Debug" | "Release" | undefined,
+      configuration: configurationFlag(flags),
       derivedDataPath: stringFlag(flags, "derived-data")
     }));
     return 0;
@@ -356,6 +356,12 @@ function numberFlagRequired(flags: Map<string, string | boolean>, name: string):
 function csvFlag(flags: Map<string, string | boolean>, name: string): string[] | undefined {
   const value = stringFlag(flags, name);
   return value ? value.split(",").filter(Boolean) : undefined;
+}
+
+function configurationFlag(flags: Map<string, string | boolean>): "Debug" | "Release" | undefined {
+  const value = stringFlag(flags, "configuration");
+  if (value === undefined || value === "Debug" || value === "Release") return value;
+  throw new Error("--configuration must be Debug or Release");
 }
 
 function parsePoint(value: string): { x: number; y: number } {

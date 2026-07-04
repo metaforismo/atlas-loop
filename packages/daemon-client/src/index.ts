@@ -186,63 +186,85 @@ export class DaemonClient {
   }
 
   health(): Promise<{ status: string; sessions: number; uptimeSeconds: number }> {
-    return this.request("GET", "/health");
+    return this.requestData("GET", "/health", "health");
   }
 
   listSessions(): Promise<Session[]> {
-    return this.request("GET", "/sessions");
+    return this.requestData("GET", "/sessions", "session list");
   }
 
   createSession(request: CreateSessionRequest = {}): Promise<Session> {
-    return this.request("POST", "/sessions", request);
+    return this.requestData("POST", "/sessions", "created session", request);
   }
 
   getSession(sessionId: string): Promise<Session> {
-    return this.request("GET", `/sessions/${encodeURIComponent(sessionId)}`);
+    return this.requestData("GET", `/sessions/${encodeURIComponent(sessionId)}`, "session");
   }
 
   getSessionSummary(sessionId: string): Promise<SessionSummary> {
-    return this.request("GET", `/sessions/${encodeURIComponent(sessionId)}/summary`);
+    return this.requestData("GET", `/sessions/${encodeURIComponent(sessionId)}/summary`, "session summary");
   }
 
   endSession(sessionId: string): Promise<Session> {
-    return this.request("POST", `/sessions/${encodeURIComponent(sessionId)}/end`);
+    return this.requestData("POST", `/sessions/${encodeURIComponent(sessionId)}/end`, "ended session");
   }
 
   build(sessionId: string, request: BuildRequest): Promise<unknown> {
-    return this.request("POST", `/sessions/${encodeURIComponent(sessionId)}/build`, request);
+    return this.requestData("POST", `/sessions/${encodeURIComponent(sessionId)}/build`, "build result", request);
   }
 
   install(sessionId: string, request: InstallRequest): Promise<unknown> {
-    return this.request("POST", `/sessions/${encodeURIComponent(sessionId)}/install`, request);
+    return this.requestData("POST", `/sessions/${encodeURIComponent(sessionId)}/install`, "install result", request);
   }
 
   launch(sessionId: string, request: LaunchRequest): Promise<unknown> {
-    return this.request("POST", `/sessions/${encodeURIComponent(sessionId)}/launch`, request);
+    return this.requestData("POST", `/sessions/${encodeURIComponent(sessionId)}/launch`, "launch result", request);
   }
 
   performAction(sessionId: string, request: PerformActionRequest | ActionInput): Promise<ActionResult> {
     const body = "action" in request ? request : { action: request };
-    return this.request("POST", `/sessions/${encodeURIComponent(sessionId)}/actions`, body);
+    return this.requestData("POST", `/sessions/${encodeURIComponent(sessionId)}/actions`, "action result", body);
   }
 
   screenshot(sessionId: string, reason?: string): Promise<ActionResult> {
-    return this.request("POST", `/sessions/${encodeURIComponent(sessionId)}/screenshot`, reason ? { reason } : {});
+    return this.requestData(
+      "POST",
+      `/sessions/${encodeURIComponent(sessionId)}/screenshot`,
+      "screenshot action result",
+      reason ? { reason } : {}
+    );
   }
 
   latestScreenshot(sessionId: string): Promise<ArtifactRef> {
-    return this.request("GET", `/sessions/${encodeURIComponent(sessionId)}/artifacts/latest-screenshot`);
+    return this.requestData(
+      "GET",
+      `/sessions/${encodeURIComponent(sessionId)}/artifacts/latest-screenshot`,
+      "latest screenshot artifact"
+    );
   }
 
   listArtifacts(sessionId: string): Promise<ArtifactRef[]> {
-    return this.request("GET", `/sessions/${encodeURIComponent(sessionId)}/artifacts`);
+    return this.requestData("GET", `/sessions/${encodeURIComponent(sessionId)}/artifacts`, "artifact list");
   }
 
   events(sessionId: string): Promise<TraceEvent[]> {
-    return this.request("GET", `/sessions/${encodeURIComponent(sessionId)}/events`);
+    return this.requestData("GET", `/sessions/${encodeURIComponent(sessionId)}/events`, "trace events");
   }
 
   async request<T>(method: string, path: string, body?: unknown): Promise<T> {
+    return this.requestEnvelope(method, path, body, { requireData: false });
+  }
+
+  private requestData<T>(method: string, path: string, dataLabel: string, body?: unknown): Promise<T> {
+    return this.requestEnvelope(method, path, body, { requireData: true, dataLabel });
+  }
+
+  private async requestEnvelope<T>(
+    method: string,
+    path: string,
+    body: unknown,
+    options: { requireData: boolean; dataLabel?: string }
+  ): Promise<T> {
     const response = await this.fetchImpl(`${this.baseUrl}${this.apiPrefix}${path}`, {
       method,
       headers: body === undefined ? undefined : { "content-type": "application/json" },
@@ -251,6 +273,13 @@ export class DaemonClient {
 
     const text = await response.text();
     const envelope = parseEnvelope<T>(text);
+    if (!isApiEnvelope(envelope)) {
+      throw new DaemonClientError({
+        code: "COMMAND_FAILED",
+        message: "daemon returned a malformed response",
+        details: { status: response.status, body: text }
+      });
+    }
     if (!response.ok || envelope.ok === false) {
       throw new DaemonClientError(envelope.error ?? {
         code: response.status === 404 ? "NOT_FOUND" : "COMMAND_FAILED",
@@ -258,15 +287,23 @@ export class DaemonClient {
         details: { status: response.status, body: text }
       });
     }
-    if (!envelope.ok) {
+    if (options.requireData && !hasUsableEnvelopeData(envelope)) {
       throw new DaemonClientError({
         code: "COMMAND_FAILED",
-        message: "daemon returned a malformed response",
-        details: { status: response.status, body: text }
+        message: `daemon returned ok:true without required data for ${options.dataLabel ?? `${method} ${path}`}`,
+        details: { status: response.status, method, path, body: text }
       });
     }
     return envelope.data as T;
   }
+}
+
+function isApiEnvelope<T>(value: unknown): value is ApiEnvelope<T> {
+  return Boolean(value && typeof value === "object" && typeof (value as ApiEnvelope<T>).ok === "boolean");
+}
+
+function hasUsableEnvelopeData<T>(envelope: ApiEnvelope<T>): boolean {
+  return Object.prototype.hasOwnProperty.call(envelope, "data") && envelope.data !== null && envelope.data !== undefined;
 }
 
 function parseEnvelope<T>(text: string): ApiEnvelope<T> {

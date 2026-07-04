@@ -12,7 +12,7 @@ import {
   type EvidenceReportData,
   type SessionSummary
 } from "@atlas-loop/daemon-client";
-import type { ArtifactRef, AtlasLoopError } from "@atlas-loop/protocol";
+import { validateActionInput, type ActionInput, type ArtifactRef, type AtlasLoopError, type BuildRequest, type Edge, type LaunchRequest } from "@atlas-loop/protocol";
 
 const DEFAULT_VIEWER_BASE_URL = "http://127.0.0.1:5173";
 
@@ -162,7 +162,7 @@ async function callTool(name: string, args: Record<string, unknown>, runtime: To
     case "atlas.getSessionSummary":
       return client.getSessionSummary(requireString(args, "sessionId"));
     case "atlas.performAction":
-      return client.performAction(requireString(args, "sessionId"), { action: args.action as never });
+      return client.performAction(requireString(args, "sessionId"), { action: requireActionInput(args.action) });
     case "atlas.takeScreenshot":
       return client.screenshot(requireString(args, "sessionId"), typeof args.reason === "string" ? args.reason : undefined);
     case "atlas.listArtifacts":
@@ -182,11 +182,11 @@ async function callTool(name: string, args: Record<string, unknown>, runtime: To
     case "atlas.endSession":
       return client.endSession(requireString(args, "sessionId"));
     case "atlas.build":
-      return client.build(requireString(args, "sessionId"), withoutSessionId(args) as never);
+      return client.build(requireString(args, "sessionId"), buildRequest(args));
     case "atlas.install":
       return client.install(requireString(args, "sessionId"), { appPath: requireString(args, "appPath") });
     case "atlas.launch":
-      return client.launch(requireString(args, "sessionId"), withoutSessionId(args) as never);
+      return client.launch(requireString(args, "sessionId"), launchRequest(args));
     default:
       throw Object.assign(new Error(`Unknown tool ${name}`), { code: "NOT_FOUND" });
   }
@@ -324,6 +324,30 @@ function optionalString(args: Record<string, unknown>, key: string): string | un
   return value;
 }
 
+function optionalStringArray(args: Record<string, unknown>, key: string): string[] | undefined {
+  const value = args[key];
+  if (value === undefined || value === null) return undefined;
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) throw new Error(`${key} must be an array of strings`);
+  return value;
+}
+
+function optionalStringRecord(args: Record<string, unknown>, key: string): Record<string, string> | undefined {
+  const value = args[key];
+  if (value === undefined || value === null) return undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${key} must be an object of string values`);
+  const entries = Object.entries(value);
+  if (entries.some(([entryKey, entryValue]) => !entryKey || typeof entryValue !== "string")) {
+    throw new Error(`${key} must be an object of string values`);
+  }
+  return Object.fromEntries(entries) as Record<string, string>;
+}
+
+function optionalBuildConfiguration(args: Record<string, unknown>): BuildRequest["configuration"] {
+  const configuration = optionalString(args, "configuration");
+  if (configuration === undefined || configuration === "Debug" || configuration === "Release") return configuration;
+  throw new Error("configuration must be Debug or Release");
+}
+
 function firstString(value: unknown): string | undefined {
   return typeof value === "string" && value ? value : undefined;
 }
@@ -346,6 +370,93 @@ function isNotFoundError(error: unknown): boolean {
     typeof error === "object" &&
     (error as { code?: unknown }).code === "NOT_FOUND"
   );
+}
+
+function requireActionInput(value: unknown): ActionInput {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("action is required");
+  const record = value as Record<string, unknown>;
+  const kind = record.kind;
+  if (typeof kind !== "string") throw new Error("action.kind is required");
+
+  const action = normalizeActionInput(kind, record);
+  validateActionInput(action);
+  return action;
+}
+
+function normalizeActionInput(kind: string, record: Record<string, unknown>): ActionInput {
+  switch (kind) {
+    case "tap":
+      return { kind, x: numberField(record, "x"), y: numberField(record, "y") };
+    case "typeText":
+      return { kind, text: stringField(record, "text") };
+    case "swipe":
+      return {
+        kind,
+        from: pointField(record, "from"),
+        to: pointField(record, "to"),
+        durationMs: numberField(record, "durationMs")
+      };
+    case "edgeGesture":
+      return {
+        kind,
+        edge: stringField(record, "edge") as Edge,
+        distance: numberField(record, "distance"),
+        durationMs: numberField(record, "durationMs")
+      };
+    case "screenshot": {
+      const reason = record.reason;
+      return optionalStringValue(reason) ? { kind, reason } : { kind };
+    }
+    case "wait":
+      return { kind, durationMs: numberField(record, "durationMs") };
+    default:
+      throw new Error(`unknown action ${kind}`);
+  }
+}
+
+function pointField(record: Record<string, unknown>, key: string): { x: number; y: number } {
+  const value = record[key];
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`action.${key} must be a point`);
+  const point = value as Record<string, unknown>;
+  return { x: numberField(point, "x"), y: numberField(point, "y") };
+}
+
+function numberField(record: Record<string, unknown>, key: string): number {
+  const value = record[key];
+  if (typeof value !== "number") throw new Error(`action.${key} must be a number`);
+  return value;
+}
+
+function stringField(record: Record<string, unknown>, key: string): string {
+  const value = record[key];
+  if (typeof value !== "string") throw new Error(`action.${key} must be a string`);
+  return value;
+}
+
+function optionalStringValue(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0;
+}
+
+function buildRequest(args: Record<string, unknown>): BuildRequest {
+  return definedRequest({
+    workspacePath: optionalString(args, "workspacePath"),
+    projectPath: optionalString(args, "projectPath"),
+    scheme: requireString(args, "scheme"),
+    configuration: optionalBuildConfiguration(args),
+    derivedDataPath: optionalString(args, "derivedDataPath")
+  });
+}
+
+function launchRequest(args: Record<string, unknown>): LaunchRequest {
+  return definedRequest({
+    bundleId: requireString(args, "bundleId"),
+    arguments: optionalStringArray(args, "arguments"),
+    environment: optionalStringRecord(args, "environment")
+  });
+}
+
+function definedRequest<T extends Record<string, unknown>>(request: T): T {
+  return Object.fromEntries(Object.entries(request).filter(([, value]) => value !== undefined)) as T;
 }
 
 function sessionIdProperty(): Record<string, unknown> {
@@ -448,11 +559,6 @@ function normalizedNumberSchema(): Record<string, unknown> {
 
 function objectSchema(required: string[], properties: Record<string, unknown> = {}): Record<string, unknown> {
   return { type: "object", properties, required, additionalProperties: false };
-}
-
-function withoutSessionId(args: Record<string, unknown>): Record<string, unknown> {
-  const { sessionId: _sessionId, ...request } = args;
-  return request;
 }
 
 function normalizeToolError(error: unknown): AtlasLoopError {

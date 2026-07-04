@@ -22,6 +22,9 @@ artifacts/sessions/
 ## Required Session Record
 
 `session.json` stores the current session object using `schemaVersion: "atlas-loop.session.v1"`. The session `id` should match the directory name. `artifactDir` should resolve to the session directory or a child path inside it.
+Modern sessions also include a recognized `status`, ISO `createdAt` and
+`updatedAt` timestamps, and a `simulator` object. A malformed session record is
+an error because the artifact tree can no longer be tied to one local run.
 
 ## Action Records
 
@@ -46,6 +49,18 @@ artifacts/sessions/
 ```
 
 Partially completed sessions may contain action lines without results. Invalid JSONL lines are validator errors.
+When a result is present, `actionId` must match `action.id`, `ok` must be a
+boolean, `startedAt` and `endedAt` must be ISO timestamps, and `artifacts` must
+be an array. Result `error` values, when present, should include string `code`
+and `message` fields; incomplete legacy error payloads are reported as warnings.
+
+## Manifest
+
+`manifest.json`, when present, is an object using
+`schemaVersion: "atlas-loop.manifest.v1"` with an `artifacts` array. Modern
+manifests write `updatedAt`; `createdAt` and `updatedAt` are validated as ISO
+timestamps when present. Manifest artifact entries use the same artifact
+reference rules as action-result artifacts.
 
 ## Artifact References
 
@@ -64,6 +79,22 @@ Artifact path containment rules:
 - `trace` and `action` paths must remain inside the session directory.
 
 The validator checks both the string path and the filesystem realpath so symlinks cannot escape the session directory.
+Artifact references must include an ISO `createdAt`. If `sha256` is present, it
+must be a 64-character hex SHA-256 digest and the validator recomputes it
+against the referenced local file. Hashes are optional so old artifacts remain
+readable, but a present mismatched hash is an error.
+
+Artifact `metadata`, when present, must be an object.
+
+## Optional Proof File References
+
+Session records, manifests, and artifact metadata may reference already-written
+local proof files using `summaryPath`, `reportPath`, `proofPath`,
+`evidenceReportPath`, or a `proofFiles` object with `summary`, `report`,
+`proof`, or `evidenceReport` string fields. These fields are optional. When one
+is present, the validator checks that the referenced file exists and remains
+inside the session directory as a regular file; absent proof references are not
+warnings or errors.
 
 ## HID Action Metadata
 
@@ -114,4 +145,5 @@ If no target is supplied and `artifacts/sessions` does not exist, the command pr
 Warnings are non-fatal. They are meant to keep old or minimal persisted sessions
 inspectable while still calling out incomplete evidence such as missing
 `actions.jsonl`, `screenshots/`, `logs/`, or `metadata/`. Errors fail the
-validator and should be fixed before using the artifact tree as proof.
+validator and should be fixed before using the artifact tree as proof. Integrity
+checks are local-only: the validator never requires cloud or network access.
