@@ -10,7 +10,8 @@ Recommended endpoints:
 
 - `GET /healthz`: Returns daemon readiness and version metadata.
 - `POST /v1/sessions`: Creates a session from a `CreateSessionRequest`.
-- `GET /v1/sessions`: Lists active daemon sessions.
+- `GET /v1/sessions`: Lists active in-memory sessions plus persisted
+  artifact-backed sessions discovered under the artifact root.
 - `GET /v1/sessions/:id`: Returns the current session object.
 - `GET /v1/sessions/:id/summary`: Returns session status, artifact paths, artifact counts, latest action/error, and latest screenshot metadata.
 - `POST /v1/sessions/:id/build`: Builds an app for the target Simulator.
@@ -21,14 +22,17 @@ Recommended endpoints:
 - `GET /v1/sessions/:id/artifacts`: Lists known artifact references.
 - `GET /v1/sessions/:id/latest-screenshot`: Returns the latest screenshot image.
 - `GET /v1/sessions/:id/artifacts/latest-screenshot`: Returns the latest screenshot artifact reference as JSON.
+- `GET /v1/sessions/:id/events`: Returns parsed trace events as JSON.
 
 The daemon also accepts the same session routes without the `/v1` prefix for
 older local clients.
 
-Session routes accept `latest` anywhere `:id` is shown. The alias resolves to
-the most recently updated non-ended/non-failed session, or to the most recently
-updated session when no active sessions remain. When no sessions exist, the
-daemon returns `NOT_FOUND`.
+Read-only session routes accept `latest` anywhere `:id` is shown. The alias
+prefers the most recently updated active in-memory session, then active
+artifact-backed sessions, then the most recently updated ended or failed
+session. Mutation routes such as build, install, launch, actions, screenshot,
+and end require an active in-memory session. When no sessions exist, the daemon
+returns `NOT_FOUND`.
 
 Responses should use the protocol envelope:
 
@@ -36,6 +40,24 @@ Responses should use the protocol envelope:
 {
   "ok": true,
   "data": {}
+}
+```
+
+Session summaries include a storage block so clients can distinguish live
+daemon state from read-only persisted evidence:
+
+```json
+{
+  "storage": {
+    "source": "disk",
+    "artifactBacked": true,
+    "warnings": [
+      {
+        "path": "artifacts/sessions/sess_123/manifest.json",
+        "message": "artifact shot_1 path is missing or escapes the session directory"
+      }
+    ]
+  }
 }
 ```
 
@@ -78,6 +100,9 @@ Recommended additional tool names:
 - `atlas.launch`
 - `atlas.listArtifacts`
 - `atlas.latestScreenshot`
+- `atlas.getArtifactPath`
+- `atlas.getLatestScreenshotPath`
+- `atlas.getViewerUrl`
 
 Tool calls should return structured JSON content:
 

@@ -100,6 +100,9 @@ The summary includes:
 - `paths`: Local artifact directory, manifest, trace, and screenshots paths.
 - `artifacts`: Total artifact count, counts by artifact type, and optional latest screenshot artifact.
 - `events`: Total trace event count, optional latest action result summary, and optional latest error.
+- `storage`: Whether the summary came from live daemon memory or disk-backed
+  artifact recovery, plus any warnings produced while reading persisted
+  artifacts.
 
 Consumers should treat the summary as derived state. If a field is absent, use
 the underlying session, artifacts, and trace endpoints for more detail.

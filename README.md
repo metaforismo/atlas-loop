@@ -16,6 +16,7 @@ runtime dependencies.
   screenshots, and viewer startup.
 - Local MCP-compatible stdio server exposing the same runtime controls.
 - Screenshot-based live viewer built with React and Vite.
+- Disk-backed session discovery after daemon restarts.
 - Repo-owned Swift HID helper with a stable NDJSON protocol.
 - Deterministic SwiftUI commerce checkout demo app.
 - Local evidence under `artifacts/sessions/<session-id>/`.
@@ -68,7 +69,8 @@ npm run viewer
 ```
 
 The viewer is a local Vite app served on loopback. It reads the daemon session
-state and screenshots; it is not a hosted dashboard.
+state, screenshots, artifacts, and timeline events; it is not a hosted
+dashboard.
 
 ## Main Commands
 
@@ -83,6 +85,10 @@ atlas-loop tap --session <id> --x 0.5 --y 0.8
 atlas-loop type --session <id> --text "Ada Lovelace"
 atlas-loop swipe --session <id> --from 0.5,0.8 --to 0.5,0.2 --duration-ms 450
 atlas-loop screenshot --session <id> --reason confirmation
+atlas-loop artifacts list --session <id>
+atlas-loop artifacts latest-screenshot --session <id>
+atlas-loop viewer url --session <id>
+atlas-loop viewer open --session <id> [--launch]
 atlas-loop session stop --session <id>
 ```
 
@@ -100,9 +106,11 @@ npm run mcp
 
 The MCP server lists its tool surface without requiring a daemon process. Tool
 calls such as `atlas.createSession`, `atlas.performAction`, `atlas.build`,
-`atlas.install`, `atlas.launch`, and `atlas.listArtifacts` forward to the local
-daemon at `ATLAS_LOOP_DAEMON_URL` or `http://127.0.0.1:4317` by default. See
-[docs/daemon-api.md](docs/daemon-api.md) for the JSON-RPC and daemon contract.
+`atlas.install`, `atlas.launch`, `atlas.listArtifacts`,
+`atlas.getArtifactPath`, `atlas.getLatestScreenshotPath`, and
+`atlas.getViewerUrl` forward to the local daemon at `ATLAS_LOOP_DAEMON_URL` or
+`http://127.0.0.1:4317` by default. See [docs/daemon-api.md](docs/daemon-api.md)
+for the JSON-RPC and daemon contract.
 
 ## Evidence Layout
 
@@ -121,8 +129,9 @@ artifacts/sessions/<session-id>/
 Evidence is local filesystem state. `session.json` records the selected
 Simulator and backend, `actions.jsonl` records requested actions and results,
 `manifest.json` indexes known artifacts, and screenshots/logs/metadata remain
-under the session directory. Validate a single session or the whole artifact
-root with:
+under the session directory. The daemon can read prior session directories after
+a restart, so evidence remains inspectable when the runtime process exits.
+Validate a single session or the whole artifact root with:
 
 ```bash
 npm run verify:artifacts -- artifacts/sessions/<session-id>
@@ -161,15 +170,23 @@ bash scripts/verify-local.sh --smoke-ios
 
 The smoke script verifies the local loop that is reliable without private
 Simulator APIs: build the helper, build the demo app, create a daemon session,
-install, launch, capture a screenshot, and validate artifacts. It exits with a
-clear `SKIP` message when macOS, Xcode, `simctl`, a booted Simulator, or source
-paths are unavailable. Set `ATLAS_LOOP_SMOKE_REQUIRE=1` in a dedicated Simulator
-environment to turn those skips into failures.
+install, launch, capture a screenshot, optionally launch the demo into a
+deterministic route such as `confirmation`, and validate artifacts. It exits
+with a clear `SKIP` message when macOS, Xcode, `simctl`, a booted Simulator, or
+source paths are unavailable. Set `ATLAS_LOOP_SMOKE_REQUIRE=1` in a dedicated
+Simulator environment to turn those skips into failures.
 
 Primitive coordinate input is available through the CLI, MCP, daemon, and native
 helper protocol. A full checkout-by-tap smoke is still host-gated: the v1 CGEvent
 backend needs a visible Simulator window, Accessibility permission, and a host
 configuration where posted macOS events are actually consumed by the guest app.
+The demo route proof is a launch-argument proof path, not evidence that HID
+input succeeded.
+
+## Objective Function
+
+See [docs/objective-function.md](docs/objective-function.md) for the prompt and
+review checklist used to guide future agent work on this repo.
 
 ## Security
 

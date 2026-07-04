@@ -4,19 +4,25 @@ import {
   fetchEvents,
   fetchHealth,
   fetchLatestScreenshot,
-  fetchSession,
-  toResourceUrl
+  fetchSession
 } from "./api.js";
 import { buildTimelineItems, mergeTraceEvents, sortArtifacts } from "./timeline.js";
 import type { ArtifactRef, HealthState, ScreenshotState, Session, TraceEvent, ViewerParams } from "./types.js";
 import {
+  artifactDetailRows,
+  artifactDisplayName,
+  artifactTypeOptions,
   eventModeTone,
+  filterArtifacts,
+  filterTimelineItems,
   formatDateTime,
   formatTime,
   healthTone,
   latestArtifactOfType,
+  latestSessionEmptyState,
   sessionTone,
-  summarizeArtifacts,
+  timelineFilterOptions,
+  type TimelineFilter,
   type UiTone
 } from "./viewerPresentation.js";
 import { buildSessionUrl, readViewerParams, writeViewerSearch } from "./viewerParams.js";
@@ -230,16 +236,54 @@ export function App() {
   const params = useViewerParams();
   const { health, session, artifacts, screenshot, eventMode, lastError, timeline } = useAtlasLoopData(params);
   const [draft, setDraft] = useState(params);
+  const [artifactTypeFilter, setArtifactTypeFilter] = useState("all");
+  const [artifactQuery, setArtifactQuery] = useState("");
+  const [selectedArtifactId, setSelectedArtifactId] = useState<string | undefined>();
+  const [timelineFilter, setTimelineFilter] = useState<TimelineFilter>("all");
+  const [timelineQuery, setTimelineQuery] = useState("");
 
   useEffect(() => {
     setDraft(params);
   }, [params]);
 
+  useEffect(() => {
+    setArtifactTypeFilter("all");
+    setArtifactQuery("");
+    setSelectedArtifactId(undefined);
+    setTimelineFilter("all");
+    setTimelineQuery("");
+  }, [params.daemonUrl, params.sessionId]);
+
   const latestArtifact = artifacts[0];
   const latestScreenshotArtifact = useMemo(() => latestArtifactOfType(artifacts, "screenshot"), [artifacts]);
-  const artifactSummaries = useMemo(() => summarizeArtifacts(artifacts), [artifacts]);
+  const artifactFilters = useMemo(() => artifactTypeOptions(artifacts), [artifacts]);
+  const filteredArtifacts = useMemo(
+    () => filterArtifacts(artifacts, { type: artifactTypeFilter, query: artifactQuery }),
+    [artifacts, artifactTypeFilter, artifactQuery]
+  );
+  const timelineFilters = useMemo(() => timelineFilterOptions(timeline), [timeline]);
+  const visibleTimeline = useMemo(
+    () => filterTimelineItems(timeline, { filter: timelineFilter, query: timelineQuery }),
+    [timeline, timelineFilter, timelineQuery]
+  );
   const selectedSessionId = session?.id ?? params.sessionId;
   const hasDraftChanges = draft.daemonUrl !== params.daemonUrl || draft.sessionId !== params.sessionId;
+  const isLatestFirstRun = params.sessionId === "latest" && !session && artifacts.length === 0 && timeline.length === 0;
+  const firstRunState = latestSessionEmptyState(health);
+  const selectedArtifact = useMemo(
+    () => filteredArtifacts.find((artifact) => artifact.id === selectedArtifactId) ?? filteredArtifacts[0],
+    [filteredArtifacts, selectedArtifactId]
+  );
+  const showLastError = Boolean(lastError && !(isLatestFirstRun && (health !== "online" || /^404\b/.test(lastError))));
+
+  useEffect(() => {
+    if (!selectedArtifact) {
+      if (selectedArtifactId) setSelectedArtifactId(undefined);
+      return;
+    }
+
+    if (selectedArtifact.id !== selectedArtifactId) setSelectedArtifactId(selectedArtifact.id);
+  }, [selectedArtifact, selectedArtifactId]);
 
   const submit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
@@ -288,11 +332,15 @@ export function App() {
           <article className={`session-row tone-${sessionTone(session?.status)}`} aria-current="true">
             <div>
               <strong>{selectedSessionId}</strong>
-              <span>{session?.simulator?.name ?? "Waiting for simulator metadata"}</span>
+              <span>{session?.simulator?.name ?? (isLatestFirstRun ? firstRunState.title : "Waiting for simulator metadata")}</span>
             </div>
             <small>{session?.status ?? "pending"}</small>
           </article>
-          <p className="hint-text">Point this panel at a session ID or keep `latest` to follow the newest local run.</p>
+          {isLatestFirstRun ? (
+            <FirstRunNotice title={firstRunState.title} detail={firstRunState.detail} tone={healthTone(health)} />
+          ) : (
+            <p className="hint-text">Point this panel at a session ID or keep `latest` to follow the newest local run.</p>
+          )}
         </section>
 
         <section className="status-stack" aria-label="Runtime status">
@@ -302,7 +350,7 @@ export function App() {
           <StatusRow label="Artifacts" value={String(artifacts.length)} tone="neutral" />
         </section>
 
-        {lastError ? <ErrorNotice message={lastError} /> : null}
+        {showLastError ? <ErrorNotice message={lastError!} /> : null}
       </aside>
 
       <section className="stage panel" aria-label="Latest iPhone screenshot">
@@ -328,7 +376,7 @@ export function App() {
           <div className="phone-stand">
             <div className="phone-frame">
               <div className="phone-speaker" />
-              <ScreenshotView screenshot={screenshot} />
+              <ScreenshotView screenshot={screenshot} emptyMessage={isLatestFirstRun ? firstRunState.detail : undefined} />
             </div>
           </div>
 
@@ -356,24 +404,64 @@ export function App() {
         <section className="inspector-section artifact-section">
           <div className="panel-title-row">
             <h2>Artifacts</h2>
-            <span>{latestArtifact ? formatDateTime(latestArtifact.createdAt) : "--"}</span>
+            <span>
+              {artifacts.length > 0 && filteredArtifacts.length !== artifacts.length
+                ? `${filteredArtifacts.length}/${artifacts.length} shown`
+                : latestArtifact
+                  ? formatDateTime(latestArtifact.createdAt)
+                  : "--"}
+            </span>
           </div>
 
-          {artifactSummaries.length > 0 ? (
-            <div className="artifact-counts">
-              {artifactSummaries.map((summary) => (
-                <span key={summary.type}>
-                  <strong>{summary.count}</strong> {summary.type}
-                </span>
-              ))}
+          {artifacts.length > 0 ? (
+            <div className="evidence-controls">
+              <div className="filter-strip" aria-label="Artifact type filters">
+                {artifactFilters.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    className={artifactTypeFilter === option.value ? "selected" : ""}
+                    aria-pressed={artifactTypeFilter === option.value}
+                    onClick={() => setArtifactTypeFilter(option.value)}
+                  >
+                    <span>{option.label}</span>
+                    <strong>{option.count}</strong>
+                  </button>
+                ))}
+              </div>
+              <label className="search-field">
+                <span className="sr-only">Search artifacts</span>
+                <input value={artifactQuery} onChange={(event) => setArtifactQuery(event.target.value)} placeholder="Search artifacts" />
+              </label>
             </div>
           ) : null}
 
-          <div className="artifact-list">
+          <div className="artifact-browser">
             {artifacts.length === 0 ? (
-              <EmptyState title="No artifacts yet" detail="Screenshots, logs, traces, and bundles will appear here as the daemon reports them." />
+              <EmptyState
+                title={isLatestFirstRun ? firstRunState.title : "No artifacts yet"}
+                detail={
+                  isLatestFirstRun
+                    ? firstRunState.detail
+                    : "Screenshots, logs, traces, and bundles will appear here as the daemon reports them."
+                }
+              />
+            ) : filteredArtifacts.length === 0 ? (
+              <EmptyState title="No matching artifacts" detail="Clear the artifact search or switch the type filter to inspect the full evidence set." />
             ) : (
-              artifacts.slice(0, 12).map((artifact) => <ArtifactRow key={artifact.id} artifact={artifact} daemonUrl={params.daemonUrl} />)
+              <>
+                <div className="artifact-list">
+                  {filteredArtifacts.map((artifact) => (
+                    <ArtifactRow
+                      key={artifact.id}
+                      artifact={artifact}
+                      selected={selectedArtifact?.id === artifact.id}
+                      onSelect={() => setSelectedArtifactId(artifact.id)}
+                    />
+                  ))}
+                </div>
+                <ArtifactDetails artifact={selectedArtifact} />
+              </>
             )}
           </div>
         </section>
@@ -382,13 +470,45 @@ export function App() {
       <section className="timeline-panel panel" aria-label="Action and artifact timeline">
         <div className="panel-title-row">
           <h2>Action timeline</h2>
-          <span>{timeline.length} items</span>
+          <span>{visibleTimeline.length === timeline.length ? `${timeline.length} items` : `${visibleTimeline.length}/${timeline.length} shown`}</span>
         </div>
+        {timeline.length > 0 ? (
+          <div className="timeline-controls">
+            <div className="filter-strip compact" aria-label="Timeline filters">
+              {timelineFilters.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  className={timelineFilter === option.value ? "selected" : ""}
+                  aria-pressed={timelineFilter === option.value}
+                  onClick={() => setTimelineFilter(option.value)}
+                >
+                  <span>{option.label}</span>
+                  <strong>{option.count}</strong>
+                </button>
+              ))}
+            </div>
+            <label className="search-field compact">
+              <span className="sr-only">Search timeline</span>
+              <input value={timelineQuery} onChange={(event) => setTimelineQuery(event.target.value)} placeholder="Search actions" />
+            </label>
+          </div>
+        ) : null}
         <div className="timeline-strip">
           {timeline.length === 0 ? (
-            <EmptyState title="Waiting for events" detail="The bottom rail fills with session state changes, actions, errors, and artifact captures." horizontal />
+            <EmptyState
+              title={isLatestFirstRun ? firstRunState.title : "Waiting for events"}
+              detail={
+                isLatestFirstRun
+                  ? firstRunState.detail
+                  : "The bottom rail fills with session state changes, actions, errors, and artifact captures."
+              }
+              horizontal
+            />
+          ) : visibleTimeline.length === 0 ? (
+            <EmptyState title="No matching actions" detail="Clear the timeline search or switch the filter to bring the action stream back." horizontal />
           ) : (
-            timeline.map((item) => (
+            visibleTimeline.map((item) => (
               <article className={`timeline-card tone-${item.tone}`} key={item.id}>
                 <time>{formatTime(item.at)}</time>
                 <strong>{item.title}</strong>
@@ -402,7 +522,7 @@ export function App() {
   );
 }
 
-function ScreenshotView({ screenshot }: { screenshot: ScreenshotState }) {
+function ScreenshotView({ screenshot, emptyMessage }: { screenshot: ScreenshotState; emptyMessage?: string }) {
   if (screenshot.status === "ready") {
     return <img className="screenshot-image" src={screenshot.src} alt="Latest iOS Simulator screenshot" />;
   }
@@ -411,8 +531,8 @@ function ScreenshotView({ screenshot }: { screenshot: ScreenshotState }) {
     screenshot.status === "loading"
       ? "Loading latest screenshot..."
       : screenshot.status === "empty"
-        ? screenshot.message
-        : `Screenshot unavailable: ${screenshot.message}`;
+        ? (emptyMessage ?? screenshot.message)
+        : (emptyMessage ?? `Screenshot unavailable: ${screenshot.message}`);
 
   return (
     <div className={`screenshot-placeholder ${screenshot.status}`}>
@@ -477,22 +597,60 @@ function MetricTile({ label, value, tone = "neutral" }: { label: string; value: 
   );
 }
 
-function ArtifactRow({ artifact, daemonUrl }: { artifact: ArtifactRef; daemonUrl: string }) {
-  const href = artifact.url ?? (artifact.path.startsWith("/") ? toResourceUrl(artifact.path, daemonUrl) : undefined);
-  const body = (
-    <>
-      <span className="artifact-type">{artifact.type}</span>
-      <strong>{artifact.path}</strong>
-      <small>{formatDateTime(artifact.createdAt)}</small>
-    </>
+function ArtifactRow({ artifact, selected, onSelect }: { artifact: ArtifactRef; selected: boolean; onSelect: () => void }) {
+  return (
+    <button type="button" className={`artifact-row ${selected ? "selected" : ""}`} aria-pressed={selected} onClick={onSelect}>
+      <span className="artifact-row-top">
+        <span className="artifact-type">{artifact.type}</span>
+        <small>{formatDateTime(artifact.createdAt)}</small>
+      </span>
+      <strong>{artifactDisplayName(artifact)}</strong>
+      <small>{artifact.path}</small>
+    </button>
   );
+}
 
-  return href ? (
-    <a className="artifact-row" href={href} target="_blank" rel="noreferrer">
-      {body}
-    </a>
-  ) : (
-    <div className="artifact-row">{body}</div>
+function ArtifactDetails({ artifact }: { artifact: ArtifactRef | undefined }) {
+  if (!artifact) {
+    return <EmptyState title="No artifact selected" detail="Select an artifact from the list to inspect path, hash, and metadata details." />;
+  }
+
+  const href = artifact.url;
+  const rows = artifactDetailRows(artifact);
+
+  return (
+    <section className="artifact-detail" aria-label="Selected artifact details">
+      <div className="artifact-detail-head">
+        <div>
+          <span className="artifact-type">{artifact.type}</span>
+          <strong>{artifactDisplayName(artifact)}</strong>
+        </div>
+        {href ? (
+          <a href={href} target="_blank" rel="noreferrer">
+            Open
+          </a>
+        ) : (
+          <span>Path only</span>
+        )}
+      </div>
+      <dl className="artifact-detail-grid">
+        {rows.map((row) => (
+          <div key={row.label}>
+            <dt>{row.label}</dt>
+            <dd className={row.mono ? "mono" : ""}>{row.value}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  );
+}
+
+function FirstRunNotice({ title, detail, tone }: { title: string; detail: string; tone: UiTone }) {
+  return (
+    <div className={`first-run-notice tone-${tone}`}>
+      <strong>{title}</strong>
+      <p>{detail}</p>
+    </div>
   );
 }
 

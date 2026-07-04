@@ -25,7 +25,9 @@ Runs the fast local verification path used by CI:
 
 iOS Simulator smoke is host-gated and off by default for CI. Enable it with
 --smoke-ios or ATLAS_LOOP_RUN_IOS_SMOKE=1 on a macOS/Xcode host with a booted
-Simulator.
+Simulator. The smoke captures a deterministic local demo-route screenshot with
+ATLAS_LOOP_SMOKE_DEMO_ROUTE=confirmation by default; set it to none to disable
+or to catalog, product-detail, cart, shipping, payment-review, or confirmation.
 USAGE
       exit 0
       ;;

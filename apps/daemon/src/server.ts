@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { createReadStream, existsSync } from "node:fs";
+import { createReadStream } from "node:fs";
 import { readFile, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import {
@@ -7,11 +7,16 @@ import {
   artifactFromPath,
   copyScreenshot,
   createSessionArtifacts,
+  listPersistedSessions,
   recordTrace,
+  readPersistedSession,
+  resolveContainedArtifactPath,
   writeLog,
   writeManifest,
   writeMetadata,
   writeSession,
+  type PersistedSessionRecord,
+  type PersistedSessionWarning,
   type SessionArtifacts
 } from "@atlas-loop/artifacts";
 import { loadConfig, type AtlasLoopConfig } from "@atlas-loop/config";
@@ -66,6 +71,8 @@ interface SessionState {
   layout: SessionArtifacts;
   artifacts: ArtifactRef[];
   sequence: number;
+  source: "memory" | "disk";
+  warnings: PersistedSessionWarning[];
 }
 
 interface DaemonState {
@@ -97,6 +104,11 @@ interface SessionSummary {
       artifactCount: number;
     };
     latestError?: AtlasLoopError;
+  };
+  storage: {
+    source: "memory" | "disk";
+    artifactBacked: boolean;
+    warnings: PersistedSessionWarning[];
   };
 }
 
@@ -171,7 +183,7 @@ async function handleRequest(state: DaemonState, request: IncomingMessage, respo
     }
 
     if (request.method === "GET" && parts.length === 1) {
-      sendJson(response, 200, { ok: true, data: [...state.sessions.values()].map((entry) => entry.session) });
+      sendJson(response, 200, { ok: true, data: (await listSessionStates(state)).map((entry) => entry.session) });
       return;
     }
 
@@ -183,49 +195,56 @@ async function handleRequest(state: DaemonState, request: IncomingMessage, respo
     }
 
     const sessionId = parts[1];
-    const sessionState = resolveSessionState(state, sessionId);
 
     if (request.method === "GET" && parts.length === 2) {
+      const sessionState = await resolveReadableSessionState(state, sessionId);
       sendJson(response, 200, { ok: true, data: sessionState.session });
       return;
     }
 
     if (request.method === "GET" && parts.length === 3 && parts[2] === "summary") {
+      const sessionState = await resolveReadableSessionState(state, sessionId);
       sendJson(response, 200, { ok: true, data: await getSessionSummary(sessionState) });
       return;
     }
 
     if (request.method === "POST" && parts.length === 3 && parts[2] === "end") {
+      const sessionState = resolveActiveSessionState(state, sessionId);
       const session = await setStatus(sessionState, "ended");
       sendJson(response, 200, { ok: true, data: session });
       return;
     }
 
     if (request.method === "POST" && parts.length === 3 && parts[2] === "build") {
+      const sessionState = resolveActiveSessionState(state, sessionId);
       const body = await readJsonBody<BuildRequest>(request);
       sendJson(response, 200, { ok: true, data: await buildApp(state, sessionState, body) });
       return;
     }
 
     if (request.method === "POST" && parts.length === 3 && parts[2] === "install") {
+      const sessionState = resolveActiveSessionState(state, sessionId);
       const body = await readJsonBody<InstallRequest>(request);
       sendJson(response, 200, { ok: true, data: await installApp(state, sessionState, body) });
       return;
     }
 
     if (request.method === "POST" && parts.length === 3 && parts[2] === "launch") {
+      const sessionState = resolveActiveSessionState(state, sessionId);
       const body = await readJsonBody<LaunchRequest>(request);
       sendJson(response, 200, { ok: true, data: await launchApp(state, sessionState, body) });
       return;
     }
 
     if (request.method === "POST" && parts.length === 3 && parts[2] === "actions") {
+      const sessionState = resolveActiveSessionState(state, sessionId);
       const body = await readJsonBody<PerformActionRequest>(request);
       sendJson(response, 200, { ok: true, data: await performAction(state, sessionState, body.action) });
       return;
     }
 
     if (request.method === "POST" && parts.length === 3 && parts[2] === "screenshot") {
+      const sessionState = resolveActiveSessionState(state, sessionId);
       const body = await readJsonBody<{ reason?: string }>(request);
       sendJson(response, 200, {
         ok: true,
@@ -235,21 +254,25 @@ async function handleRequest(state: DaemonState, request: IncomingMessage, respo
     }
 
     if (request.method === "GET" && parts.length === 3 && parts[2] === "artifacts") {
+      const sessionState = await resolveReadableSessionState(state, sessionId);
       sendJson(response, 200, { ok: true, data: sessionState.artifacts });
       return;
     }
 
     if (request.method === "GET" && parts.length === 3 && parts[2] === "latest-screenshot") {
+      const sessionState = await resolveReadableSessionState(state, sessionId);
       await sendLatestScreenshotImage(response, sessionState);
       return;
     }
 
     if (request.method === "GET" && parts.length === 4 && parts[2] === "artifacts" && parts[3] === "latest-screenshot") {
+      const sessionState = await resolveReadableSessionState(state, sessionId);
       sendJson(response, 200, { ok: true, data: await latestScreenshot(sessionState) });
       return;
     }
 
     if (request.method === "GET" && parts.length === 3 && parts[2] === "events") {
+      const sessionState = await resolveReadableSessionState(state, sessionId);
       sendJson(response, 200, { ok: true, data: await readEvents(sessionState) });
       return;
     }
@@ -277,7 +300,7 @@ async function createSession(state: DaemonState, request: CreateSessionRequest):
     viewerUrl: request.viewer ? `/sessions/${id}/artifacts/latest-screenshot` : undefined,
     backend: "local-daemon"
   };
-  const sessionState: SessionState = { session, layout, artifacts: [], sequence: 0 };
+  const sessionState: SessionState = { session, layout, artifacts: [], sequence: 0, source: "memory", warnings: [] };
   state.sessions.set(id, sessionState);
   await writeSession(layout, session);
   await writeManifest(layout, []);
@@ -285,14 +308,45 @@ async function createSession(state: DaemonState, request: CreateSessionRequest):
   return session;
 }
 
-function resolveSessionState(state: DaemonState, sessionId: string): SessionState {
-  if (sessionId === "latest") return latestSessionState(state);
+async function resolveReadableSessionState(state: DaemonState, sessionId: string): Promise<SessionState> {
+  if (sessionId === "latest") return latestReadableSessionState(state);
+
   const sessionState = state.sessions.get(sessionId);
-  if (!sessionState) throw atlasError("NOT_FOUND", `session not found: ${sessionId}`);
+  if (sessionState) return sessionState;
+
+  const persisted = await readPersistedSession(state.config.artifactRoot, sessionId);
+  if (persisted) return sessionStateFromPersisted(persisted);
+
+  throw atlasError("NOT_FOUND", `session not found: ${sessionId}`);
+}
+
+function resolveActiveSessionState(state: DaemonState, sessionId: string): SessionState {
+  if (sessionId === "latest") return latestActiveSessionState(state);
+  const sessionState = state.sessions.get(sessionId);
+  if (!sessionState) throw atlasError("NOT_FOUND", `active session not found: ${sessionId}`);
   return sessionState;
 }
 
-function latestSessionState(state: DaemonState): SessionState {
+async function listSessionStates(state: DaemonState): Promise<SessionState[]> {
+  const merged = new Map(state.sessions);
+  for (const persisted of await listPersistedSessions(state.config.artifactRoot)) {
+    if (!merged.has(persisted.session.id)) merged.set(persisted.session.id, sessionStateFromPersisted(persisted));
+  }
+  return [...merged.values()];
+}
+
+function sessionStateFromPersisted(record: PersistedSessionRecord): SessionState {
+  return {
+    session: record.session,
+    layout: record.layout,
+    artifacts: record.artifacts,
+    sequence: 0,
+    source: "disk",
+    warnings: record.warnings
+  };
+}
+
+function latestActiveSessionState(state: DaemonState): SessionState {
   const sessions = [...state.sessions.values()];
   if (sessions.length === 0) {
     throw atlasError("NOT_FOUND", "no sessions are available for latest alias");
@@ -300,6 +354,21 @@ function latestSessionState(state: DaemonState): SessionState {
 
   const active = sessions.filter((entry) => !["ended", "failed"].includes(entry.session.status));
   return mostRecentlyUpdated(active.length > 0 ? active : sessions);
+}
+
+async function latestReadableSessionState(state: DaemonState): Promise<SessionState> {
+  const sessions = await listSessionStates(state);
+  if (sessions.length === 0) {
+    throw atlasError("NOT_FOUND", "no sessions are available for latest alias");
+  }
+
+  const activeMemory = sessions.filter((entry) => (
+    entry.source === "memory" && !["ended", "failed"].includes(entry.session.status)
+  ));
+  if (activeMemory.length > 0) return mostRecentlyUpdated(activeMemory);
+
+  const activeByStatus = sessions.filter((entry) => !["ended", "failed"].includes(entry.session.status));
+  return mostRecentlyUpdated(activeByStatus.length > 0 ? activeByStatus : sessions);
 }
 
 function mostRecentlyUpdated(sessions: SessionState[]): SessionState {
@@ -486,14 +555,18 @@ async function addArtifact(sessionState: SessionState, artifact: ArtifactRef): P
 }
 
 async function latestScreenshot(sessionState: SessionState): Promise<ArtifactRef> {
-  const artifact = [...sessionState.artifacts].reverse().find((candidate) => candidate.type === "screenshot");
-  if (artifact) return artifact;
+  for (const artifact of [...sessionState.artifacts].reverse()) {
+    if (artifact.type !== "screenshot") continue;
+    const safePath = await resolveContainedArtifactPath(sessionState.layout, "screenshot", artifact.path);
+    if (safePath) return { ...artifact, path: safePath };
+  }
 
   const latestPath = join(sessionState.layout.screenshotsDir, "latest.png");
-  if (!existsSync(latestPath)) {
+  const safeLatestPath = await resolveContainedArtifactPath(sessionState.layout, "screenshot", latestPath);
+  if (!safeLatestPath) {
     throw atlasError("NOT_FOUND", `no screenshot artifact for session ${sessionState.session.id}`);
   }
-  return artifactFromPath(sessionState.layout, "screenshot", latestPath, { latest: true });
+  return artifactFromPath(sessionState.layout, "screenshot", safeLatestPath, { latest: true });
 }
 
 async function tryLatestScreenshot(sessionState: SessionState): Promise<ArtifactRef | undefined> {
@@ -538,6 +611,11 @@ async function getSessionSummary(sessionState: SessionState): Promise<SessionSum
         error: latestAction.error
       } : undefined,
       latestError: errorEvents.at(-1)?.error
+    },
+    storage: {
+      source: sessionState.source,
+      artifactBacked: true,
+      warnings: sessionState.warnings
     }
   };
 }
@@ -551,14 +629,18 @@ function countArtifactsByType(artifacts: ArtifactRef[]): Partial<Record<Artifact
 
 async function sendLatestScreenshotImage(response: ServerResponse, sessionState: SessionState): Promise<void> {
   const artifact = await latestScreenshot(sessionState);
-  const info = await stat(artifact.path);
+  const safePath = await resolveContainedArtifactPath(sessionState.layout, "screenshot", artifact.path);
+  if (!safePath) {
+    throw atlasError("NOT_FOUND", `screenshot artifact is unavailable for session ${sessionState.session.id}`);
+  }
+  const info = await stat(safePath);
   response.writeHead(200, {
     "content-type": "image/png",
     "content-length": info.size,
     "cache-control": "no-store"
   });
   await new Promise<void>((resolve, reject) => {
-    createReadStream(artifact.path)
+    createReadStream(safePath)
       .on("error", reject)
       .on("end", resolve)
       .pipe(response);
@@ -566,9 +648,19 @@ async function sendLatestScreenshotImage(response: ServerResponse, sessionState:
 }
 
 async function readEvents(sessionState: SessionState): Promise<TraceEvent[]> {
-  if (!existsSync(sessionState.layout.tracePath)) return [];
-  const text = await readFile(sessionState.layout.tracePath, "utf8");
-  return text.split("\n").filter(Boolean).map(parseTraceLine);
+  const safeTracePath = await resolveContainedArtifactPath(sessionState.layout, "trace", sessionState.layout.tracePath);
+  if (!safeTracePath) return [];
+  const text = await readFile(safeTracePath, "utf8");
+  const events: TraceEvent[] = [];
+  for (const line of text.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    try {
+      events.push(parseTraceLine(line));
+    } catch {
+      if (sessionState.source === "memory") throw atlasError("ARTIFACT_WRITE_FAILED", "trace.jsonl contains malformed JSON");
+    }
+  }
+  return events;
 }
 
 async function setStatus(sessionState: SessionState, status: SessionStatus): Promise<Session> {

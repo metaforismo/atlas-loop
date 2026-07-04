@@ -114,6 +114,75 @@ describe("daemon session summary", () => {
       metadata: { reason: "summary-test" }
     });
     expect(summary.events.latestAction).toMatchObject({ ok: true, artifactCount: 1 });
+    expect(summary.storage).toMatchObject({ source: "memory", artifactBacked: true, warnings: [] });
+  });
+
+  it("lists and fetches artifact-backed sessions after daemon restart", async () => {
+    const artifactRoot = await mkdtemp(join(tmpdir(), "atlas-loop-restart-"));
+    tempDirs.push(artifactRoot);
+    const firstDaemon = await startDaemonServer({
+      port: 0,
+      artifactRoot,
+      simulator: fakeSimulator()
+    });
+    startedDaemons.push(firstDaemon);
+
+    const created = await requestJson<{ id: string }>(firstDaemon.url, "/sessions", {
+      method: "POST",
+      body: JSON.stringify({ simulator: { name: "iPhone 16" } })
+    });
+    await requestJson(firstDaemon.url, `/sessions/${created.id}/screenshot`, {
+      method: "POST",
+      body: JSON.stringify({ reason: "restart-test" })
+    });
+    await firstDaemon.close();
+    startedDaemons.splice(startedDaemons.indexOf(firstDaemon), 1);
+
+    const secondDaemon = await startDaemonServer({
+      port: 0,
+      artifactRoot,
+      simulator: fakeSimulator()
+    });
+    startedDaemons.push(secondDaemon);
+
+    const sessions = await requestJson<Array<{ id: string }>>(secondDaemon.url, "/v1/sessions");
+    const fetched = await requestJson<{ id: string }>(secondDaemon.url, `/v1/sessions/${created.id}`);
+    const latest = await requestJson<{ id: string }>(secondDaemon.url, "/v1/sessions/latest");
+    const summary = await requestJson<Record<string, any>>(secondDaemon.url, `/v1/sessions/${created.id}/summary`);
+
+    expect(sessions.filter((session) => session.id === created.id)).toHaveLength(1);
+    expect(fetched.id).toBe(created.id);
+    expect(latest.id).toBe(created.id);
+    expect(summary).toMatchObject({
+      session: { id: created.id },
+      artifacts: { total: 1, byType: { screenshot: 1 } },
+      storage: { source: "disk", artifactBacked: true, warnings: [] }
+    });
+    expect(summary.artifacts.latestScreenshot).toMatchObject({
+      type: "screenshot",
+      sessionId: created.id,
+      metadata: { reason: "restart-test" }
+    });
+  }, 15_000);
+
+  it("does not duplicate active sessions that are also present on disk", async () => {
+    const artifactRoot = await mkdtemp(join(tmpdir(), "atlas-loop-no-duplicates-"));
+    tempDirs.push(artifactRoot);
+    const daemon = await startDaemonServer({
+      port: 0,
+      artifactRoot,
+      simulator: fakeSimulator()
+    });
+    startedDaemons.push(daemon);
+
+    const created = await requestJson<{ id: string }>(daemon.url, "/sessions", {
+      method: "POST",
+      body: JSON.stringify({ simulator: { name: "iPhone 16" } })
+    });
+
+    const sessions = await requestJson<Array<{ id: string }>>(daemon.url, "/v1/sessions");
+
+    expect(sessions.filter((session) => session.id === created.id)).toHaveLength(1);
   });
 });
 

@@ -34,6 +34,11 @@ export interface SessionSummary {
     };
     latestError?: AtlasLoopError;
   };
+  storage: {
+    source: "memory" | "disk";
+    artifactBacked: boolean;
+    warnings: Array<{ path: string; message: string }>;
+  };
 }
 
 export interface DaemonClientOptions {

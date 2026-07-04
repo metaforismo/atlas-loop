@@ -8,6 +8,7 @@ import { startDaemonServer } from "../../daemon/src/server.ts";
 import type { ActionInput } from "@atlas-loop/protocol";
 
 type Args = string[];
+const DEFAULT_VIEWER_BASE_URL = "http://127.0.0.1:5173";
 
 async function main(args: Args): Promise<number> {
   const [command, subcommand, ...rest] = args;
@@ -137,10 +138,15 @@ async function main(args: Args): Promise<number> {
     return 0;
   }
 
-  if (command === "viewer" && subcommand === "open") {
+  if (command === "viewer" && (subcommand === "open" || subcommand === "url")) {
     const sessionId = requireFlag(flags, "session");
     const daemonUrl = stringFlag(flags, "daemon-url") ?? (await loadConfig()).daemonUrl;
-    const url = `http://127.0.0.1:5173?daemonUrl=${encodeURIComponent(daemonUrl)}&sessionId=${encodeURIComponent(sessionId)}`;
+    const viewerBaseUrl = stringFlag(flags, "viewer-base-url") ?? DEFAULT_VIEWER_BASE_URL;
+    const url = buildViewerUrl({ daemonUrl, sessionId, viewerBaseUrl });
+    if (subcommand === "url") {
+      printJson({ url, sessionId, daemonUrl, viewerBaseUrl: trimTrailingSlash(viewerBaseUrl) });
+      return 0;
+    }
     console.log(url);
     if (booleanFlag(flags, "launch")) spawn("open", [url], { stdio: "ignore", detached: true }).unref();
     return 0;
@@ -244,6 +250,15 @@ function openPath(path: string): void {
   spawn("open", [path], { stdio: "ignore", detached: true }).unref();
 }
 
+function buildViewerUrl(params: { daemonUrl: string; sessionId: string; viewerBaseUrl?: string }): string {
+  const viewerBaseUrl = trimTrailingSlash(params.viewerBaseUrl ?? DEFAULT_VIEWER_BASE_URL);
+  return `${viewerBaseUrl}?daemonUrl=${encodeURIComponent(params.daemonUrl)}&sessionId=${encodeURIComponent(params.sessionId)}`;
+}
+
+function trimTrailingSlash(value: string): string {
+  return value.endsWith("/") ? value.slice(0, -1) : value;
+}
+
 function printHelp(): void {
   console.log(`Atlas Loop CLI
 
@@ -265,10 +280,12 @@ Usage:
   atlas-loop artifacts latest-screenshot --session <id>
   atlas-loop artifacts path --session <id>
   atlas-loop artifacts open --session <id> [--latest-screenshot]
+  atlas-loop viewer url --session <id>
   atlas-loop viewer open --session <id> [--launch]
 
 Options:
   --daemon-url <url>  Local daemon URL (default: ATLAS_LOOP_DAEMON_URL or http://127.0.0.1:4317)
+  --viewer-base-url <url>  Local viewer URL (default: http://127.0.0.1:5173)
 `);
 }
 

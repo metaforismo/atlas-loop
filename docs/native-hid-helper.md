@@ -101,10 +101,12 @@ ATLAS_LOOP_RUN_IOS_SMOKE=1 npm run verify:local
 
 By default, `scripts/smoke-ios.sh` exits successfully with a `SKIP` message when macOS, Xcode, `simctl`, a booted Simulator, or daemon/CLI sources are unavailable. Set `ATLAS_LOOP_SMOKE_REQUIRE=1` to turn those skips into failures for dedicated Simulator environments.
 
-The default smoke validates build/install/launch/screenshot artifacts. Primitive
-coordinate actions are exposed by the daemon, CLI, MCP server, and helper
-protocol, but a full checkout-by-tap smoke is intentionally left host-gated until
-the private backend is implemented.
+The default smoke validates build/install/launch/screenshot artifacts and can
+launch the demo app into a deterministic route such as `confirmation` before
+capturing a proof screenshot. That route is driven by a launch argument, not by
+HID. Primitive coordinate actions are exposed by the daemon, CLI, MCP server,
+and helper protocol, but a full checkout-by-tap smoke is intentionally left
+host-gated until the private backend is implemented.
 
 ## Demo App Build
 
