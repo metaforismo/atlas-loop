@@ -82,3 +82,29 @@ Trace JSONL records use these event types:
 - `error`
 
 Trace lines are append-only JSON objects. Consumers should ignore unknown future fields and preserve the original order.
+
+## Session Summary
+
+The daemon exposes a convenience summary view at `GET /v1/sessions/:id/summary`.
+It is not a replacement for the core protocol objects above; it is an
+ergonomic read model for CLIs, MCP tools, and local agents that need a quick
+status check.
+
+For daemon read routes, clients may use the session id `latest` to follow the
+newest local run. The daemon prefers active in-memory sessions while a daemon
+process is running. After restart, persisted sessions are read-only evidence, so
+`latest` resolves by the most recent persisted `updatedAt` timestamp rather than
+by saved status alone.
+
+The summary includes:
+
+- `session`: The current `Session`.
+- `paths`: Local artifact directory, manifest, trace, and screenshots paths.
+- `artifacts`: Total artifact count, counts by artifact type, and optional latest screenshot artifact.
+- `events`: Total trace event count, optional latest action result summary, and optional latest error.
+- `storage`: Whether the summary came from live daemon memory or disk-backed
+  artifact recovery, plus any warnings produced while reading persisted
+  artifacts.
+
+Consumers should treat the summary as derived state. If a field is absent, use
+the underlying session, artifacts, and trace endpoints for more detail.

@@ -35,6 +35,13 @@ interface PendingRequest {
   timeout: NodeJS.Timeout;
 }
 
+interface HelperResponseError {
+  code?: string;
+  message?: string;
+  retryable?: boolean;
+  details?: Record<string, unknown>;
+}
+
 export class HidClientError extends Error implements AtlasLoopError {
   code: AtlasLoopError["code"];
   retryable?: boolean;
@@ -144,6 +151,18 @@ export class HidClient {
     return this.request("attach", { appName: "Simulator", ...params }, options);
   }
 
+  hello(options?: HidRequestOptions): Promise<unknown> {
+    return this.request("hello", {}, options);
+  }
+
+  metrics(options?: HidRequestOptions): Promise<unknown> {
+    return this.request("metrics", {}, options);
+  }
+
+  diagnostics(options?: HidRequestOptions): Promise<unknown> {
+    return this.metrics(options);
+  }
+
   typeText(params: { udid: string; text: string }, options?: HidRequestOptions): Promise<unknown> {
     return this.request("typeText", params, options);
   }
@@ -229,7 +248,7 @@ export class HidClient {
       ok?: boolean;
       data?: unknown;
       result?: unknown;
-      error?: AtlasLoopError | { message?: string; code?: string; details?: Record<string, unknown> };
+      error?: HelperResponseError;
     };
     try {
       response = JSON.parse(line) as typeof response;
@@ -249,12 +268,7 @@ export class HidClient {
     clearTimeout(pending.timeout);
 
     if (response.ok === false) {
-      pending.reject(this.error("HID_FAILED", response.error?.message ?? `${pending.method} failed`, {
-        method: pending.method,
-        helperPath: this.helperPath,
-        stderr: this.stderrBuffer,
-        helperError: response.error
-      }));
+      pending.reject(this.helperFailure(pending.method, response.error));
       return;
     }
     pending.resolve(response.data ?? response.result);
@@ -275,11 +289,45 @@ export class HidClient {
     }
   }
 
-  private error(code: AtlasLoopError["code"], message: string, details?: Record<string, unknown>): HidClientError {
-    return new HidClientError({ code, message, details, retryable: code === "ACTION_TIMEOUT" });
+  private helperFailure(method: string, helperError?: HelperResponseError): HidClientError {
+    const helperCode = typeof helperError?.code === "string" ? helperError.code : undefined;
+    const helperMessage = typeof helperError?.message === "string" ? helperError.message : `${method} failed`;
+    const helperDetails = isRecord(helperError?.details) ? helperError.details : undefined;
+    const retryable = typeof helperError?.retryable === "boolean" ? helperError.retryable : undefined;
+    const code: AtlasLoopError["code"] = isRequestError(helperCode) ? "INVALID_REQUEST" : "HID_FAILED";
+
+    return this.error(code, helperMessage, {
+      method,
+      helperPath: this.helperPath,
+      stderr: this.stderrBuffer,
+      helperCode,
+      helperError: {
+        code: helperCode,
+        message: helperMessage,
+        retryable,
+        details: helperDetails
+      }
+    }, retryable);
+  }
+
+  private error(
+    code: AtlasLoopError["code"],
+    message: string,
+    details?: Record<string, unknown>,
+    retryable = code === "ACTION_TIMEOUT"
+  ): HidClientError {
+    return new HidClientError({ code, message, details, retryable });
   }
 }
 
 function defaultSpawnHelper(helperPath: string, args: string[]): ChildProcessWithoutNullStreams {
   return spawn(helperPath, args, { stdio: ["pipe", "pipe", "pipe"] });
+}
+
+function isRequestError(helperCode: string | undefined): boolean {
+  return helperCode === "invalidRequest" || helperCode === "invalidCoordinates" || helperCode === "unknownCommand";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

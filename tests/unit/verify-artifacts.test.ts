@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -84,6 +84,29 @@ async function writeValidSession(root: string): Promise<string> {
   return sessionDir;
 }
 
+async function writeMinimalPersistedSession(root: string): Promise<string> {
+  const sessionDir = join(root, "session_legacy");
+  await mkdir(sessionDir, { recursive: true });
+  await writeFile(
+    join(sessionDir, "session.json"),
+    JSON.stringify(
+      {
+        id: "session_legacy",
+        schemaVersion: "atlas-loop.session.v1",
+        platform: "ios-simulator",
+        status: "ended",
+        createdAt: "2026-07-04T00:00:00.000Z",
+        updatedAt: "2026-07-04T00:00:01.000Z",
+        simulator: { name: "iPhone 16" },
+        artifactDir: "."
+      },
+      null,
+      2
+    )
+  );
+  return sessionDir;
+}
+
 describe("artifact validator", () => {
   it("accepts a complete session tree with contained artifacts", async () => {
     const root = await makeTempRoot();
@@ -96,10 +119,30 @@ describe("artifact validator", () => {
     expect(report.issues).toEqual([]);
   });
 
+  it("keeps legacy or minimal persisted sessions warning-only when metadata is incomplete", async () => {
+    const root = await makeTempRoot();
+    await writeMinimalPersistedSession(root);
+
+    const report = await validateArtifactTarget(root);
+
+    expect(report.ok).toBe(true);
+    expect(report.sessionCount).toBe(1);
+    expect(report.issues.every((issue) => issue.severity === "warning")).toBe(true);
+    expect(report.issues.map((issue) => issue.message).join("\n")).toContain("warning-only for legacy or minimal persisted sessions");
+    expect(report.issues.map((issue) => issue.path)).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("screenshots"),
+        expect.stringContaining("logs"),
+        expect.stringContaining("metadata"),
+        expect.stringContaining("actions.jsonl")
+      ])
+    );
+  });
+
   it("rejects session metadata and action artifacts that escape the session directory", async () => {
     const root = await makeTempRoot();
     const sessionDir = await writeValidSession(root);
-    const escapedPath = resolve(root, "..", "outside.png");
+    const escapedPath = join(root, "outside.png");
     await writeFile(escapedPath, "outside");
 
     const sessionJson = JSON.parse(await readFile(join(sessionDir, "session.json"), "utf8"));
@@ -136,5 +179,48 @@ describe("artifact validator", () => {
 
     expect(report.ok).toBe(false);
     expect(report.issues.map((issue) => issue.message).join("\n")).toMatch(/escapes session directory/);
+  });
+
+  it("rejects manifest artifacts stored outside the required type directory", async () => {
+    const root = await makeTempRoot();
+    const sessionDir = await writeValidSession(root);
+    await writeFile(
+      join(sessionDir, "manifest.json"),
+      JSON.stringify(
+        {
+          schemaVersion: "atlas-loop.manifest.v1",
+          artifacts: [
+            {
+              id: "screenshot_in_logs",
+              sessionId: "session_ok",
+              type: "screenshot",
+              path: join(sessionDir, "logs", "daemon.log"),
+              createdAt: "2026-07-04T00:00:00.600Z"
+            }
+          ]
+        },
+        null,
+        2
+      )
+    );
+
+    const report = await validateArtifactTarget(sessionDir);
+
+    expect(report.ok).toBe(false);
+    expect(report.issues.map((issue) => issue.message).join("\n")).toMatch(/must be inside screenshots\//);
+  });
+
+  it("rejects artifact directory entries whose realpath escapes the session", async () => {
+    const root = await makeTempRoot();
+    const sessionDir = await writeValidSession(root);
+    const outsideFile = join(root, "outside.png");
+    const linkedPath = join(sessionDir, "screenshots", "linked-outside.png");
+    await writeFile(outsideFile, "outside");
+    await symlink(outsideFile, linkedPath);
+
+    const report = await validateArtifactTarget(sessionDir);
+
+    expect(report.ok).toBe(false);
+    expect(report.issues.map((issue) => issue.message).join("\n")).toMatch(/realpath escapes session directory/);
   });
 });

@@ -41,7 +41,12 @@ struct CommandResponse: Encodable {
             type: type,
             ok: false,
             data: nil,
-            error: ResponseError(code: error.code, message: error.message, retryable: error.retryable)
+            error: ResponseError(
+                code: error.code,
+                message: error.message,
+                retryable: error.retryable,
+                details: error.details
+            )
         )
     }
 }
@@ -50,43 +55,70 @@ struct ResponseError: Encodable {
     let code: String
     let message: String
     let retryable: Bool
+    let details: [String: JSONValue]?
 }
 
 struct HelperError: Error {
     let code: String
     let message: String
     let retryable: Bool
+    let details: [String: JSONValue]?
+
+    init(code: String, message: String, retryable: Bool, details: [String: JSONValue]? = nil) {
+        self.code = code
+        self.message = message
+        self.retryable = retryable
+        self.details = details
+    }
 
     static func invalidRequest(_ message: String) -> HelperError {
-        HelperError(code: "invalidRequest", message: message, retryable: false)
+        HelperError(code: "invalidRequest", message: message, retryable: false, details: [
+            "category": .string("protocol")
+        ])
     }
 
     static func invalidCoordinates(_ message: String) -> HelperError {
-        HelperError(code: "invalidCoordinates", message: message, retryable: false)
+        HelperError(code: "invalidCoordinates", message: message, retryable: false, details: [
+            "category": .string("validation")
+        ])
     }
 
     static func unknownCommand(_ type: String) -> HelperError {
-        HelperError(code: "unknownCommand", message: "Unknown command type '\(type)'", retryable: false)
+        HelperError(code: "unknownCommand", message: "Unknown command type '\(type)'", retryable: false, details: [
+            "category": .string("protocol"),
+            "command": .string(type)
+        ])
     }
 
-    static func windowNotFound(_ message: String) -> HelperError {
-        HelperError(code: "windowNotFound", message: message, retryable: true)
+    static func windowNotFound(_ message: String, details: [String: JSONValue]? = nil) -> HelperError {
+        HelperError(code: "windowNotFound", message: message, retryable: true, details: details)
     }
 
     static func notAttached() -> HelperError {
-        HelperError(code: "notAttached", message: "Attach to a Simulator window before sending input", retryable: true)
+        HelperError(code: "notAttached", message: "Attach to a Simulator window before sending input", retryable: true, details: [
+            "category": .string("state"),
+            "remediation": .string("Send an attach command before tap, typeText, swipe, or edgeGesture")
+        ])
     }
 
     static func permissionDenied(_ message: String) -> HelperError {
-        HelperError(code: "permissionDenied", message: message, retryable: true)
+        HelperError(code: "permissionDenied", message: message, retryable: true, details: [
+            "category": .string("hostPermission"),
+            "accessibilityTrusted": .bool(false),
+            "remediation": .string("Enable Accessibility permission for the helper binary or its parent terminal")
+        ])
     }
 
     static func backendUnavailable(_ message: String) -> HelperError {
-        HelperError(code: "backendUnavailable", message: message, retryable: true)
+        HelperError(code: "backendUnavailable", message: message, retryable: true, details: [
+            "category": .string("backend")
+        ])
     }
 
     static func internalError(_ message: String) -> HelperError {
-        HelperError(code: "internalError", message: message, retryable: true)
+        HelperError(code: "internalError", message: message, retryable: true, details: [
+            "category": .string("internal")
+        ])
     }
 }
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_DAEMON_URL,
   DEFAULT_SESSION_ID,
+  buildSessionsUrl,
   buildSessionUrl,
   readViewerParams,
   writeViewerSearch
@@ -23,6 +24,8 @@ describe("viewer params", () => {
   });
 
   it("builds encoded session endpoints", () => {
+    expect(buildSessionsUrl("http://127.0.0.1:4317/")).toBe("http://127.0.0.1:4317/v1/sessions");
+
     expect(buildSessionUrl({ daemonUrl: "http://127.0.0.1:4317", sessionId: "run/one" }, "latest-screenshot")).toBe(
       "http://127.0.0.1:4317/v1/sessions/run%2Fone/latest-screenshot"
     );

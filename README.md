@@ -16,6 +16,7 @@ runtime dependencies.
   screenshots, and viewer startup.
 - Local MCP-compatible stdio server exposing the same runtime controls.
 - Screenshot-based live viewer built with React and Vite.
+- Disk-backed session discovery after daemon restarts.
 - Repo-owned Swift HID helper with a stable NDJSON protocol.
 - Deterministic SwiftUI commerce checkout demo app.
 - Local evidence under `artifacts/sessions/<session-id>/`.
@@ -35,7 +36,9 @@ Xcode releases. Evidence always records the selected backend.
 - Xcode command line tools
 - Node.js 20+
 - Swift toolchain
-- GitHub CLI only for publishing the repository
+- A booted iOS Simulator for Simulator smoke runs
+- Accessibility permission for the native helper process when driving CGEvent
+  input into the visible Simulator window
 
 ## Quick Start
 
@@ -43,21 +46,31 @@ Xcode releases. Evidence always records the selected backend.
 npm install
 npm run typecheck
 npm test
+npm run verify:artifacts
+```
+
+Start the local daemon:
+
+```bash
 npm run daemon -- --port 4317
 ```
 
-In another terminal:
+In another terminal, check connectivity and create a session:
 
 ```bash
 npm run cli -- doctor
 npm run cli -- session start --simulator "iPhone 16"
 ```
 
-Open the viewer:
+Open the viewer in a third terminal when you want live screenshot updates:
 
 ```bash
 npm run viewer
 ```
+
+The viewer is a local Vite app served on loopback. It reads the daemon session
+state, screenshots, artifacts, and timeline events; it is not a hosted
+dashboard.
 
 ## Main Commands
 
@@ -65,6 +78,9 @@ npm run viewer
 atlas-loop doctor
 atlas-loop daemon start --port 4317
 atlas-loop session start --simulator "iPhone 16" --viewer
+atlas-loop session list
+atlas-loop session latest
+atlas-loop session status --session latest
 atlas-loop build --session <id> --project apps/ios-commerce-demo/CommerceDemo.xcodeproj --scheme CommerceDemo
 atlas-loop install --session <id> --app <path-to-app>
 atlas-loop launch --session <id> --bundle-id app.atlasloop.CommerceDemo
@@ -72,11 +88,36 @@ atlas-loop tap --session <id> --x 0.5 --y 0.8
 atlas-loop type --session <id> --text "Ada Lovelace"
 atlas-loop swipe --session <id> --from 0.5,0.8 --to 0.5,0.2 --duration-ms 450
 atlas-loop screenshot --session <id> --reason confirmation
+atlas-loop artifacts list --session <id>
+atlas-loop artifacts latest-screenshot --session <id>
+atlas-loop artifacts path --session <id>
+atlas-loop artifacts open --session <id> [--latest-screenshot]
+atlas-loop evidence --session <id>
+atlas-loop evidence report --session <id> [--out report.md]
+atlas-loop viewer url --session <id>
+atlas-loop viewer open --session <id> [--launch]
 atlas-loop session stop --session <id>
 ```
 
 Coordinates are normalized from `0.0` to `1.0`, with origin at the top-left of
 the latest screenshot.
+
+## MCP Server
+
+Atlas Loop includes a local stdio MCP server for agents that can call tools but
+should not know the daemon HTTP details directly.
+
+```bash
+npm run mcp
+```
+
+The MCP server lists its tool surface without requiring a daemon process. Tool
+calls such as `atlas.createSession`, `atlas.performAction`, `atlas.build`,
+`atlas.install`, `atlas.launch`, `atlas.listArtifacts`,
+`atlas.getArtifactPath`, `atlas.getLatestScreenshotPath`, and
+`atlas.getViewerUrl` forward to the local daemon at `ATLAS_LOOP_DAEMON_URL` or
+`http://127.0.0.1:4317` by default. See [docs/daemon-api.md](docs/daemon-api.md)
+for the JSON-RPC and daemon contract.
 
 ## Evidence Layout
 
@@ -92,32 +133,100 @@ artifacts/sessions/<session-id>/
   video/
 ```
 
+Evidence is local filesystem state. `session.json` records the selected
+Simulator and backend, `actions.jsonl` records requested actions and results,
+`manifest.json` indexes known artifacts, and screenshots/logs/metadata remain
+under the session directory. The daemon can read prior session directories after
+a restart, so evidence remains inspectable when the runtime process exits.
+Validate a single session or the whole artifact root with:
+
+```bash
+npm run verify:artifacts -- artifacts/sessions/<session-id>
+npm run verify:artifacts -- artifacts/sessions
+```
+
+Warnings from `verify:artifacts` are non-fatal. They usually mean a legacy or
+minimal persisted session is still readable, but some expected evidence such as
+`actions.jsonl`, screenshots, logs, or metadata was never written. Errors mean
+the session record or artifact references should not be trusted until fixed.
+
+## Inspecting Persisted Evidence
+
+Keep the daemon on loopback and start the viewer locally:
+
+```bash
+npm run daemon -- --port 4317
+npm run viewer
+```
+
+After a daemon restart, read-only routes can discover sessions from
+`artifacts/sessions`:
+
+```bash
+npm run cli -- session list
+npm run cli -- session status --session latest
+npm run cli -- artifacts path --session <session-id>
+npm run cli -- artifacts open --session <session-id>
+npm run cli -- viewer url --session <session-id>
+npm run cli -- evidence report --session <session-id> --out artifacts/report.md
+```
+
+The viewer URL can point at a concrete session id or `latest`. Persisted
+sessions are evidence for inspection only: build, install, launch, coordinate
+actions, screenshots, and session stop still require a live in-memory session.
+`evidence report` writes a local Markdown summary that can be pasted into a PR,
+issue, or debugging note without uploading screenshots or logs anywhere.
+
+Do not commit `artifacts/`; it may contain screenshots or logs from local apps.
+
 ## Verification
 
-Fast local checks:
+Fast local checks that are safe for CI:
+
+```bash
+npm run verify:local
+```
+
+This runs dependency installation when needed, TypeScript checks, unit/viewer/MCP
+tests, the workspace build, and artifact validation. It skips Simulator smoke
+unless explicitly enabled.
+
+Equivalent direct commands:
 
 ```bash
 npm run typecheck
 npm test
-```
-
-Full local verification:
-
-```bash
-./scripts/verify-local.sh
+npm run build
+npm run verify:artifacts
 ```
 
 Simulator smoke is macOS/Xcode gated:
 
 ```bash
 npm run smoke:ios
+# or
+bash scripts/verify-local.sh --smoke-ios
 ```
 
-The smoke script verifies the local proof loop that is reliable without private
+The smoke script verifies the local loop that is reliable without private
 Simulator APIs: build the helper, build the demo app, create a daemon session,
-install, launch, capture a screenshot, and validate artifacts. Coordinate input
-is available through the CLI/MCP action APIs, but full checkout-by-tap smoke
-depends on the Simulator GUI accepting macOS CGEvents on the host.
+install, launch, capture a screenshot, optionally launch the demo into a
+deterministic route such as `confirmation`, and validate artifacts. It exits
+with a clear `SKIP` message when macOS, Xcode, `simctl`, a booted Simulator, or
+source paths are unavailable. Set `ATLAS_LOOP_SMOKE_REQUIRE=1` in a dedicated
+Simulator environment to turn those skips into failures.
+
+Primitive coordinate input is available through the CLI, MCP, daemon, and native
+helper protocol. A full checkout-by-tap smoke is still host-gated: the v1 CGEvent
+backend needs a visible Simulator window, Accessibility permission, and a host
+configuration where posted macOS events are actually consumed by the guest app.
+The demo route proof is a launch-argument proof path, not evidence that HID
+input succeeded.
+
+## Objective Function
+
+See [docs/objective-function.md](docs/objective-function.md) for the prompt and
+review checklist used to guide future agent work on this repo.
 
 ## Security
 

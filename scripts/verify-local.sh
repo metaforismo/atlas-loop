@@ -16,15 +16,19 @@ for arg in "$@"; do
       cat <<'USAGE'
 Usage: bash scripts/verify-local.sh [--smoke-ios|--no-smoke]
 
-Runs the fast local verification path:
+Runs the fast local verification path used by CI:
   1. install dependencies when node_modules is missing
   2. npm run typecheck
   3. npm test
   4. npm run test:viewer when viewer tests are present
-  5. npm run verify:artifacts
+  5. npm run build
+  6. npm run verify:artifacts
 
-iOS Simulator smoke is gated off by default for CI and can be enabled with
---smoke-ios or ATLAS_LOOP_RUN_IOS_SMOKE=1.
+iOS Simulator smoke is host-gated and off by default for CI. Enable it with
+--smoke-ios or ATLAS_LOOP_RUN_IOS_SMOKE=1 on a macOS/Xcode host with a booted
+Simulator. The smoke captures a deterministic local demo-route screenshot with
+ATLAS_LOOP_SMOKE_DEMO_ROUTE=confirmation by default; set it to none to disable
+or to catalog, product-detail, cart, shipping, payment-review, or confirmation.
 USAGE
       exit 0
       ;;
@@ -66,6 +70,9 @@ else
   echo "[verify-local] no viewer tests found; skipping npm run test:viewer"
 fi
 
+echo "[verify-local] npm run build"
+npm run build
+
 echo "[verify-local] npm run verify:artifacts"
 npm run verify:artifacts
 
@@ -73,5 +80,5 @@ if [[ "$RUN_SMOKE" == "1" ]]; then
   echo "[verify-local] npm run smoke:ios"
   npm run smoke:ios
 else
-  echo "[verify-local] iOS Simulator smoke skipped; pass --smoke-ios or set ATLAS_LOOP_RUN_IOS_SMOKE=1 to enable"
+  echo "[verify-local] iOS Simulator smoke skipped; pass --smoke-ios or set ATLAS_LOOP_RUN_IOS_SMOKE=1 on a macOS/Xcode host with a booted Simulator"
 fi

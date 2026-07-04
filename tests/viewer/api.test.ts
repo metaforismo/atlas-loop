@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { normalizeArtifactList, normalizeEventList, normalizeScreenshotPayload, toResourceUrl } from "../../apps/viewer/src/api.js";
+import {
+  normalizeArtifactList,
+  normalizeEventList,
+  normalizeScreenshotPayload,
+  normalizeSessionList,
+  toResourceUrl
+} from "../../apps/viewer/src/api.js";
 
 describe("viewer api normalizers", () => {
   it("accepts raw artifact arrays and wrapped artifact collections", () => {
@@ -18,6 +24,39 @@ describe("viewer api normalizers", () => {
 
     expect(normalizeEventList([event])).toEqual([event]);
     expect(normalizeEventList({ events: [event, null] })).toEqual([event]);
+  });
+
+  it("accepts session arrays, wrapped session collections, and partial daemon fields", () => {
+    expect(normalizeSessionList(["session_string"])).toEqual([{ id: "session_string" }]);
+
+    expect(
+      normalizeSessionList({
+        sessions: [
+          {
+            sessionId: "session_1",
+            state: "running",
+            lastUpdatedAt: "2026-07-04T09:00:03.000Z",
+            simulator: { name: "iPhone 16" },
+            app: { scheme: "Demo" }
+          },
+          { bad: true }
+        ]
+      })
+    ).toEqual([
+      {
+        id: "session_1",
+        status: "running",
+        createdAt: undefined,
+        updatedAt: "2026-07-04T09:00:03.000Z",
+        simulator: { name: "iPhone 16" },
+        app: { scheme: "Demo" },
+        artifactDir: undefined,
+        viewerUrl: undefined,
+        backend: undefined,
+        platform: undefined,
+        error: undefined
+      }
+    ]);
   });
 
   it("turns screenshot JSON payloads into displayable data URLs or daemon URLs", () => {

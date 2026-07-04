@@ -74,7 +74,7 @@ async function discoverSessionDirs(target: string, issues: ValidationIssue[]): P
   }
 
   if (sessionDirs.length === 0) {
-    issues.push(warning(target, "no session.json files found under target"));
+    issues.push(warning(target, "no session.json files found under target; nothing to validate"));
   }
 
   return sessionDirs.sort();
@@ -105,7 +105,7 @@ async function validateSessionDir(sessionDir: string, issues: ValidationIssue[])
   for (const dirName of requiredSessionDirs) {
     const dirPath = join(sessionDir, dirName);
     if (!(await exists(dirPath))) {
-      issues.push(warning(dirPath, `${dirName}/ directory is missing`));
+      issues.push(warning(dirPath, `${dirName}/ directory is missing; warning-only for legacy or minimal persisted sessions, but evidence is incomplete`));
       continue;
     }
     await validateDirectoryTreeContained(sessionDir, dirPath, issues);
@@ -118,7 +118,7 @@ async function validateSessionDir(sessionDir: string, issues: ValidationIssue[])
 async function validateActions(sessionDir: string, sessionId: string, issues: ValidationIssue[]): Promise<void> {
   const actionsPath = join(sessionDir, "actions.jsonl");
   if (!(await exists(actionsPath))) {
-    issues.push(warning(actionsPath, "actions.jsonl is missing; no action records to validate"));
+    issues.push(warning(actionsPath, "actions.jsonl is missing; warning-only for legacy or minimal persisted sessions, with no action records to validate"));
     return;
   }
 
@@ -368,6 +368,13 @@ function printReport(validationReport: ValidationReport, json: boolean): void {
 
   for (const issue of validationReport.issues) {
     console.log(`[verify-artifacts] ${issue.severity.toUpperCase()} ${issue.path}: ${issue.message}`);
+  }
+  if (validationReport.ok && validationReport.issues.length === 0) {
+    console.log("[verify-artifacts] ok");
+  } else if (validationReport.ok) {
+    console.log("[verify-artifacts] ok with warnings; persisted evidence is readable, but warning paths may be incomplete");
+  } else {
+    console.log("[verify-artifacts] failed; fix ERROR entries before treating this evidence as valid");
   }
 }
 

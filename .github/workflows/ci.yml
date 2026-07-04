@@ -11,8 +11,23 @@ jobs:
     env:
       ATLAS_LOOP_RUN_IOS_SMOKE: "0"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
       - run: bash scripts/verify-local.sh --no-smoke
+
+  native-macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build native HID helper
+        run: swift build --package-path native/ios-hid-helper
+      - name: Build deterministic iOS demo
+        run: |
+          xcodebuild \
+            -project apps/ios-commerce-demo/CommerceDemo.xcodeproj \
+            -scheme CommerceDemo \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath artifacts/ci/DerivedData \
+            build CODE_SIGNING_ALLOWED=NO

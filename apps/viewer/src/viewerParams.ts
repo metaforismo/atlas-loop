@@ -37,6 +37,10 @@ export function writeViewerSearch(params: ViewerParams): string {
   return `?${search.toString()}`;
 }
 
+export function buildSessionsUrl(daemonUrl: string): string {
+  return `${normalizeDaemonUrl(daemonUrl)}/v1/sessions`;
+}
+
 export function buildSessionUrl(params: ViewerParams, suffix = ""): string {
   const session = encodeURIComponent(normalizeSessionId(params.sessionId));
   const cleanSuffix = suffix.startsWith("/") || suffix === "" ? suffix : `/${suffix}`;

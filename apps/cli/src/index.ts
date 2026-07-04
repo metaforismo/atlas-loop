@@ -1,15 +1,32 @@
 #!/usr/bin/env tsx
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { createSimulator } from "@atlas-loop/simulator";
 import { loadConfig } from "@atlas-loop/config";
-import { DaemonClient } from "@atlas-loop/daemon-client";
+import {
+  buildEvidenceMarkdownReport,
+  type CompactEvidenceSummary,
+  DaemonClient,
+  DaemonClientError,
+  evidenceReportDataFromSessionSummary,
+  type EvidenceReportData,
+  type SessionSummary
+} from "@atlas-loop/daemon-client";
 import { startDaemonServer } from "../../daemon/src/server.ts";
-import type { ActionInput } from "@atlas-loop/protocol";
+import type { ActionInput, ArtifactRef } from "@atlas-loop/protocol";
 
 type Args = string[];
+const DEFAULT_VIEWER_BASE_URL = "http://127.0.0.1:5173";
 
-async function main(args: Args): Promise<number> {
+interface EvidenceClient {
+  getSessionSummary(sessionId: string): Promise<SessionSummary>;
+  latestScreenshot(sessionId: string): Promise<ArtifactRef>;
+}
+
+export async function main(args: Args): Promise<number> {
   const [command, subcommand, ...rest] = args;
   if (!command || command === "--help" || command === "-h") {
     printHelp();
@@ -28,7 +45,8 @@ async function main(args: Args): Promise<number> {
   }
 
   const flags = parseFlags([subcommand, ...rest].filter(Boolean));
-  const client = new DaemonClient({ baseUrl: stringFlag(flags, "daemon-url") });
+  const daemonUrl = await resolveDaemonUrl(flags);
+  const client = new DaemonClient({ baseUrl: daemonUrl });
 
   if (command === "session") {
     if (subcommand === "start" || subcommand === "create") {
@@ -40,6 +58,18 @@ async function main(args: Args): Promise<number> {
         viewer: booleanFlag(flags, "viewer")
       });
       printJson(session);
+      return 0;
+    }
+    if (subcommand === "list" || subcommand === "ls") {
+      printJson(await client.listSessions());
+      return 0;
+    }
+    if (subcommand === "latest") {
+      printJson(await client.getSession("latest"));
+      return 0;
+    }
+    if (subcommand === "status" || subcommand === "summary") {
+      printJson(await client.getSessionSummary(requireFlag(flags, "session")));
       return 0;
     }
     if (subcommand === "stop" || subcommand === "end") {
@@ -108,16 +138,139 @@ async function main(args: Args): Promise<number> {
     return 0;
   }
 
-  if (command === "viewer" && subcommand === "open") {
+  if (command === "artifacts" && (subcommand === "latest-screenshot" || subcommand === "latest")) {
+    printJson(await client.latestScreenshot(requireFlag(flags, "session")));
+    return 0;
+  }
+
+  if (command === "artifacts" && subcommand === "path") {
+    const summary = await client.getSessionSummary(requireFlag(flags, "session"));
+    printJson({ path: summary.paths.artifactDir });
+    return 0;
+  }
+
+  if (command === "artifacts" && subcommand === "open") {
     const sessionId = requireFlag(flags, "session");
-    const daemonUrl = stringFlag(flags, "daemon-url") ?? (await loadConfig()).daemonUrl;
-    const url = `http://127.0.0.1:5173?daemonUrl=${encodeURIComponent(daemonUrl)}&sessionId=${encodeURIComponent(sessionId)}`;
+    const path = booleanFlag(flags, "latest-screenshot")
+      ? (await client.latestScreenshot(sessionId)).path
+      : (await client.getSessionSummary(sessionId)).paths.artifactDir;
+    openPath(path);
+    printJson({ ok: true, path });
+    return 0;
+  }
+
+  if (command === "evidence") {
+    const viewerBaseUrl = stringFlag(flags, "viewer-base-url") ?? DEFAULT_VIEWER_BASE_URL;
+    if (subcommand === "report" || stringFlag(flags, "_0") === "report") {
+      const evidence = await buildEvidenceReportData(client, {
+        sessionId: requireFlag(flags, "session"),
+        daemonUrl,
+        viewerBaseUrl
+      });
+      await outputEvidenceReport(evidence, flags);
+      return 0;
+    }
+    printJson(await buildEvidenceSummary(client, {
+      sessionId: requireFlag(flags, "session"),
+      daemonUrl,
+      viewerBaseUrl
+    }));
+    return 0;
+  }
+
+  if (command === "viewer" && (subcommand === "open" || subcommand === "url")) {
+    const sessionId = requireFlag(flags, "session");
+    const viewerBaseUrl = stringFlag(flags, "viewer-base-url") ?? DEFAULT_VIEWER_BASE_URL;
+    const url = buildViewerUrl({ daemonUrl, sessionId, viewerBaseUrl });
+    if (subcommand === "url") {
+      printJson({ url, sessionId, daemonUrl, viewerBaseUrl: trimTrailingSlash(viewerBaseUrl) });
+      return 0;
+    }
     console.log(url);
     if (booleanFlag(flags, "launch")) spawn("open", [url], { stdio: "ignore", detached: true }).unref();
     return 0;
   }
 
   throw new Error(`Unknown command: ${args.join(" ")}`);
+}
+
+export async function resolveDaemonUrl(flags: Map<string, string | boolean>): Promise<string> {
+  return stringFlag(flags, "daemon-url") ?? (await loadConfig()).daemonUrl;
+}
+
+export async function buildEvidenceSummary(
+  client: EvidenceClient,
+  params: { sessionId: string; daemonUrl: string; viewerBaseUrl?: string }
+): Promise<CompactEvidenceSummary> {
+  const summary = await client.getSessionSummary(params.sessionId);
+  const sessionId = summary.session.id;
+  const latestScreenshot = summary.artifacts.latestScreenshot ?? await tryLatestScreenshot(client, sessionId);
+  const viewerBaseUrl = trimTrailingSlash(params.viewerBaseUrl ?? DEFAULT_VIEWER_BASE_URL);
+  return {
+    sessionId,
+    requestedSessionId: params.sessionId,
+    artifactDir: summary.paths.artifactDir,
+    latestScreenshotPath: latestScreenshot?.path ?? null,
+    latestScreenshot,
+    viewerUrl: buildViewerUrl({ daemonUrl: params.daemonUrl, sessionId, viewerBaseUrl }),
+    daemonUrl: params.daemonUrl,
+    viewerBaseUrl
+  };
+}
+
+export async function buildEvidenceReportData(
+  client: EvidenceClient,
+  params: { sessionId: string; daemonUrl: string; viewerBaseUrl?: string }
+): Promise<EvidenceReportData> {
+  const summary = await client.getSessionSummary(params.sessionId);
+  const sessionId = summary.session.id;
+  const latestScreenshot = summary.artifacts.latestScreenshot ?? await tryLatestScreenshot(client, sessionId);
+  const viewerBaseUrl = trimTrailingSlash(params.viewerBaseUrl ?? DEFAULT_VIEWER_BASE_URL);
+  return evidenceReportDataFromSessionSummary(summary, {
+    requestedSessionId: params.sessionId,
+    daemonUrl: params.daemonUrl,
+    viewerBaseUrl,
+    viewerUrl: buildViewerUrl({ daemonUrl: params.daemonUrl, sessionId, viewerBaseUrl }),
+    latestScreenshot
+  });
+}
+
+async function outputEvidenceReport(evidence: EvidenceReportData, flags: Map<string, string | boolean>): Promise<void> {
+  const report = buildEvidenceMarkdownReport(evidence);
+  const outPath = stringFlag(flags, "out");
+  if (!outPath) {
+    console.log(report.trimEnd());
+    return;
+  }
+
+  const reportPath = resolve(outPath);
+  await mkdir(dirname(reportPath), { recursive: true });
+  await writeFile(reportPath, report, "utf8");
+  printJson({
+    ok: true,
+    reportPath,
+    sessionId: evidence.sessionId,
+    viewerUrl: evidence.viewerUrl,
+    latestScreenshotPath: evidence.latestScreenshotPath
+  });
+}
+
+async function tryLatestScreenshot(client: EvidenceClient, sessionId: string): Promise<ArtifactRef | null> {
+  try {
+    return await client.latestScreenshot(sessionId);
+  } catch (error) {
+    if (isNotFoundError(error)) return null;
+    throw error;
+  }
+}
+
+function isNotFoundError(error: unknown): boolean {
+  if (error instanceof DaemonClientError) return error.code === "NOT_FOUND";
+  return Boolean(
+    error &&
+    typeof error === "object" &&
+    (error as { code?: unknown }).code === "NOT_FOUND"
+  );
 }
 
 async function action(client: DaemonClient, flags: Map<string, string | boolean>, actionInput: ActionInput): Promise<number> {
@@ -211,6 +364,14 @@ function printJson(value: unknown): void {
   console.log(JSON.stringify(value, null, 2));
 }
 
+function openPath(path: string): void {
+  spawn("open", [path], { stdio: "ignore", detached: true }).unref();
+}
+
+function trimTrailingSlash(value: string): string {
+  return value.endsWith("/") ? value.slice(0, -1) : value;
+}
+
 function printHelp(): void {
   console.log(`Atlas Loop CLI
 
@@ -218,21 +379,46 @@ Usage:
   atlas-loop doctor
   atlas-loop daemon start --port 4317
   atlas-loop session start --simulator "iPhone 16" [--viewer]
-  atlas-loop session stop --session <id>
-  atlas-loop build --session <id> --project <path> --scheme <scheme>
-  atlas-loop install --session <id> --app <path.app>
-  atlas-loop launch --session <id> --bundle-id <bundle>
-  atlas-loop tap --session <id> --x 0.5 --y 0.5
-  atlas-loop type --session <id> --text "Ada Lovelace"
-  atlas-loop swipe --session <id> --from 0.5,0.8 --to 0.5,0.2 --duration-ms 350
-  atlas-loop screenshot --session <id> [--reason label]
-  atlas-loop viewer open --session <id> [--launch]
+  atlas-loop session list [--json]
+  atlas-loop session latest
+  atlas-loop session status --session <id|latest>
+  atlas-loop session stop --session <id|latest>
+  atlas-loop build --session <id|latest> --project <path> --scheme <scheme>
+  atlas-loop install --session <id|latest> --app <path.app>
+  atlas-loop launch --session <id|latest> --bundle-id <bundle>
+  atlas-loop tap --session <id|latest> --x 0.5 --y 0.5
+  atlas-loop type --session <id|latest> --text "Ada Lovelace"
+  atlas-loop swipe --session <id|latest> --from 0.5,0.8 --to 0.5,0.2 --duration-ms 350
+  atlas-loop screenshot --session <id|latest> [--reason label]
+  atlas-loop artifacts list --session <id|latest>
+  atlas-loop artifacts latest-screenshot --session <id|latest>
+  atlas-loop artifacts path --session <id|latest>
+  atlas-loop artifacts open --session <id|latest> [--latest-screenshot]
+  atlas-loop evidence --session <id|latest>
+  atlas-loop evidence report --session <id|latest> [--out report.md]
+  atlas-loop viewer url --session <id|latest>
+  atlas-loop viewer open --session <id|latest> [--launch]
+
+Options:
+  --daemon-url <url>  Local daemon URL (default: ATLAS_LOOP_DAEMON_URL or http://127.0.0.1:4317)
+  --viewer-base-url <url>  Local viewer URL (default: http://127.0.0.1:5173)
 `);
 }
 
-main(process.argv.slice(2)).then((code) => {
-  process.exitCode = code;
-}).catch((error) => {
-  console.error(`[atlas-loop] ${(error as Error).message}`);
-  process.exitCode = 1;
-});
+export function buildViewerUrl(params: { daemonUrl: string; sessionId: string; viewerBaseUrl?: string }): string {
+  const viewerBaseUrl = trimTrailingSlash(params.viewerBaseUrl ?? DEFAULT_VIEWER_BASE_URL);
+  return `${viewerBaseUrl}?daemonUrl=${encodeURIComponent(params.daemonUrl)}&sessionId=${encodeURIComponent(params.sessionId)}`;
+}
+
+function isEntrypoint(): boolean {
+  return Boolean(process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href);
+}
+
+if (isEntrypoint()) {
+  main(process.argv.slice(2)).then((code) => {
+    process.exitCode = code;
+  }).catch((error) => {
+    console.error(`[atlas-loop] ${(error as Error).message}`);
+    process.exitCode = 1;
+  });
+}

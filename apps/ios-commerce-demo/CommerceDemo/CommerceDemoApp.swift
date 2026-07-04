@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 
 @main
@@ -10,8 +11,14 @@ struct CommerceDemoApp: App {
 }
 
 private struct CheckoutRootView: View {
-    @State private var path: [CheckoutRoute] = []
+    @State private var path: [CheckoutRoute]
     @State private var cartLine: CartLine?
+
+    init(launchRoute: DemoLaunchRoute? = DemoLaunchRoute.current) {
+        let launchState = CheckoutLaunchState(route: launchRoute)
+        _path = State(initialValue: launchState.path)
+        _cartLine = State(initialValue: launchState.cartLine)
+    }
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -61,6 +68,59 @@ private enum CheckoutRoute: Hashable {
     case confirmation
 }
 
+private enum DemoLaunchRoute {
+    case catalog
+    case productDetail
+    case cart
+    case shipping
+    case paymentReview
+    case confirmation
+
+    static let argumentName = "--atlas-demo-route"
+    static let environmentName = "ATLAS_LOOP_DEMO_ROUTE"
+
+    static var current: DemoLaunchRoute? {
+        let processInfo = ProcessInfo.processInfo
+        let rawRoute = argumentValue(named: argumentName, in: processInfo.arguments)
+            ?? processInfo.environment[environmentName]
+        return rawRoute.flatMap(DemoLaunchRoute.init(rawValue:))
+    }
+
+    init?(rawValue: String) {
+        switch rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "catalog":
+            self = .catalog
+        case "product", "product-detail", "detail":
+            self = .productDetail
+        case "cart":
+            self = .cart
+        case "shipping":
+            self = .shipping
+        case "payment", "payment-review", "review":
+            self = .paymentReview
+        case "confirmation", "confirm", "complete":
+            self = .confirmation
+        default:
+            return nil
+        }
+    }
+
+    private static func argumentValue(named name: String, in arguments: [String]) -> String? {
+        for (index, argument) in arguments.enumerated() {
+            if argument == name, arguments.indices.contains(index + 1) {
+                return arguments[index + 1]
+            }
+
+            let assignmentPrefix = "\(name)="
+            if argument.hasPrefix(assignmentPrefix) {
+                return String(argument.dropFirst(assignmentPrefix.count))
+            }
+        }
+
+        return nil
+    }
+}
+
 private struct Product: Identifiable, Hashable {
     let id: String
     let name: String
@@ -107,6 +167,36 @@ private struct CartLine: Hashable {
 
     var totalText: String {
         product.id == "atlas-pack" ? "$85.32" : product.priceText
+    }
+}
+
+private struct CheckoutLaunchState {
+    let path: [CheckoutRoute]
+    let cartLine: CartLine?
+
+    init(route: DemoLaunchRoute?) {
+        let fixtureLine = CartLine(product: Product.catalog[0], quantity: 1)
+
+        switch route {
+        case nil, .catalog?:
+            path = []
+            cartLine = nil
+        case .productDetail?:
+            path = [.productDetail(fixtureLine.product.id)]
+            cartLine = nil
+        case .cart?:
+            path = [.cart]
+            cartLine = fixtureLine
+        case .shipping?:
+            path = [.shipping]
+            cartLine = fixtureLine
+        case .paymentReview?:
+            path = [.paymentReview]
+            cartLine = fixtureLine
+        case .confirmation?:
+            path = [.confirmation]
+            cartLine = fixtureLine
+        }
     }
 }
 

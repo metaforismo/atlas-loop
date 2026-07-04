@@ -2,6 +2,7 @@ import type {
   ActionInput,
   ActionResult,
   ApiEnvelope,
+  ArtifactType,
   ArtifactRef,
   AtlasLoopError,
   BuildRequest,
@@ -12,6 +13,146 @@ import type {
   Session,
   TraceEvent
 } from "@atlas-loop/protocol";
+
+export interface SessionSummary {
+  session: Session;
+  paths: {
+    artifactDir: string;
+    manifest: string;
+    trace: string;
+    screenshots: string;
+  };
+  artifacts: {
+    total: number;
+    byType: Partial<Record<ArtifactType, number>>;
+    latestScreenshot?: ArtifactRef;
+    latestScreenshotId?: string;
+    latestScreenshotPath?: string;
+    latestScreenshotCreatedAt?: string;
+  };
+  events: {
+    total: number;
+    latestAction?: Pick<ActionResult, "actionId" | "ok" | "startedAt" | "endedAt" | "error"> & {
+      artifactCount: number;
+    };
+    latestError?: AtlasLoopError;
+  };
+  storage: {
+    source: "memory" | "disk";
+    artifactBacked: boolean;
+    warnings: Array<{ path: string; message: string }>;
+  };
+}
+
+export interface CompactEvidenceSummary {
+  sessionId: string;
+  requestedSessionId: string;
+  artifactDir: string;
+  latestScreenshotPath: string | null;
+  latestScreenshot: ArtifactRef | null;
+  viewerUrl: string;
+  daemonUrl: string;
+  viewerBaseUrl: string;
+}
+
+export interface EvidenceReportData extends CompactEvidenceSummary {
+  sessionStatus?: Session["status"];
+  createdAt?: string;
+  updatedAt?: string;
+  artifactTotal: number;
+  artifactCounts: Partial<Record<ArtifactType, number>>;
+  eventTotal: number;
+  latestAction?: SessionSummary["events"]["latestAction"];
+  latestError?: AtlasLoopError;
+  storage: SessionSummary["storage"];
+}
+
+export function evidenceReportDataFromSessionSummary(
+  summary: SessionSummary,
+  params: {
+    requestedSessionId: string;
+    daemonUrl: string;
+    viewerBaseUrl: string;
+    viewerUrl: string;
+    latestScreenshot?: ArtifactRef | null;
+  }
+): EvidenceReportData {
+  const artifacts = summary.artifacts ?? { total: 0, byType: {} };
+  const events = summary.events ?? { total: 0 };
+  const storage: SessionSummary["storage"] = summary.storage ?? { source: "memory", artifactBacked: false, warnings: [] };
+  const latestScreenshot = params.latestScreenshot ?? artifacts.latestScreenshot ?? null;
+  return {
+    sessionId: summary.session.id,
+    requestedSessionId: params.requestedSessionId,
+    artifactDir: summary.paths.artifactDir,
+    latestScreenshotPath: latestScreenshot?.path ?? null,
+    latestScreenshot,
+    viewerUrl: params.viewerUrl,
+    daemonUrl: params.daemonUrl,
+    viewerBaseUrl: params.viewerBaseUrl,
+    sessionStatus: summary.session.status,
+    createdAt: summary.session.createdAt,
+    updatedAt: summary.session.updatedAt,
+    artifactTotal: artifacts.total ?? 0,
+    artifactCounts: artifacts.byType ?? {},
+    eventTotal: events.total ?? 0,
+    latestAction: events.latestAction,
+    latestError: events.latestError,
+    storage
+  };
+}
+
+export function buildEvidenceMarkdownReport(evidence: EvidenceReportData): string {
+  const lines = [
+    "# Atlas Loop Evidence Report",
+    "",
+    "## Session",
+    `- Session: ${code(evidence.sessionId)}`,
+    `- Requested: ${code(evidence.requestedSessionId)}`,
+    `- Status: ${code(evidence.sessionStatus ?? "unknown")}`,
+    `- Created: ${evidence.createdAt ?? "--"}`,
+    `- Updated: ${evidence.updatedAt ?? "--"}`,
+    `- Storage: ${code(evidence.storage.source)}${evidence.storage.artifactBacked ? " artifact-backed" : ""}`,
+    "",
+    "## Evidence",
+    `- Artifact directory: ${code(evidence.artifactDir)}`,
+    `- Latest screenshot: ${evidence.latestScreenshotPath ? code(evidence.latestScreenshotPath) : "none"}`,
+    `- Viewer URL: ${evidence.viewerUrl}`,
+    `- Daemon URL: ${evidence.daemonUrl}`,
+    "",
+    "## Counts",
+    `- Artifacts: ${evidence.artifactTotal}${formatArtifactCounts(evidence.artifactCounts)}`,
+    `- Events: ${evidence.eventTotal}`
+  ];
+
+  if (evidence.latestAction) {
+    lines.push(
+      "",
+      "## Latest Action",
+      `- Action: ${code(evidence.latestAction.actionId)}`,
+      `- Result: ${evidence.latestAction.ok ? "passed" : "failed"}`,
+      `- Started: ${evidence.latestAction.startedAt}`,
+      `- Ended: ${evidence.latestAction.endedAt}`,
+      `- Artifacts: ${evidence.latestAction.artifactCount}`
+    );
+    if (evidence.latestAction.error) {
+      lines.push(`- Error: ${evidence.latestAction.error.code}: ${evidence.latestAction.error.message}`);
+    }
+  }
+
+  if (evidence.latestError) {
+    lines.push("", "## Latest Error", `- ${evidence.latestError.code}: ${evidence.latestError.message}`);
+  }
+
+  if (evidence.storage.warnings.length > 0) {
+    lines.push("", "## Warnings");
+    for (const warning of evidence.storage.warnings) {
+      lines.push(`- ${code(warning.path)}: ${warning.message}`);
+    }
+  }
+
+  return `${lines.join("\n")}\n`;
+}
 
 export interface DaemonClientOptions {
   baseUrl?: string;
@@ -58,6 +199,10 @@ export class DaemonClient {
 
   getSession(sessionId: string): Promise<Session> {
     return this.request("GET", `/sessions/${encodeURIComponent(sessionId)}`);
+  }
+
+  getSessionSummary(sessionId: string): Promise<SessionSummary> {
+    return this.request("GET", `/sessions/${encodeURIComponent(sessionId)}/summary`);
   }
 
   endSession(sessionId: string): Promise<Session> {
@@ -142,4 +287,16 @@ function parseEnvelope<T>(text: string): ApiEnvelope<T> {
 
 function trimTrailingSlash(value: string): string {
   return value.endsWith("/") ? value.slice(0, -1) : value;
+}
+
+function formatArtifactCounts(counts: Partial<Record<ArtifactType, number>>): string {
+  const entries = Object.entries(counts)
+    .filter(([, count]) => typeof count === "number" && count > 0)
+    .sort(([left], [right]) => left.localeCompare(right));
+  if (entries.length === 0) return "";
+  return ` (${entries.map(([type, count]) => `${type}: ${count}`).join(", ")})`;
+}
+
+function code(value: string): string {
+  return `\`${value.replaceAll("`", "\\`")}\``;
 }
