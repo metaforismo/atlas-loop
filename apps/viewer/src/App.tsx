@@ -131,6 +131,19 @@ type CopyState =
   | { status: "copied"; target: "id" | "path"; label: string }
   | { status: "failed"; target: "id" | "path"; message: string };
 
+interface ActionTapPreset {
+  label: string;
+  x: string;
+  y: string;
+  ariaLabel: string;
+}
+
+interface ActionWaitPreset {
+  label: string;
+  durationMs: string;
+  ariaLabel: string;
+}
+
 const ARTIFACT_KIND_LABELS: Record<ArtifactKind, string> = {
   screenshot: "Screen",
   video: "Video",
@@ -155,6 +168,18 @@ const DEFAULT_ACTION_FORM: ViewerActionFormState = {
   swipeToY: "0.18",
   swipeDurationMs: "300"
 };
+
+const ACTION_TAP_PRESETS: ActionTapPreset[] = [
+  { label: "Back", x: "0.085", y: "0.075", ariaLabel: "Set tap target to top back button: x 0.085, y 0.075" },
+  { label: "Center", x: "0.500", y: "0.500", ariaLabel: "Set tap target to center: x 0.500, y 0.500" },
+  { label: "Primary", x: "0.500", y: "0.910", ariaLabel: "Set tap target to bottom primary action: x 0.500, y 0.910" }
+];
+
+const ACTION_WAIT_PRESETS: ActionWaitPreset[] = [
+  { label: "250", durationMs: "250", ariaLabel: "Set wait duration to 250 milliseconds" },
+  { label: "500", durationMs: "500", ariaLabel: "Set wait duration to 500 milliseconds" },
+  { label: "1000", durationMs: "1000", ariaLabel: "Set wait duration to 1000 milliseconds" }
+];
 
 function useViewerParams(): ViewerParams {
   const [params, setParams] = useState(() => readViewerParams(window.location.search));
@@ -536,6 +561,16 @@ function clampNormalizedCoordinate(value: number): number {
 
 function formatTapCoordinate(value: number): string {
   return clampNormalizedCoordinate(value).toFixed(3);
+}
+
+function tapPresetMatches(form: ViewerActionFormState, preset: ActionTapPreset): boolean {
+  return normalizedStringMatches(form.tapX, preset.x) && normalizedStringMatches(form.tapY, preset.y);
+}
+
+function normalizedStringMatches(value: string, expected: string): boolean {
+  const parsed = Number(value);
+  const expectedParsed = Number(expected);
+  return Number.isFinite(parsed) && Number.isFinite(expectedParsed) && formatTapCoordinate(parsed) === formatTapCoordinate(expectedParsed);
 }
 
 export function App() {
@@ -1147,6 +1182,8 @@ function ActionPanel({
         <span>{mutationState.detail}</span>
       </div>
 
+      <ActionShortcutPanel form={form} onFieldChange={onFieldChange} />
+
       <div className="action-panel-grid">
         <form className="action-row" onSubmit={onSubmit({ kind: "screenshot", reason: form.screenshotReason }, VIEWER_ACTION_LABELS.screenshot)}>
           <ActionTextInput
@@ -1273,6 +1310,69 @@ function ActionPanel({
         <span>{actionStatusMessage(submitState)}</span>
       </div>
     </section>
+  );
+}
+
+function ActionShortcutPanel({
+  form,
+  onFieldChange
+}: {
+  form: ViewerActionFormState;
+  onFieldChange: (field: ViewerActionFormField, value: string) => void;
+}) {
+  const applyTapPreset = (preset: ActionTapPreset): void => {
+    onFieldChange("tapX", preset.x);
+    onFieldChange("tapY", preset.y);
+  };
+
+  return (
+    <div className="action-shortcuts" aria-label="Action presets">
+      <div className="action-shortcut-group" role="group" aria-label="Tap target presets">
+        <span className="action-shortcut-label">Tap target</span>
+        <div className="action-shortcut-buttons">
+          {ACTION_TAP_PRESETS.map((preset) => {
+            const selected = tapPresetMatches(form, preset);
+            return (
+              <button
+                key={preset.label}
+                type="button"
+                className={`action-shortcut-button ${selected ? "selected" : ""}`}
+                aria-label={preset.ariaLabel}
+                aria-pressed={selected}
+                onClick={() => applyTapPreset(preset)}
+              >
+                <strong>{preset.label}</strong>
+                <span>
+                  {preset.x}/{preset.y}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="action-shortcut-group" role="group" aria-label="Wait duration presets">
+        <span className="action-shortcut-label">Wait</span>
+        <div className="action-shortcut-buttons">
+          {ACTION_WAIT_PRESETS.map((preset) => {
+            const selected = form.waitDurationMs === preset.durationMs;
+            return (
+              <button
+                key={preset.durationMs}
+                type="button"
+                className={`action-shortcut-button ${selected ? "selected" : ""}`}
+                aria-label={preset.ariaLabel}
+                aria-pressed={selected}
+                onClick={() => onFieldChange("waitDurationMs", preset.durationMs)}
+              >
+                <strong>{preset.label}</strong>
+                <span>ms</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
   );
 }
 

@@ -28,6 +28,7 @@ describe("MCP contract documentation", () => {
       "atlas.sessionReady",
       "atlas.getSessionHandoff",
       "atlas.listEvents",
+      "atlas.exportEvents",
       "atlas.getArtifactPath",
       "atlas.getLatestScreenshotPath",
       "atlas.verifyArtifacts",
@@ -47,6 +48,7 @@ describe("MCP contract documentation", () => {
     const ready = schemaFor("atlas.sessionReady");
     const handoff = schemaFor("atlas.getSessionHandoff");
     const listEvents = schemaFor("atlas.listEvents");
+    const exportEvents = schemaFor("atlas.exportEvents");
     const verifyArtifacts = schemaFor("atlas.verifyArtifacts");
     const artifactHealth = schemaFor("atlas.getArtifactHealth");
 
@@ -90,6 +92,17 @@ describe("MCP contract documentation", () => {
       required: ["sessionId"],
       properties: {
         sessionId: { type: "string", description: "Session id or latest." },
+        type: { type: "string", description: "Exact trace event type to include." },
+        limit: { type: "integer", minimum: 0 },
+        daemonUrl: { type: "string" }
+      },
+      additionalProperties: false
+    });
+    expect(exportEvents).toMatchObject({
+      required: ["sessionId", "outPath"],
+      properties: {
+        sessionId: { type: "string", description: "Session id or latest." },
+        outPath: { type: "string", description: "Local JSON file path to write." },
         type: { type: "string", description: "Exact trace event type to include." },
         limit: { type: "integer", minimum: 0 },
         daemonUrl: { type: "string" }
@@ -528,6 +541,55 @@ describe("MCP contract documentation", () => {
     });
   });
 
+  it("exports filtered daemon events through the structured MCP envelope", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "atlas-loop-mcp-events-export-"));
+    const calls: string[] = [];
+    const events = traceEvents("sess_events_export");
+    const outPath = join(tempDir, "exports", "latest-events.json");
+
+    try {
+      const result = await callToolWithEnvelope("atlas.exportEvents", {
+        sessionId: "latest",
+        type: "action.completed",
+        limit: 1,
+        outPath
+      }, {
+        client: {
+          events: async (sessionId: string) => {
+            calls.push(sessionId);
+            return events;
+          }
+        } as never
+      });
+
+      expect(calls).toEqual(["latest"]);
+      expect(result).toMatchObject({
+        ok: true,
+        data: {
+          schemaVersion: "atlas-loop.events-export.v1",
+          requestedSessionId: "latest",
+          outPath,
+          localOnly: true,
+          uploaded: false,
+          filters: {
+            type: "action.completed",
+            limit: 1
+          },
+          total: 4,
+          matched: 2,
+          count: 1,
+          events: [events[2]]
+        }
+      });
+      if (!result.ok) throw new Error(result.error.message);
+      const payload = result.data as { exportedAt: string };
+      expect(Number.isNaN(Date.parse(payload.exportedAt))).toBe(false);
+      expect(JSON.parse(await readFile(outPath, "utf8"))).toEqual(result.data);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it("uses configured daemon URL for default MCP event clients", async () => {
     const requestedPaths: string[] = [];
     const events = traceEvents("sess_configured");
@@ -587,6 +649,50 @@ describe("MCP contract documentation", () => {
       });
     }
 
+    expect(calls).toEqual([]);
+  });
+
+  it("rejects invalid MCP event export inputs without calling the daemon client", async () => {
+    const calls: string[] = [];
+
+    const missingOut = await callToolWithEnvelope("atlas.exportEvents", {
+      sessionId: "latest"
+    }, {
+      client: {
+        events: async (sessionId: string) => {
+          calls.push(sessionId);
+          return [];
+        }
+      } as never
+    });
+
+    const invalidLimit = await callToolWithEnvelope("atlas.exportEvents", {
+      sessionId: "latest",
+      outPath: "/tmp/atlas-loop-events.json",
+      limit: 1.5
+    }, {
+      client: {
+        events: async (sessionId: string) => {
+          calls.push(sessionId);
+          return [];
+        }
+      } as never
+    });
+
+    expect(missingOut).toMatchObject({
+      ok: false,
+      error: {
+        code: "INVALID_REQUEST",
+        message: "outPath is required"
+      }
+    });
+    expect(invalidLimit).toMatchObject({
+      ok: false,
+      error: {
+        code: "INVALID_REQUEST",
+        message: "limit must be a non-negative integer"
+      }
+    });
     expect(calls).toEqual([]);
   });
 

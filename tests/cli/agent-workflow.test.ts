@@ -299,6 +299,138 @@ describe("CLI agent workflow helpers", () => {
     });
   });
 
+  it("exports filtered daemon events to a local JSON file", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "atlas-loop-cli-events-export-"));
+    const originalCwd = process.cwd();
+    const originalLog = console.log;
+    const logged: string[] = [];
+    const requestedPaths: string[] = [];
+    const events = traceEvents("sess_events_export");
+    const outPath = join(tempDir, "exports", "events", "latest.json");
+    let payload: any;
+    const server = await startEventsDaemon((requestPath) => {
+      requestedPaths.push(requestPath);
+      return events;
+    });
+    const daemonUrl = `http://127.0.0.1:${server.port}`;
+
+    await writeFile(join(tempDir, "atlas-loop.config.json"), JSON.stringify({ daemonUrl }, null, 2));
+    console.log = (value?: unknown) => {
+      logged.push(String(value));
+    };
+
+    try {
+      process.chdir(tempDir);
+      await expect(main([
+        "events",
+        "export",
+        "--session",
+        "latest",
+        "--type",
+        "action.completed",
+        "--limit",
+        "1",
+        "--out",
+        outPath
+      ])).resolves.toBe(0);
+      payload = JSON.parse(await readFile(outPath, "utf8"));
+    } finally {
+      process.chdir(originalCwd);
+      console.log = originalLog;
+      await server.close();
+      await rm(tempDir, { recursive: true, force: true });
+    }
+
+    expect(requestedPaths).toEqual(["/sessions/latest/events"]);
+    expect(Number.isNaN(Date.parse(payload.exportedAt))).toBe(false);
+    expect(payload).toMatchObject({
+      schemaVersion: "atlas-loop.events-export.v1",
+      requestedSessionId: "latest",
+      outPath,
+      localOnly: true,
+      uploaded: false,
+      filters: {
+        type: "action.completed",
+        limit: 1
+      },
+      total: 4,
+      matched: 2,
+      count: 1,
+      events: [events[2]]
+    });
+    expect(JSON.parse(logged[0])).toEqual(payload);
+  });
+
+  it("requires an event export output path before daemon I/O", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "atlas-loop-cli-events-export-missing-out-"));
+    const originalCwd = process.cwd();
+    const requestedPaths: string[] = [];
+    const server = await startEventsDaemon((requestPath) => {
+      requestedPaths.push(requestPath);
+      return traceEvents("sess_events_export");
+    });
+    const daemonUrl = `http://127.0.0.1:${server.port}`;
+
+    await writeFile(join(tempDir, "atlas-loop.config.json"), JSON.stringify({ daemonUrl }, null, 2));
+
+    try {
+      process.chdir(tempDir);
+      await expect(main([
+        "events",
+        "export",
+        "--session",
+        "latest"
+      ])).rejects.toThrow("Missing required --out");
+    } finally {
+      process.chdir(originalCwd);
+      await server.close();
+      await rm(tempDir, { recursive: true, force: true });
+    }
+
+    expect(requestedPaths).toEqual([]);
+  });
+
+  it("rejects invalid event export arguments before daemon I/O", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "atlas-loop-cli-events-export-invalid-"));
+    const originalCwd = process.cwd();
+    const requestedPaths: string[] = [];
+    const server = await startEventsDaemon((requestPath) => {
+      requestedPaths.push(requestPath);
+      return traceEvents("sess_events_export");
+    });
+    const daemonUrl = `http://127.0.0.1:${server.port}`;
+
+    await writeFile(join(tempDir, "atlas-loop.config.json"), JSON.stringify({ daemonUrl }, null, 2));
+
+    try {
+      process.chdir(tempDir);
+      await expect(main([
+        "events",
+        "export",
+        "--session",
+        "latest",
+        "--limit",
+        "-1",
+        "--out",
+        join(tempDir, "events.json")
+      ])).rejects.toThrow("--limit must be a non-negative integer");
+      await expect(main([
+        "events",
+        "export",
+        "--session",
+        "latest",
+        "--out",
+        "https://example.com/events.json"
+      ])).rejects.toThrow("event export out path must be a local filesystem path");
+    } finally {
+      process.chdir(originalCwd);
+      await server.close();
+      await rm(tempDir, { recursive: true, force: true });
+    }
+
+    expect(requestedPaths).toEqual([]);
+  });
+
   it("rejects invalid event limits before daemon I/O", async () => {
     await expect(main([
       "events",

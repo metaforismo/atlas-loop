@@ -120,11 +120,13 @@ handoff needs exact trace JSON, event counts, action ids, or event ordering:
 ```sh
 curl -s "http://127.0.0.1:4317/v1/sessions/latest/events"
 atlas-loop events list --session latest --type action.completed --limit 20
+atlas-loop events export --session latest --type action.completed --limit 20 --out artifacts/events/latest-actions.json
 ```
 
-MCP clients can use `atlas.listEvents` for the same read-only trace inspection.
-Do not treat `artifacts health`, `session ready`, or `evidence report` as raw
-event dumps; they are summary and handoff read models.
+MCP clients can use `atlas.listEvents` for the same read-only trace inspection
+or `atlas.exportEvents` when the verification handoff needs a local JSON event
+file. Do not treat `artifacts health`, `session ready`, or `evidence report` as
+raw event dumps; they are summary and handoff read models.
 
 ## Reading Artifact Results
 

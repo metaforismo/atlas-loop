@@ -1,6 +1,6 @@
 #!/usr/bin/env tsx
 import { createInterface } from "node:readline";
-import { writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { exportSessionArtifacts } from "@atlas-loop/artifacts";
@@ -134,6 +134,14 @@ interface EventListResult {
   events: TraceEvent[];
 }
 
+interface EventExportResult extends EventListResult {
+  schemaVersion: "atlas-loop.events-export.v1";
+  exportedAt: string;
+  outPath: string;
+  localOnly: true;
+  uploaded: false;
+}
+
 export const tools = [
   { name: "atlas.health", description: "Check local daemon readiness.", inputSchema: objectSchema([]) },
   { name: "atlas.listSessions", description: "List active and persisted local iOS Simulator sessions.", inputSchema: objectSchema([]) },
@@ -163,6 +171,11 @@ export const tools = [
     name: "atlas.listEvents",
     description: "List local daemon trace events for a session with optional exact type filtering and newest-event limiting.",
     inputSchema: eventListSchema()
+  },
+  {
+    name: "atlas.exportEvents",
+    description: "Write filtered local daemon trace events to a local JSON file for agent handoff. Does not upload data.",
+    inputSchema: eventExportSchema()
   },
   { name: "atlas.performAction", description: "Perform tap/type/swipe/wait/screenshot action.", inputSchema: performActionSchema() },
   { name: "atlas.takeScreenshot", description: "Capture a screenshot artifact.", inputSchema: objectSchema(["sessionId"], { ...sessionIdProperty(), reason: { type: "string" } }) },
@@ -294,6 +307,8 @@ async function callTool(name: string, args: Record<string, unknown>, runtime: To
       return getSessionHandoff(client, args, runtime);
     case "atlas.listEvents":
       return listEvents(client, args);
+    case "atlas.exportEvents":
+      return exportEvents(client, args);
     case "atlas.performAction":
       return client.performAction(requireString(args, "sessionId"), { action: requireActionInput(args.action) });
     case "atlas.takeScreenshot":
@@ -363,6 +378,23 @@ async function listEvents(client: Pick<McpDaemonClient, "events">, args: Record<
     count: selectedEvents.length,
     events: selectedEvents
   };
+}
+
+async function exportEvents(client: Pick<McpDaemonClient, "events">, args: Record<string, unknown>): Promise<EventExportResult> {
+  const outPath = resolveLocalPath(requireString(args, "outPath"), "event export outPath");
+  const result = await listEvents(client, args);
+  const payload: EventExportResult = {
+    schemaVersion: "atlas-loop.events-export.v1",
+    ...result,
+    exportedAt: new Date().toISOString(),
+    outPath,
+    localOnly: true,
+    uploaded: false
+  };
+
+  await mkdir(dirname(outPath), { recursive: true });
+  await writeFile(outPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+  return payload;
 }
 
 async function getSessionReady(
@@ -887,6 +919,16 @@ function evidenceExportSchema(): Record<string, unknown> {
 function eventListSchema(): Record<string, unknown> {
   return objectSchema(["sessionId"], {
     ...sessionIdProperty(),
+    type: { type: "string", description: "Exact trace event type to include." },
+    limit: { type: "integer", minimum: 0, description: "Return at most this many newest matching events." },
+    daemonUrl: { type: "string", description: "Optional daemon URL override." }
+  });
+}
+
+function eventExportSchema(): Record<string, unknown> {
+  return objectSchema(["sessionId", "outPath"], {
+    ...sessionIdProperty(),
+    outPath: { type: "string", description: "Local JSON file path to write." },
     type: { type: "string", description: "Exact trace event type to include." },
     limit: { type: "integer", minimum: 0, description: "Return at most this many newest matching events." },
     daemonUrl: { type: "string", description: "Optional daemon URL override." }

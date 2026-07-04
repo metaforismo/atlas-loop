@@ -42,6 +42,8 @@ weakening the others:
 4. Human inspection
    - The viewer makes the current session, latest screenshot, action timeline, and
      artifacts easy to inspect locally.
+   - Repeated operator actions should have compact local shortcuts without hiding
+     the underlying primitive tap, wait, type, screenshot, and swipe fields.
    - Disk-backed evidence can be inspected without rerunning the app, while
      mutation commands still require a live session.
    - Empty, offline, failed, and stale-session states are explicit.

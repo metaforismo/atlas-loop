@@ -101,6 +101,7 @@ Recommended additional tool names:
 - `atlas.sessionReady`
 - `atlas.getSessionHandoff`
 - `atlas.listEvents`
+- `atlas.exportEvents`
 - `atlas.build`
 - `atlas.install`
 - `atlas.launch`
@@ -182,6 +183,7 @@ The stable read-only inspection surface is the daemon events route:
 ```sh
 curl -s "http://127.0.0.1:4317/v1/sessions/latest/events"
 atlas-loop events list --session latest --type action.completed --limit 20
+atlas-loop events export --session latest --type action.completed --limit 20 --out artifacts/events/latest-actions.json
 ```
 
 It accepts a concrete session id or `latest`, resolves the session through the
@@ -219,10 +221,16 @@ inspectable while artifact validators still report structural problems.
 
 Use this route, the CLI `events list` command, the MCP `atlas.listEvents` tool,
 or the daemon client's `events(sessionId)` method when an agent needs exact raw
-JSON, ordering, action ids, or event counts. Use the viewer timeline when a
-human needs to inspect event, screenshot, log, metadata, and artifact health
-context together. The CLI and MCP wrappers are thin, read-only convenience
-layers over the daemon event read model.
+JSON, ordering, action ids, or event counts. Use `atlas-loop events export` or
+MCP `atlas.exportEvents` when the next agent needs a local JSON file containing
+the same filtered event view plus `schemaVersion`, `exportedAt`, `outPath`,
+`localOnly: true`, and `uploaded: false` metadata. Event exports create parent
+directories, write one local JSON file, and do not upload, mutate the session,
+or copy the session artifact tree.
+
+Use the viewer timeline when a human needs to inspect event, screenshot, log,
+metadata, and artifact health context together. The CLI and MCP wrappers are
+thin, read-only convenience layers over the daemon event read model.
 
 ## Request Semantics
 
@@ -377,6 +385,7 @@ atlas-loop session ready --session latest
 atlas-loop artifacts health --session latest
 atlas-loop viewer url --session latest
 atlas-loop viewer open --session latest --launch
+atlas-loop events export --session latest --type action.completed --limit 20 --out artifacts/events/latest-actions.json
 atlas-loop evidence report --session latest --out artifacts/reports/<session-id>.md
 atlas-loop evidence export --session latest --out artifacts/exports/<session-id>
 ```
@@ -400,8 +409,9 @@ Android, or hosted-dashboard contract.
 
 For MCP runtimes, the matching helper is `atlas.getSessionHandoff`. Agents can
 still call `atlas.sessionReady`, `atlas.getArtifactHealth`,
-`atlas.getViewerUrl`, `atlas.getEvidenceReport`, and `atlas.exportEvidence` as
-separate local tools when they need individual pieces.
+`atlas.getViewerUrl`, `atlas.listEvents`, `atlas.exportEvents`,
+`atlas.getEvidenceReport`, and `atlas.exportEvidence` as separate local tools
+when they need individual pieces.
 
 ## Local Safety
 

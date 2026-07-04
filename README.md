@@ -16,6 +16,7 @@ runtime dependencies.
   screenshots, and viewer startup.
 - Local MCP-compatible stdio server exposing the same runtime controls.
 - Screenshot-based live viewer built with React and Vite.
+- Compact viewer action presets for common tap targets and waits.
 - Disk-backed session discovery after daemon restarts.
 - Timeline and artifact navigation that correlates trace events, action results,
   screenshots, logs, metadata, and persisted artifact references.
@@ -100,13 +101,17 @@ the visual timeline:
 ```bash
 curl -s "http://127.0.0.1:4317/v1/sessions/latest/events"
 npm run cli -- events list --session latest --type action.completed --limit 20
+npm run cli -- events export --session latest --type action.completed --limit 20 --out artifacts/events/latest-actions.json
 ```
 
 That route is read-only, accepts concrete session ids or `latest`, and reads
 the local `trace.jsonl` through the daemon. The TypeScript daemon client has
 `events(sessionId)` for internal callers, the CLI exposes `events list`, and
 the MCP server exposes `atlas.listEvents` for agents that need structured,
-read-only trace inspection.
+read-only trace inspection. Use `events export` or MCP `atlas.exportEvents`
+when the handoff needs a local JSON file with filter metadata, counts, and raw
+events. Event exports are local files only; they do not upload or mutate the
+session.
 
 ## Agent Handoff Quick Path
 
@@ -180,6 +185,7 @@ atlas-loop artifacts verify --session <id>
 atlas-loop artifacts verify --path <dir>
 atlas-loop artifacts open --session <id> [--latest-screenshot]
 atlas-loop events list --session <id|latest> [--type action.completed] [--limit 20]
+atlas-loop events export --session <id|latest> --out events.json [--type action.completed] [--limit 20]
 atlas-loop evidence --session <id>
 atlas-loop evidence report --session <id> [--out report.md]
 atlas-loop evidence export --session <id> --out <dir>
@@ -207,7 +213,9 @@ runtime calls, including `atlas.createSession`, `atlas.performAction`,
 `atlas.getLatestScreenshotPath`, `atlas.getArtifactHealth`, and
 `atlas.getViewerUrl`, forward to the local daemon at `ATLAS_LOOP_DAEMON_URL` or
 `http://127.0.0.1:4317` by default. `atlas.listEvents` returns structured,
-read-only trace events for agent handoffs and audits.
+read-only trace events for agent handoffs and audits. `atlas.exportEvents`
+writes the same filtered event view to a caller-chosen local JSON file and
+returns the file metadata.
 `atlas.getArtifactHealth` validates the daemon-resolved local artifact
 directory for one readable session, including persisted sessions discovered
 after a restart. It does not upload artifacts. `atlas.verifyArtifacts`
@@ -308,6 +316,7 @@ event tool:
 ```bash
 curl -s "http://127.0.0.1:4317/v1/sessions/<session-id>/events"
 npm run cli -- events list --session <session-id> --type action.completed --limit 20
+npm run cli -- events export --session <session-id> --type action.completed --limit 20 --out artifacts/events/<session-id>-actions.json
 ```
 
 `evidence report` writes a local Markdown summary that can be pasted into a PR,
