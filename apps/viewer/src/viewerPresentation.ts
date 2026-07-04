@@ -1,8 +1,9 @@
 import type { TimelineItem } from "./timeline.js";
-import type { ArtifactRef, HealthState, SessionListItem, SessionStatus } from "./types.js";
+import type { ArtifactHealth, ArtifactHealthIssue, ArtifactRef, HealthState, SessionListItem, SessionStatus } from "./types.js";
 
 export type UiTone = "neutral" | "good" | "warn" | "bad";
 export type TimelineFilter = "all" | "actions" | "artifacts" | "sessions" | "errors";
+export type ArtifactHealthStatus = "loading" | "ready" | "error" | "offline";
 
 export interface ArtifactSummary {
   type: string;
@@ -42,6 +43,21 @@ export interface LatestSessionEmptyState {
   detail: string;
 }
 
+export interface ArtifactHealthIssuePreview {
+  severity: string;
+  tone: UiTone;
+  message: string;
+  path?: string;
+}
+
+export interface ArtifactHealthPresentation {
+  title: string;
+  detail: string;
+  statusText: string;
+  tone: UiTone;
+  issuePreview: ArtifactHealthIssuePreview[];
+}
+
 export function formatTime(value: string | undefined): string {
   if (!value) return "--";
   const date = new Date(value);
@@ -66,6 +82,94 @@ export function healthTone(health: HealthState): UiTone {
   if (health === "online") return "good";
   if (health === "offline") return "bad";
   return "warn";
+}
+
+export function artifactHealthTone(health: ArtifactHealth | undefined, status: ArtifactHealthStatus): UiTone {
+  if (status === "offline" || status === "error") return "bad";
+  if (status === "loading") return "neutral";
+  if (!health) return "warn";
+  if (!health.ok || health.summary.errorCount > 0) return "bad";
+  if (health.summary.warningCount > 0 || health.summary.issueCount > 0) return "warn";
+  return "good";
+}
+
+export function visibleArtifactHealth(health: ArtifactHealth | undefined, status: ArtifactHealthStatus): ArtifactHealth | undefined {
+  return status === "ready" ? health : undefined;
+}
+
+export function artifactHealthPresentation(
+  health: ArtifactHealth | undefined,
+  status: ArtifactHealthStatus,
+  error?: string
+): ArtifactHealthPresentation {
+  const tone = artifactHealthTone(health, status);
+
+  if (status === "offline") {
+    return {
+      title: "Daemon offline",
+      detail: "Artifact validation needs a reachable daemon.",
+      statusText: "offline",
+      tone,
+      issuePreview: []
+    };
+  }
+
+  if (status === "loading") {
+    return {
+      title: "Checking evidence health",
+      detail: "Validating artifact paths, manifests, traces, and evidence files.",
+      statusText: "loading",
+      tone,
+      issuePreview: []
+    };
+  }
+
+  if (status === "error") {
+    return {
+      title: "Health unavailable",
+      detail: error ?? "The daemon did not return artifact health.",
+      statusText: "error",
+      tone,
+      issuePreview: []
+    };
+  }
+
+  if (!health) {
+    return {
+      title: "Health unavailable",
+      detail: "Artifact health did not include a readable summary.",
+      statusText: "invalid",
+      tone,
+      issuePreview: []
+    };
+  }
+
+  const source = health.source ? ` from ${health.source}` : "";
+  const target = health.artifactDir ?? health.target;
+  const targetDetail = target ? ` Target: ${target}` : "";
+  const title = health.ok && health.summary.errorCount === 0
+    ? health.summary.warningCount > 0 || health.summary.issueCount > 0
+      ? "Evidence warnings"
+      : "Evidence healthy"
+    : "Evidence errors";
+
+  return {
+    title,
+    detail: `Validated ${health.summary.sessionCount} session${health.summary.sessionCount === 1 ? "" : "s"}${source}.${targetDetail}`,
+    statusText: health.ok ? "ok" : "needs attention",
+    tone,
+    issuePreview: artifactHealthIssuePreview(health)
+  };
+}
+
+export function artifactHealthIssuePreview(health: ArtifactHealth | undefined, limit = 3): ArtifactHealthIssuePreview[] {
+  const issues = health?.report?.issues ?? [];
+  return issues.slice(0, Math.max(0, limit)).map((issue) => ({
+    severity: issueSeverityLabel(issue),
+    tone: issueSeverityTone(issue.severity),
+    message: issue.message,
+    path: issue.path
+  }));
 }
 
 export function sessionTone(status: SessionStatus | undefined): UiTone {
@@ -233,6 +337,18 @@ function timelineMatchesFilter(item: TimelineItem, filter: TimelineFilter): bool
     case "errors":
       return item.tone === "bad" || item.id.startsWith("event:error:");
   }
+}
+
+function issueSeverityLabel(issue: ArtifactHealthIssue): string {
+  if (issue.severity === "error") return "error";
+  if (issue.severity === "warning") return "warning";
+  return issue.severity ?? "issue";
+}
+
+function issueSeverityTone(severity: ArtifactHealthIssue["severity"]): UiTone {
+  if (severity === "error") return "bad";
+  if (severity === "warning") return "warn";
+  return "neutral";
 }
 
 function artifactSearchText(artifact: ArtifactRef): string {

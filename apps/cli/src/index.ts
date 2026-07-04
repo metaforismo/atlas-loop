@@ -36,6 +36,12 @@ interface ArtifactValidationClient {
   getSessionSummary(sessionId: string): Promise<SessionSummary>;
 }
 
+interface ArtifactHealthClient {
+  getSessionArtifactHealth?(sessionId: string): Promise<ArtifactHealth>;
+  getArtifactHealth?(sessionId: string): Promise<ArtifactHealth>;
+  request?<T>(method: string, path: string, body?: unknown): Promise<T>;
+}
+
 export interface SessionReadiness {
   sessionId: string;
   requestedSessionId: string;
@@ -87,6 +93,22 @@ export interface ArtifactVerification {
   artifactDir?: string;
   requestedPath?: string;
   report: ValidationReport;
+}
+
+export interface ArtifactHealth {
+  ok: boolean;
+  target: string;
+  source: string;
+  requestedSessionId: string;
+  sessionId: string;
+  artifactDir: string;
+  report: unknown;
+  summary: {
+    sessionCount: number;
+    errorCount: number;
+    warningCount: number;
+    issueCount: number;
+  };
 }
 
 export async function main(args: Args): Promise<number> {
@@ -229,6 +251,12 @@ export async function main(args: Args): Promise<number> {
       sessionId: stringFlag(flags, "session"),
       path: stringFlag(flags, "path")
     });
+    printJson(result);
+    return result.ok ? 0 : 1;
+  }
+
+  if (command === "artifacts" && subcommand === "health") {
+    const result = await getArtifactHealth(client, requireFlag(flags, "session"));
     printJson(result);
     return result.ok ? 0 : 1;
   }
@@ -462,6 +490,19 @@ export async function verifyArtifacts(
   };
 }
 
+export async function getArtifactHealth(client: ArtifactHealthClient, sessionId: string): Promise<ArtifactHealth> {
+  if (typeof client.getSessionArtifactHealth === "function") {
+    return client.getSessionArtifactHealth(sessionId);
+  }
+  if (typeof client.getArtifactHealth === "function") {
+    return client.getArtifactHealth(sessionId);
+  }
+  if (typeof client.request === "function") {
+    return client.request<ArtifactHealth>("GET", artifactHealthPath(sessionId));
+  }
+  throw new Error("daemon client does not support artifact health");
+}
+
 async function tryLatestScreenshot(client: EvidenceClient, sessionId: string): Promise<ArtifactRef | null> {
   try {
     return await client.latestScreenshot(sessionId);
@@ -606,6 +647,10 @@ function mapSourcePathToBundle(sourceDir: string, bundleDir: string, sourcePath:
   return join(bundleDir, relativePath);
 }
 
+function artifactHealthPath(sessionId: string): string {
+  return `/sessions/${encodeURIComponent(sessionId)}/artifacts/health`;
+}
+
 function trimTrailingSlash(value: string): string {
   return value.endsWith("/") ? value.slice(0, -1) : value;
 }
@@ -636,6 +681,7 @@ Usage:
   atlas-loop artifacts path --session <id|latest>
   atlas-loop artifacts verify --session <id|latest>
   atlas-loop artifacts verify --path <dir>
+  atlas-loop artifacts health --session <id|latest>
   atlas-loop artifacts open --session <id|latest> [--latest-screenshot]
   atlas-loop evidence --session <id|latest>
   atlas-loop evidence report --session <id|latest> [--out report.md]

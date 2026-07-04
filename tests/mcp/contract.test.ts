@@ -28,6 +28,7 @@ describe("MCP contract documentation", () => {
       "atlas.getArtifactPath",
       "atlas.getLatestScreenshotPath",
       "atlas.verifyArtifacts",
+      "atlas.getArtifactHealth",
       "atlas.getViewerUrl",
       "atlas.getEvidence",
       "atlas.getEvidenceReport",
@@ -42,6 +43,7 @@ describe("MCP contract documentation", () => {
     const action = schemaFor("atlas.performAction");
     const ready = schemaFor("atlas.sessionReady");
     const verifyArtifacts = schemaFor("atlas.verifyArtifacts");
+    const artifactHealth = schemaFor("atlas.getArtifactHealth");
 
     expect(createSession.properties).toMatchObject({
       simulator: {
@@ -99,6 +101,13 @@ describe("MCP contract documentation", () => {
       { required: ["sessionId"] },
       { required: ["path"] }
     ]));
+    expect(artifactHealth).toMatchObject({
+      required: ["sessionId"],
+      properties: {
+        sessionId: { type: "string", description: "Session id or latest." }
+      },
+      additionalProperties: false
+    });
   });
 
   it("returns the daemon latest session through a dedicated MCP helper", async () => {
@@ -341,6 +350,26 @@ describe("MCP contract documentation", () => {
     expect(result).toEqual({
       ok: true,
       data: { path: artifact.path, artifact }
+    });
+  });
+
+  it("returns daemon-backed artifact health through the structured MCP envelope", async () => {
+    const calls: string[] = [];
+    const health = artifactHealth("sess_health", "latest", true);
+
+    const result = await callToolWithEnvelope("atlas.getArtifactHealth", { sessionId: "latest" }, {
+      client: {
+        getSessionArtifactHealth: async (sessionId: string) => {
+          calls.push(sessionId);
+          return health;
+        }
+      } as never
+    });
+
+    expect(calls).toEqual(["latest"]);
+    expect(result).toEqual({
+      ok: true,
+      data: health
     });
   });
 
@@ -781,6 +810,24 @@ function schemaFor(name: string): Record<string, any> {
   const schema = tools.find((tool) => tool.name === name)?.inputSchema;
   if (!schema || typeof schema !== "object") throw new Error(`missing schema for ${name}`);
   return schema as Record<string, any>;
+}
+
+function artifactHealth(sessionId: string, requestedSessionId: string, ok: boolean): unknown {
+  return {
+    ok,
+    target: `/tmp/atlas-loop/${sessionId}`,
+    source: "daemon",
+    artifactDir: `/tmp/atlas-loop/${sessionId}`,
+    requestedSessionId,
+    sessionId,
+    report: { ok, issues: [] },
+    summary: {
+      sessionCount: 1,
+      errorCount: 0,
+      warningCount: 0,
+      issueCount: 0
+    }
+  };
 }
 
 async function writeValidArtifactSession(artifactDir: string, sessionId: string): Promise<void> {

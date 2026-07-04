@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  artifactHealthIssuePreview,
+  artifactHealthPresentation,
+  artifactHealthTone,
   artifactDetailRows,
   artifactDisplayName,
   artifactTypeOptions,
@@ -14,9 +17,10 @@ import {
   sessionUpdatedAt,
   sortSessionList,
   summarizeArtifacts,
-  timelineFilterOptions
+  timelineFilterOptions,
+  visibleArtifactHealth
 } from "../../apps/viewer/src/viewerPresentation.js";
-import type { ArtifactRef, SessionListItem } from "../../apps/viewer/src/types.js";
+import type { ArtifactHealth, ArtifactRef, SessionListItem } from "../../apps/viewer/src/types.js";
 import type { TimelineItem } from "../../apps/viewer/src/timeline.js";
 
 describe("viewer presentation helpers", () => {
@@ -33,6 +37,89 @@ describe("viewer presentation helpers", () => {
     expect(sessionTone("building")).toBe("warn");
     expect(sessionTone("failed")).toBe("bad");
     expect(sessionTone("ended")).toBe("neutral");
+  });
+
+  it("maps artifact health states to operational presentation copy and tones", () => {
+    const healthy: ArtifactHealth = {
+      ok: true,
+      sessionId: "sess_ok",
+      source: "disk",
+      artifactDir: "/tmp/atlas-loop/sess_ok",
+      report: { ok: true, target: "/tmp/atlas-loop/sess_ok", sessionCount: 1, issues: [] },
+      summary: { sessionCount: 1, errorCount: 0, warningCount: 0, issueCount: 0 }
+    };
+    const warning: ArtifactHealth = {
+      ...healthy,
+      ok: true,
+      report: {
+        issues: [{ severity: "warning", path: "/tmp/atlas-loop/sess_ok/logs", message: "logs directory is missing" }]
+      },
+      summary: { sessionCount: 1, errorCount: 0, warningCount: 1, issueCount: 1 }
+    };
+    const failed: ArtifactHealth = {
+      ...warning,
+      ok: false,
+      report: {
+        issues: [{ severity: "error", path: "/tmp/atlas-loop/sess_bad/session.json", message: "session status is not recognized" }]
+      },
+      summary: { sessionCount: 1, errorCount: 1, warningCount: 0, issueCount: 1 }
+    };
+
+    expect(artifactHealthTone(undefined, "loading")).toBe("neutral");
+    expect(artifactHealthTone(undefined, "offline")).toBe("bad");
+    expect(artifactHealthTone(healthy, "ready")).toBe("good");
+    expect(artifactHealthTone(warning, "ready")).toBe("warn");
+    expect(artifactHealthTone(failed, "ready")).toBe("bad");
+
+    expect(artifactHealthPresentation(healthy, "ready")).toMatchObject({
+      title: "Evidence healthy",
+      statusText: "ok",
+      tone: "good"
+    });
+    expect(artifactHealthPresentation(warning, "ready")).toMatchObject({
+      title: "Evidence warnings",
+      statusText: "ok",
+      tone: "warn"
+    });
+    expect(artifactHealthPresentation(undefined, "error", "404 Not Found")).toMatchObject({
+      title: "Health unavailable",
+      detail: "404 Not Found",
+      statusText: "error",
+      tone: "bad"
+    });
+    expect(visibleArtifactHealth(healthy, "ready")).toBe(healthy);
+    expect(visibleArtifactHealth(healthy, "error")).toBeUndefined();
+    expect(visibleArtifactHealth(healthy, "loading")).toBeUndefined();
+  });
+
+  it("formats artifact health issue previews for compact inspector display", () => {
+    const health: ArtifactHealth = {
+      ok: false,
+      report: {
+        issues: [
+          { severity: "error", path: "/tmp/atlas-loop/sess_bad/session.json", message: "session status is not recognized" },
+          { severity: "warning", path: "/tmp/atlas-loop/sess_bad/logs", message: "logs directory is missing" },
+          { message: "unknown validator issue" }
+        ]
+      },
+      summary: { sessionCount: 1, errorCount: 1, warningCount: 1, issueCount: 3 }
+    };
+
+    expect(artifactHealthIssuePreview(health, 2)).toEqual([
+      {
+        severity: "error",
+        tone: "bad",
+        message: "session status is not recognized",
+        path: "/tmp/atlas-loop/sess_bad/session.json"
+      },
+      {
+        severity: "warning",
+        tone: "warn",
+        message: "logs directory is missing",
+        path: "/tmp/atlas-loop/sess_bad/logs"
+      }
+    ]);
+    expect(artifactHealthIssuePreview(health, 3)[2]).toMatchObject({ severity: "issue", tone: "neutral" });
   });
 
   it("summarizes artifacts by frequency and type", () => {

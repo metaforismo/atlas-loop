@@ -32,6 +32,8 @@ interface McpDaemonClient {
   createSession(args: Record<string, unknown>): Promise<unknown>;
   getSession(sessionId: string): Promise<unknown>;
   getSessionSummary(sessionId: string): Promise<SessionSummary>;
+  getSessionArtifactHealth?(sessionId: string): Promise<ArtifactHealth>;
+  getArtifactHealth?(sessionId: string): Promise<ArtifactHealth>;
   performAction(sessionId: string, request: unknown): Promise<unknown>;
   screenshot(sessionId: string, reason?: string): Promise<unknown>;
   listArtifacts(sessionId: string): Promise<unknown>;
@@ -40,6 +42,7 @@ interface McpDaemonClient {
   build(sessionId: string, request: unknown): Promise<unknown>;
   install(sessionId: string, request: unknown): Promise<unknown>;
   launch(sessionId: string, request: unknown): Promise<unknown>;
+  request?<T>(method: string, path: string, body?: unknown): Promise<T>;
 }
 
 interface ToolRuntime {
@@ -101,6 +104,22 @@ interface ArtifactVerification {
   report: ValidationReport;
 }
 
+interface ArtifactHealth {
+  ok: boolean;
+  target: string;
+  source: string;
+  requestedSessionId: string;
+  sessionId: string;
+  artifactDir: string;
+  report: unknown;
+  summary: {
+    sessionCount: number;
+    errorCount: number;
+    warningCount: number;
+    issueCount: number;
+  };
+}
+
 export const tools = [
   { name: "atlas.health", description: "Check local daemon readiness.", inputSchema: objectSchema([]) },
   { name: "atlas.listSessions", description: "List active and persisted local iOS Simulator sessions.", inputSchema: objectSchema([]) },
@@ -127,6 +146,11 @@ export const tools = [
     name: "atlas.verifyArtifacts",
     description: "Validate a session artifact directory or explicit local artifact target and return a structured report.",
     inputSchema: verifyArtifactsSchema()
+  },
+  {
+    name: "atlas.getArtifactHealth",
+    description: "Inspect daemon-backed artifact health for a session and return the structured health report.",
+    inputSchema: sessionIdSchema()
   },
   {
     name: "atlas.getViewerUrl",
@@ -252,6 +276,8 @@ async function callTool(name: string, args: Record<string, unknown>, runtime: To
       return getLatestScreenshotPath(client, args);
     case "atlas.verifyArtifacts":
       return verifyArtifacts(client, args);
+    case "atlas.getArtifactHealth":
+      return getArtifactHealth(client, requireString(args, "sessionId"));
     case "atlas.getViewerUrl":
       return getViewerUrl(args, runtime);
     case "atlas.getEvidence":
@@ -363,6 +389,19 @@ async function verifyArtifacts(client: Pick<McpDaemonClient, "getSessionSummary"
     requestedPath,
     report
   };
+}
+
+async function getArtifactHealth(client: Pick<McpDaemonClient, "getSessionArtifactHealth" | "getArtifactHealth" | "request">, sessionId: string): Promise<ArtifactHealth> {
+  if (typeof client.getSessionArtifactHealth === "function") {
+    return client.getSessionArtifactHealth(sessionId);
+  }
+  if (typeof client.getArtifactHealth === "function") {
+    return client.getArtifactHealth(sessionId);
+  }
+  if (typeof client.request === "function") {
+    return client.request<ArtifactHealth>("GET", artifactHealthPath(sessionId));
+  }
+  throw new Error("daemon client does not support artifact health");
 }
 
 async function getEvidence(
@@ -584,6 +623,10 @@ function mapSourcePathToBundle(sourceDir: string, bundleDir: string, sourcePath:
   const relativePath = relative(sourceDir, resolvedPath);
   if (relativePath === "" || relativePath.startsWith("..") || isAbsolute(relativePath)) return null;
   return join(bundleDir, relativePath);
+}
+
+function artifactHealthPath(sessionId: string): string {
+  return `/sessions/${encodeURIComponent(sessionId)}/artifacts/health`;
 }
 
 function isNotFoundError(error: unknown): boolean {

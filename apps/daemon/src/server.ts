@@ -48,6 +48,7 @@ import {
 } from "@atlas-loop/protocol";
 import { parseTraceLine } from "@atlas-loop/traces";
 import { createSimulator } from "@atlas-loop/simulator";
+import { validateArtifactTarget, type ValidationReport } from "../../../scripts/verify-artifacts.ts";
 
 export type SimulatorApi = ReturnType<typeof createSimulator>;
 
@@ -113,6 +114,22 @@ interface SessionSummary {
     source: "memory" | "disk";
     artifactBacked: boolean;
     warnings: PersistedSessionWarning[];
+  };
+}
+
+interface SessionArtifactHealth {
+  ok: boolean;
+  target: string;
+  sessionId: string;
+  requestedSessionId: string;
+  source: SessionState["source"];
+  artifactDir: string;
+  report: ValidationReport;
+  summary: {
+    sessionCount: number;
+    errorCount: number;
+    warningCount: number;
+    issueCount: number;
   };
 }
 
@@ -209,6 +226,12 @@ async function handleRequest(state: DaemonState, request: IncomingMessage, respo
     if (request.method === "GET" && parts.length === 3 && parts[2] === "summary") {
       const sessionState = await resolveReadableSessionState(state, sessionId);
       sendJson(response, 200, { ok: true, data: await getSessionSummary(sessionState) });
+      return;
+    }
+
+    if (request.method === "GET" && parts.length === 4 && parts[2] === "artifacts" && parts[3] === "health") {
+      const sessionState = await resolveReadableSessionState(state, sessionId);
+      sendJson(response, 200, { ok: true, data: await getSessionArtifactHealth(sessionState, sessionId) });
       return;
     }
 
@@ -691,6 +714,34 @@ async function getSessionSummary(sessionState: SessionState): Promise<SessionSum
       artifactBacked: true,
       warnings: sessionState.warnings
     }
+  };
+}
+
+async function getSessionArtifactHealth(
+  sessionState: SessionState,
+  requestedSessionId: string
+): Promise<SessionArtifactHealth> {
+  const report = await validateArtifactTarget(sessionState.layout.sessionPath);
+  return {
+    ok: report.ok,
+    target: report.target,
+    sessionId: sessionState.session.id,
+    requestedSessionId,
+    source: sessionState.source,
+    artifactDir: sessionState.layout.sessionPath,
+    report,
+    summary: summarizeValidationReport(report)
+  };
+}
+
+function summarizeValidationReport(report: ValidationReport): SessionArtifactHealth["summary"] {
+  const errorCount = report.issues.filter((issue) => issue.severity === "error").length;
+  const warningCount = report.issues.filter((issue) => issue.severity === "warning").length;
+  return {
+    sessionCount: report.sessionCount,
+    errorCount,
+    warningCount,
+    issueCount: report.issues.length
   };
 }
 

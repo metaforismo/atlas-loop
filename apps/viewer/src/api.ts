@@ -1,6 +1,9 @@
 import type {
   ActionResultLike,
   ApiEnvelope,
+  ArtifactHealth,
+  ArtifactHealthIssue,
+  ArtifactHealthReport,
   ArtifactRef,
   ScreenshotState,
   Session,
@@ -89,6 +92,13 @@ export async function fetchSessions(daemonUrl: string, signal?: AbortSignal): Pr
 export async function fetchArtifacts(params: ViewerParams, signal?: AbortSignal): Promise<ArtifactRef[]> {
   const value = await fetchJson<unknown>(buildSessionUrl(params, "artifacts"), signal);
   return normalizeArtifactList(value);
+}
+
+export async function fetchArtifactHealth(params: ViewerParams, signal?: AbortSignal): Promise<ArtifactHealth> {
+  const value = await fetchJson<unknown>(buildSessionUrl(params, "artifacts/health"), signal);
+  const health = normalizeArtifactHealth(value);
+  if (!health) throw new ApiError("Daemon returned invalid artifact health.");
+  return health;
 }
 
 export async function fetchEvents(params: ViewerParams, signal?: AbortSignal): Promise<TraceEvent[]> {
@@ -309,6 +319,68 @@ export function normalizeEventList(value: unknown): TraceEvent[] {
   return list.filter(isTraceEvent);
 }
 
+export function normalizeArtifactHealth(value: unknown): ArtifactHealth | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+
+  const record = value as Record<string, unknown>;
+  const rawReport = objectOrUndefined<Record<string, unknown>>(record.report);
+  const summaryRecord = objectOrUndefined<Record<string, unknown>>(record.summary);
+  const hasExplicitOk = typeof record.ok === "boolean";
+  const reportIssues = normalizeArtifactHealthIssues(rawReport?.issues);
+  const topLevelIssues = reportIssues.length > 0 ? reportIssues : normalizeArtifactHealthIssues(record.issues);
+  const reportSessionCount = nonNegativeInteger(rawReport?.sessionCount);
+  const hasCompleteSummary = Boolean(
+    summaryRecord &&
+    nonNegativeInteger(summaryRecord.sessionCount) !== undefined &&
+    nonNegativeInteger(summaryRecord.errorCount) !== undefined &&
+    nonNegativeInteger(summaryRecord.warningCount) !== undefined &&
+    nonNegativeInteger(summaryRecord.issueCount) !== undefined
+  );
+  const hasReadableReport = Boolean(
+    rawReport &&
+    typeof rawReport.ok === "boolean" &&
+    reportSessionCount !== undefined &&
+    Array.isArray(rawReport.issues)
+  );
+  if (!hasExplicitOk || (!hasCompleteSummary && !hasReadableReport)) return undefined;
+
+  const inferredErrorCount = topLevelIssues.filter((issue) => issue.severity === "error").length;
+  const inferredWarningCount = topLevelIssues.filter((issue) => issue.severity === "warning").length;
+  const errorCount = nonNegativeInteger(summaryRecord?.errorCount) ?? inferredErrorCount;
+  const warningCount = nonNegativeInteger(summaryRecord?.warningCount) ?? inferredWarningCount;
+  const issueCount = nonNegativeInteger(summaryRecord?.issueCount) ?? topLevelIssues.length;
+  const sessionCount = nonNegativeInteger(summaryRecord?.sessionCount) ?? reportSessionCount ?? 0;
+  const reportOk = typeof rawReport?.ok === "boolean" ? rawReport.ok : undefined;
+  const ok = typeof record.ok === "boolean" ? record.ok : (reportOk ?? errorCount === 0);
+  const report = rawReport
+    ? ({
+        ...rawReport,
+        target: firstString(rawReport.target) ?? undefined,
+        sessionCount: nonNegativeInteger(rawReport.sessionCount),
+        ok: reportOk,
+        issues: topLevelIssues
+      } satisfies ArtifactHealthReport)
+    : topLevelIssues.length > 0
+      ? ({ issues: topLevelIssues, ok, sessionCount } satisfies ArtifactHealthReport)
+      : undefined;
+
+  return {
+    ok,
+    target: firstString(record.target, rawReport?.target),
+    sessionId: firstString(record.sessionId),
+    requestedSessionId: firstString(record.requestedSessionId),
+    source: firstString(record.source),
+    artifactDir: firstString(record.artifactDir),
+    report,
+    summary: {
+      sessionCount,
+      errorCount,
+      warningCount,
+      issueCount
+    }
+  };
+}
+
 export function normalizeScreenshotPayload(value: unknown, daemonUrl: string): ScreenshotState {
   if (!value) return { status: "empty", message: "No screenshot captured yet." };
 
@@ -370,6 +442,42 @@ export function toResourceUrl(value: string, daemonUrl: string): string {
 
 function firstString(...values: unknown[]): string | undefined {
   return values.find((value): value is string => typeof value === "string" && value.trim().length > 0);
+}
+
+function nonNegativeInteger(value: unknown): number | undefined {
+  const number = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : undefined;
+  if (number === undefined || !Number.isFinite(number) || number < 0) return undefined;
+  return Math.trunc(number);
+}
+
+function normalizeArtifactHealthIssues(value: unknown): ArtifactHealthIssue[] {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .map((issue) => {
+      if (typeof issue === "string" && issue.trim()) return { message: issue.trim() };
+      if (!issue || typeof issue !== "object" || Array.isArray(issue)) return undefined;
+
+      const record = issue as Record<string, unknown>;
+      const message = firstString(record.message, record.detail, record.error);
+      const path = firstString(record.path, record.file, record.target);
+      if (!message && !path) return undefined;
+
+      const severity = firstString(record.severity, record.level, record.type);
+      return {
+        severity: normalizeArtifactIssueSeverity(severity),
+        path,
+        message: message ?? path!
+      };
+    })
+    .filter((issue): issue is ArtifactHealthIssue => Boolean(issue));
+}
+
+function normalizeArtifactIssueSeverity(value: string | undefined): ArtifactHealthIssue["severity"] | undefined {
+  if (!value) return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "error" || normalized === "warning") return normalized;
+  return normalized;
 }
 
 function parseActionResponseBody(text: string, status: number): unknown {

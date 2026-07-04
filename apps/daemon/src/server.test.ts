@@ -141,6 +141,127 @@ describe("daemon session summary", () => {
     expect(summary.storage).toMatchObject({ source: "memory", artifactBacked: true, warnings: [] });
   });
 
+  it("returns artifact health for a valid session artifact directory", async () => {
+    const artifactRoot = await mkdtemp(join(tmpdir(), "atlas-loop-health-ok-"));
+    tempDirs.push(artifactRoot);
+    const daemon = await startDaemonServer({
+      port: 0,
+      artifactRoot,
+      simulator: fakeSimulator()
+    });
+    startedDaemons.push(daemon);
+
+    const created = await requestJson<{ id: string; artifactDir: string }>(daemon.url, "/sessions", {
+      method: "POST",
+      body: JSON.stringify({ simulator: { name: "iPhone 16" } })
+    });
+    await requestJson(daemon.url, `/sessions/${created.id}/screenshot`, {
+      method: "POST",
+      body: JSON.stringify({ reason: "health-ok" })
+    });
+
+    const health = await requestJson<Record<string, any>>(daemon.url, `/sessions/${created.id}/artifacts/health`);
+
+    expect(health).toMatchObject({
+      ok: true,
+      sessionId: created.id,
+      requestedSessionId: created.id,
+      source: "memory",
+      artifactDir: created.artifactDir,
+      summary: {
+        sessionCount: 1,
+        errorCount: 0,
+        warningCount: 0,
+        issueCount: 0
+      },
+      report: {
+        ok: true,
+        sessionCount: 1,
+        issues: []
+      }
+    });
+    expect(health.target).toBe(created.artifactDir);
+    expect(health.report.target).toBe(created.artifactDir);
+  });
+
+  it("summarizes artifact health warning and error counts", async () => {
+    const artifactRoot = await mkdtemp(join(tmpdir(), "atlas-loop-health-counts-"));
+    tempDirs.push(artifactRoot);
+    const daemon = await startDaemonServer({
+      port: 0,
+      artifactRoot,
+      simulator: fakeSimulator()
+    });
+    startedDaemons.push(daemon);
+
+    const created = await requestJson<{ id: string; artifactDir: string }>(daemon.url, "/sessions", {
+      method: "POST",
+      body: JSON.stringify({ simulator: { name: "iPhone 16" } })
+    });
+    const sessionPath = join(created.artifactDir, "session.json");
+    const sessionJson = JSON.parse(await readFile(sessionPath, "utf8"));
+    await writeFile(sessionPath, JSON.stringify({ ...sessionJson, platform: "android" }, null, 2));
+
+    const health = await requestJson<Record<string, any>>(daemon.url, `/v1/sessions/${created.id}/artifacts/health`);
+
+    expect(health).toMatchObject({
+      ok: false,
+      sessionId: created.id,
+      requestedSessionId: created.id,
+      source: "memory",
+      summary: {
+        sessionCount: 1,
+        errorCount: 1,
+        warningCount: 1,
+        issueCount: 2
+      },
+      report: { ok: false, sessionCount: 1 }
+    });
+    expect(health.report.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ severity: "error", message: "session platform must be ios-simulator" }),
+      expect.objectContaining({ severity: "warning", message: expect.stringContaining("actions.jsonl is missing") })
+    ]));
+  });
+
+  it("resolves latest when returning artifact health", async () => {
+    const artifactRoot = await mkdtemp(join(tmpdir(), "atlas-loop-health-latest-"));
+    tempDirs.push(artifactRoot);
+    const daemon = await startDaemonServer({
+      port: 0,
+      artifactRoot,
+      simulator: fakeSimulator()
+    });
+    startedDaemons.push(daemon);
+
+    await requestJson<{ id: string }>(daemon.url, "/sessions", {
+      method: "POST",
+      body: JSON.stringify({ simulator: { name: "iPhone 16" } })
+    });
+    const newest = await requestJson<{ id: string }>(daemon.url, "/sessions", {
+      method: "POST",
+      body: JSON.stringify({ simulator: { name: "iPhone 17" } })
+    });
+    await requestJson(daemon.url, `/sessions/${newest.id}/screenshot`, {
+      method: "POST",
+      body: JSON.stringify({ reason: "health-latest" })
+    });
+
+    const health = await requestJson<Record<string, any>>(daemon.url, "/v1/sessions/latest/artifacts/health");
+
+    expect(health).toMatchObject({
+      ok: true,
+      sessionId: newest.id,
+      requestedSessionId: "latest",
+      source: "memory",
+      summary: {
+        sessionCount: 1,
+        errorCount: 0,
+        warningCount: 0,
+        issueCount: 0
+      }
+    });
+  });
+
   it("adds file and action metadata to command artifacts", async () => {
     const artifactRoot = await mkdtemp(join(tmpdir(), "atlas-loop-command-metadata-"));
     tempDirs.push(artifactRoot);
@@ -220,6 +341,7 @@ describe("daemon session summary", () => {
     const fetched = await requestJson<{ id: string }>(secondDaemon.url, `/v1/sessions/${created.id}`);
     const latest = await requestJson<{ id: string }>(secondDaemon.url, "/v1/sessions/latest");
     const summary = await requestJson<Record<string, any>>(secondDaemon.url, `/v1/sessions/${created.id}/summary`);
+    const health = await requestJson<Record<string, any>>(secondDaemon.url, `/sessions/${created.id}/artifacts/health`);
 
     expect(sessions.filter((session) => session.id === created.id)).toHaveLength(1);
     expect(fetched.id).toBe(created.id);
@@ -239,6 +361,18 @@ describe("daemon session summary", () => {
         actionSequence: 1,
         actionKind: "screenshot",
         latestScreenshot: true
+      }
+    });
+    expect(health).toMatchObject({
+      ok: true,
+      sessionId: created.id,
+      requestedSessionId: created.id,
+      source: "disk",
+      summary: {
+        sessionCount: 1,
+        errorCount: 0,
+        warningCount: 0,
+        issueCount: 0
       }
     });
   }, 15_000);
