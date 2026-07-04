@@ -83,6 +83,18 @@ Trace JSONL records use these event types:
 
 Trace lines are append-only JSON objects. Consumers should ignore unknown future fields and preserve the original order.
 
+The daemon read model exposes parsed trace events through
+`GET /v1/sessions/:id/events`. The route accepts a concrete session id or
+`latest`, is read-only, and returns the same event objects that are stored in
+`trace.jsonl`. It is the right surface for exact event ordering, event counts,
+action ids, and scriptable JSON inspection.
+
+The viewer timeline is a derived presentation over trace events plus manifest
+and action-result artifacts. Use it for human inspection when the important
+question is "what happened and which screenshot, log, or metadata file proves
+it?" Use the raw events route when the important question is "what exact event
+payload did the daemon record?"
+
 ## Session Summary
 
 The daemon exposes a convenience summary view at `GET /v1/sessions/:id/summary`.

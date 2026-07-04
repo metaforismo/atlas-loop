@@ -32,6 +32,13 @@ by unit tests, viewer presentation logic, workspace builds, and artifact format
 integrity. They do not prove that a Simulator can boot, install an app, or
 consume HID input.
 
+Viewer tests also cover the local interaction path that does not need a
+Simulator: primitive action draft serialization, local validation before
+posting, daemon error propagation, event normalization, timeline merging,
+timeline filters, and artifact health presentation. Treat that as viewer
+interaction coverage only; it does not prove the macOS CGEvent backend was
+accepted by the guest app.
+
 ## Simulator Smoke
 
 Run this on a macOS/Xcode host when the change touches Simulator runtime,
@@ -106,6 +113,19 @@ counts, and any report or export path. Disk-backed sessions are readable
 evidence only; start a fresh live session before issuing new build, launch,
 screenshot, or input commands.
 
+Use the viewer timeline for human inspection of action, screenshot, log,
+metadata, and artifact-health context. Use the daemon events route when the
+handoff needs exact trace JSON, event counts, action ids, or event ordering:
+
+```sh
+curl -s "http://127.0.0.1:4317/v1/sessions/latest/events"
+atlas-loop events list --session latest --type action.completed --limit 20
+```
+
+MCP clients can use `atlas.listEvents` for the same read-only trace inspection.
+Do not treat `artifacts health`, `session ready`, or `evidence report` as raw
+event dumps; they are summary and handoff read models.
+
 ## Reading Artifact Results
 
 `npm run verify:artifacts` and `atlas-loop artifacts verify` are local
@@ -128,4 +148,6 @@ A PR should say which lane ran:
 - Simulator smoke: command/result, or why it was not applicable.
 - Native input proof: command/result when primitive HID behavior changed.
 - Artifact validation: warning-only versus error-free status.
+- Viewer interaction coverage: `npm run test:viewer` when viewer action forms,
+  event loading, timeline behavior, or artifact inspector behavior changed.
 - Docs: any README/docs/API updates required by the behavior change.

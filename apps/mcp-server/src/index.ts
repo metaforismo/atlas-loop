@@ -15,7 +15,7 @@ import {
   type EvidenceReportData,
   type SessionSummary
 } from "@atlas-loop/daemon-client";
-import { validateActionInput, type ActionInput, type ArtifactRef, type AtlasLoopError, type BuildRequest, type Edge, type LaunchRequest } from "@atlas-loop/protocol";
+import { validateActionInput, type ActionInput, type ArtifactRef, type AtlasLoopError, type BuildRequest, type Edge, type LaunchRequest, type TraceEvent } from "@atlas-loop/protocol";
 import { validateArtifactTarget, type ValidationReport } from "../../../scripts/verify-artifacts.ts";
 
 const DEFAULT_VIEWER_BASE_URL = "http://127.0.0.1:5173";
@@ -35,6 +35,7 @@ interface McpDaemonClient {
   getSessionSummary(sessionId: string): Promise<SessionSummary>;
   getSessionArtifactHealth?(sessionId: string): Promise<ArtifactHealth>;
   getArtifactHealth?(sessionId: string): Promise<ArtifactHealth>;
+  events(sessionId: string): Promise<TraceEvent[]>;
   performAction(sessionId: string, request: unknown): Promise<unknown>;
   screenshot(sessionId: string, reason?: string): Promise<unknown>;
   listArtifacts(sessionId: string): Promise<unknown>;
@@ -121,6 +122,18 @@ interface ArtifactHealth {
   };
 }
 
+interface EventListResult {
+  requestedSessionId: string;
+  filters: {
+    type?: string;
+    limit?: number;
+  };
+  total: number;
+  matched: number;
+  count: number;
+  events: TraceEvent[];
+}
+
 export const tools = [
   { name: "atlas.health", description: "Check local daemon readiness.", inputSchema: objectSchema([]) },
   { name: "atlas.listSessions", description: "List active and persisted local iOS Simulator sessions.", inputSchema: objectSchema([]) },
@@ -145,6 +158,11 @@ export const tools = [
       daemonUrl: { type: "string", description: "Optional daemon URL override." },
       viewerBaseUrl: { type: "string", description: "Optional viewer app base URL override." }
     })
+  },
+  {
+    name: "atlas.listEvents",
+    description: "List local daemon trace events for a session with optional exact type filtering and newest-event limiting.",
+    inputSchema: eventListSchema()
   },
   { name: "atlas.performAction", description: "Perform tap/type/swipe/wait/screenshot action.", inputSchema: performActionSchema() },
   { name: "atlas.takeScreenshot", description: "Capture a screenshot artifact.", inputSchema: objectSchema(["sessionId"], { ...sessionIdProperty(), reason: { type: "string" } }) },
@@ -274,6 +292,8 @@ async function callTool(name: string, args: Record<string, unknown>, runtime: To
       return getSessionReady(client, args, runtime);
     case "atlas.getSessionHandoff":
       return getSessionHandoff(client, args, runtime);
+    case "atlas.listEvents":
+      return listEvents(client, args);
     case "atlas.performAction":
       return client.performAction(requireString(args, "sessionId"), { action: requireActionInput(args.action) });
     case "atlas.takeScreenshot":
@@ -319,6 +339,30 @@ async function getArtifactPath(client: McpDaemonClient, args: Record<string, unk
   const path = summary.paths?.artifactDir;
   if (typeof path !== "string" || !path) throw new Error("session summary did not include paths.artifactDir");
   return { path };
+}
+
+async function listEvents(client: Pick<McpDaemonClient, "events">, args: Record<string, unknown>): Promise<EventListResult> {
+  const sessionId = requireString(args, "sessionId");
+  const type = optionalString(args, "type");
+  const limit = optionalNonNegativeInteger(args, "limit");
+  const events = await client.events(sessionId);
+  const matchingEvents = type
+    ? events.filter((event) => event.type === type)
+    : events;
+  const selectedEvents = limit === undefined
+    ? matchingEvents
+    : limit === 0
+      ? []
+      : matchingEvents.slice(-limit);
+
+  return {
+    requestedSessionId: sessionId,
+    filters: eventFilters(type, limit),
+    total: events.length,
+    matched: matchingEvents.length,
+    count: selectedEvents.length,
+    events: selectedEvents
+  };
 }
 
 async function getSessionReady(
@@ -606,6 +650,15 @@ function optionalString(args: Record<string, unknown>, key: string): string | un
   return value;
 }
 
+function optionalNonNegativeInteger(args: Record<string, unknown>, key: string): number | undefined {
+  const value = args[key];
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+    throw new Error(`${key} must be a non-negative integer`);
+  }
+  return value;
+}
+
 function optionalStringArray(args: Record<string, unknown>, key: string): string[] | undefined {
   const value = args[key];
   if (value === undefined || value === null) return undefined;
@@ -831,6 +884,15 @@ function evidenceExportSchema(): Record<string, unknown> {
   });
 }
 
+function eventListSchema(): Record<string, unknown> {
+  return objectSchema(["sessionId"], {
+    ...sessionIdProperty(),
+    type: { type: "string", description: "Exact trace event type to include." },
+    limit: { type: "integer", minimum: 0, description: "Return at most this many newest matching events." },
+    daemonUrl: { type: "string", description: "Optional daemon URL override." }
+  });
+}
+
 function verifyArtifactsSchema(): Record<string, unknown> {
   return {
     type: "object",
@@ -898,6 +960,13 @@ function normalizedNumberSchema(): Record<string, unknown> {
 
 function objectSchema(required: string[], properties: Record<string, unknown> = {}): Record<string, unknown> {
   return { type: "object", properties, required, additionalProperties: false };
+}
+
+function eventFilters(type: string | undefined, limit: number | undefined): EventListResult["filters"] {
+  const filters: EventListResult["filters"] = {};
+  if (type !== undefined) filters.type = type;
+  if (limit !== undefined) filters.limit = limit;
+  return filters;
 }
 
 function normalizeToolError(error: unknown): AtlasLoopError {

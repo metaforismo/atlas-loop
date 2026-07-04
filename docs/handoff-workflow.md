@@ -84,6 +84,22 @@ artifact references, so the operator can move from an action to the screenshot,
 log, or metadata file that proves what happened. The viewer stays local; the
 durable source of truth remains `artifacts/sessions/<session-id>/`.
 
+When the handoff needs exact trace JSON rather than visual correlation, read
+events through the daemon route, CLI wrapper, or MCP tool:
+
+```sh
+curl -s "http://127.0.0.1:4317/v1/sessions/latest/events"
+atlas-loop events list --session latest --type action.completed --limit 20
+```
+
+Use the viewer timeline for human "what happened?" inspection, especially when
+the proof depends on seeing the screenshot, artifact list, action status, and
+health warnings together. Use raw events for agent or script inspection,
+especially when the proof depends on exact event ordering, event counts,
+action ids, or payload fields from `trace.jsonl`. MCP clients can call
+`atlas.listEvents` with the same `sessionId`, optional exact `type`, and
+optional newest-event `limit`.
+
 Export local evidence for review or manual archival:
 
 ```sh

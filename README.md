@@ -19,6 +19,8 @@ runtime dependencies.
 - Disk-backed session discovery after daemon restarts.
 - Timeline and artifact navigation that correlates trace events, action results,
   screenshots, logs, metadata, and persisted artifact references.
+- Read-only trace event inspection through the daemon events route for live and
+  persisted sessions.
 - Agent/operator handoff command that summarizes readiness, artifact health,
   viewer URL, blockers, and next local evidence commands.
 - Repo-owned Swift HID helper with a stable NDJSON protocol.
@@ -88,6 +90,23 @@ action to the screenshots, logs, or metadata produced by that action. When a
 daemon restarts, disk-backed sessions remain inspectable by id or `latest`, but
 they are evidence-only and cannot receive new build, launch, screenshot, or
 input commands.
+
+Use the viewer timeline when a human needs to correlate actions with
+screenshots, logs, metadata, artifact health, and the current app image in one
+local UI. Use the raw event/trace surface when an agent, script, or reviewer
+needs exact JSON events, event counts, action ids, or ordering independent of
+the visual timeline:
+
+```bash
+curl -s "http://127.0.0.1:4317/v1/sessions/latest/events"
+npm run cli -- events list --session latest --type action.completed --limit 20
+```
+
+That route is read-only, accepts concrete session ids or `latest`, and reads
+the local `trace.jsonl` through the daemon. The TypeScript daemon client has
+`events(sessionId)` for internal callers, the CLI exposes `events list`, and
+the MCP server exposes `atlas.listEvents` for agents that need structured,
+read-only trace inspection.
 
 ## Agent Handoff Quick Path
 
@@ -160,6 +179,7 @@ atlas-loop artifacts health --session <id|latest>
 atlas-loop artifacts verify --session <id>
 atlas-loop artifacts verify --path <dir>
 atlas-loop artifacts open --session <id> [--latest-screenshot]
+atlas-loop events list --session <id|latest> [--type action.completed] [--limit 20]
 atlas-loop evidence --session <id>
 atlas-loop evidence report --session <id> [--out report.md]
 atlas-loop evidence export --session <id> --out <dir>
@@ -182,10 +202,12 @@ npm run mcp
 
 The MCP server lists its tool surface without requiring a daemon process. Most
 runtime calls, including `atlas.createSession`, `atlas.performAction`,
-`atlas.build`, `atlas.install`, `atlas.launch`, `atlas.listArtifacts`,
-`atlas.getArtifactPath`, `atlas.getLatestScreenshotPath`, and
-`atlas.getArtifactHealth`, and `atlas.getViewerUrl`, forward to the local
-daemon at `ATLAS_LOOP_DAEMON_URL` or `http://127.0.0.1:4317` by default.
+`atlas.takeScreenshot`, `atlas.build`, `atlas.install`, `atlas.launch`,
+`atlas.listArtifacts`, `atlas.getArtifactPath`,
+`atlas.getLatestScreenshotPath`, `atlas.getArtifactHealth`, and
+`atlas.getViewerUrl`, forward to the local daemon at `ATLAS_LOOP_DAEMON_URL` or
+`http://127.0.0.1:4317` by default. `atlas.listEvents` returns structured,
+read-only trace events for agent handoffs and audits.
 `atlas.getArtifactHealth` validates the daemon-resolved local artifact
 directory for one readable session, including persisted sessions discovered
 after a restart. It does not upload artifacts. `atlas.verifyArtifacts`
@@ -280,6 +302,14 @@ npm run cli -- evidence export --session <session-id> --out artifacts/exports/<s
 The viewer URL can point at a concrete session id or `latest`. Persisted
 sessions are evidence for inspection only: build, install, launch, coordinate
 actions, screenshots, and session stop still require a live in-memory session.
+For a raw event read, use the daemon events route, CLI event wrapper, or MCP
+event tool:
+
+```bash
+curl -s "http://127.0.0.1:4317/v1/sessions/<session-id>/events"
+npm run cli -- events list --session <session-id> --type action.completed --limit 20
+```
+
 `evidence report` writes a local Markdown summary that can be pasted into a PR,
 issue, or debugging note without uploading screenshots or logs anywhere.
 `evidence export` creates a local copy of the session artifact directory and
