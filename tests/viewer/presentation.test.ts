@@ -110,7 +110,7 @@ describe("viewer presentation helpers", () => {
         { label: "ID", value: "shot-login", mono: true },
         { label: "Session", value: "session_1", mono: true },
         { label: "Path", value: "screenshots/login.png", mono: true },
-        { label: "SHA-256", value: "abcdef123456...34567890", mono: true },
+        { label: "SHA-256", value: "abcdef1234567890abcdef1234567890", mono: true },
         { label: "Metadata", value: "actionId, screen" }
       ])
     );

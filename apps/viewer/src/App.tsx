@@ -407,7 +407,7 @@ export function App() {
             </span>
           </button>
 
-          <div className="session-browser-list" role="list">
+          <div className="session-browser-list">
             <SessionBrowserContent
               health={health}
               sessions={sessions}
@@ -630,7 +630,7 @@ function SessionBrowserContent({
   }
 
   return (
-    <>
+    <div role="list">
       {sessions.map((listedSession) => (
         <SessionBrowserRow
           key={listedSession.id}
@@ -639,7 +639,7 @@ function SessionBrowserContent({
           onSelect={() => onSelect(listedSession.id)}
         />
       ))}
-    </>
+    </div>
   );
 }
 
@@ -678,7 +678,7 @@ function ScreenshotView({ screenshot, emptyMessage }: { screenshot: ScreenshotSt
         : (emptyMessage ?? `Screenshot unavailable: ${screenshot.message}`);
 
   return (
-    <div className={`screenshot-placeholder ${screenshot.status}`}>
+    <div className={`screenshot-placeholder ${screenshot.status}`} role="status" aria-live="polite" aria-atomic="true">
       {screenshot.status === "loading" ? (
         <div className="screenshot-skeleton" aria-hidden="true">
           <span />
@@ -801,5 +801,9 @@ function EmptyState({ title, detail, horizontal = false, compact = false }: { ti
 }
 
 function ErrorNotice({ message, compact = false }: { message: string; compact?: boolean }) {
-  return <p className={`inline-error ${compact ? "compact" : ""}`}>{message}</p>;
+  return (
+    <p className={`inline-error ${compact ? "compact" : ""}`} role="alert" aria-live="assertive">
+      {message}
+    </p>
+  );
 }

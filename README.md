@@ -93,6 +93,7 @@ atlas-loop artifacts latest-screenshot --session <id>
 atlas-loop artifacts path --session <id>
 atlas-loop artifacts open --session <id> [--latest-screenshot]
 atlas-loop evidence --session <id>
+atlas-loop evidence report --session <id> [--out report.md]
 atlas-loop viewer url --session <id>
 atlas-loop viewer open --session <id> [--launch]
 atlas-loop session stop --session <id>
@@ -167,11 +168,14 @@ npm run cli -- session status --session latest
 npm run cli -- artifacts path --session <session-id>
 npm run cli -- artifacts open --session <session-id>
 npm run cli -- viewer url --session <session-id>
+npm run cli -- evidence report --session <session-id> --out artifacts/report.md
 ```
 
 The viewer URL can point at a concrete session id or `latest`. Persisted
 sessions are evidence for inspection only: build, install, launch, coordinate
 actions, screenshots, and session stop still require a live in-memory session.
+`evidence report` writes a local Markdown summary that can be pasted into a PR,
+issue, or debugging note without uploading screenshots or logs anywhere.
 
 Do not commit `artifacts/`; it may contain screenshots or logs from local apps.
 
@@ -184,14 +188,15 @@ npm run verify:local
 ```
 
 This runs dependency installation when needed, TypeScript checks, unit/viewer/MCP
-tests, and artifact validation. It skips Simulator smoke unless explicitly
-enabled.
+tests, the workspace build, and artifact validation. It skips Simulator smoke
+unless explicitly enabled.
 
 Equivalent direct commands:
 
 ```bash
 npm run typecheck
 npm test
+npm run build
 npm run verify:artifacts
 ```
 

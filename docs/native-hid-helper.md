@@ -110,18 +110,20 @@ host-gated until the private backend is implemented.
 
 ## Demo App Build
 
-Set these variables when a demo app exists:
+The repo-owned deterministic demo app is used by default:
 
 ```sh
-ATLAS_LOOP_DEMO_SCHEME=Demo
-ATLAS_LOOP_DEMO_WORKSPACE=apps/demo/Demo.xcworkspace
+ATLAS_LOOP_DEMO_SCHEME=CommerceDemo
+ATLAS_LOOP_DEMO_PROJECT=apps/ios-commerce-demo/CommerceDemo.xcodeproj
 ```
 
-or:
+For another app, override the project or workspace explicitly:
 
 ```sh
-ATLAS_LOOP_DEMO_SCHEME=Demo
-ATLAS_LOOP_DEMO_PROJECT=apps/demo/Demo.xcodeproj
+ATLAS_LOOP_DEMO_SCHEME=YourScheme
+ATLAS_LOOP_DEMO_WORKSPACE=path/to/YourApp.xcworkspace
+# or
+ATLAS_LOOP_DEMO_PROJECT=path/to/YourApp.xcodeproj
 ```
 
 The destination is the booted Simulator selected by `xcrun simctl list devices booted`.

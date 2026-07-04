@@ -1,5 +1,5 @@
 import { createServer, type Server } from "node:http";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -123,6 +123,49 @@ describe("CLI agent workflow helpers", () => {
       daemonUrl,
       viewerUrl: `http://127.0.0.1:5176?daemonUrl=${encodeURIComponent(daemonUrl)}&sessionId=sess_configured`
     });
+  });
+
+  it("prints and writes Markdown evidence reports", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "atlas-loop-cli-report-"));
+    const originalCwd = process.cwd();
+    const originalLog = console.log;
+    const logged: string[] = [];
+    const server = await startFakeDaemon(() => sessionSummary("sess_report", {
+      artifactDir: "/tmp/atlas-loop/sess-report",
+      latestScreenshot: {
+        id: "artifact_report",
+        sessionId: "sess_report",
+        type: "screenshot",
+        path: "/tmp/atlas-loop/sess-report/screenshots/latest.png",
+        createdAt: "2026-07-04T12:00:00.000Z"
+      }
+    }));
+    const daemonUrl = `http://127.0.0.1:${server.port}`;
+    const reportPath = join(tempDir, "reports", "evidence.md");
+    let reportText = "";
+
+    await writeFile(join(tempDir, "atlas-loop.config.json"), JSON.stringify({ daemonUrl }, null, 2));
+    console.log = (value?: unknown) => {
+      logged.push(String(value));
+    };
+
+    try {
+      process.chdir(tempDir);
+      await expect(main(["evidence", "report", "--session", "latest", "--viewer-base-url", "http://127.0.0.1:5176/"])).resolves.toBe(0);
+      await expect(main(["evidence", "report", "--session", "latest", "--viewer-base-url", "http://127.0.0.1:5176/", "--out", reportPath])).resolves.toBe(0);
+      reportText = await readFile(reportPath, "utf8");
+    } finally {
+      process.chdir(originalCwd);
+      console.log = originalLog;
+      await server.close();
+      await rm(tempDir, { recursive: true, force: true });
+    }
+
+    expect(logged[0]).toContain("# Atlas Loop Evidence Report");
+    expect(logged[0]).toContain("sess_report");
+    const writeResult = JSON.parse(logged[1]);
+    expect(writeResult).toMatchObject({ ok: true, reportPath, sessionId: "sess_report" });
+    expect(reportText).toContain("Latest screenshot");
   });
 });
 

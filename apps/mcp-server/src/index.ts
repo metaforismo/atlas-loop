@@ -3,7 +3,15 @@ import { createInterface } from "node:readline";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { loadConfig as loadAtlasLoopConfig } from "@atlas-loop/config";
-import { DaemonClient, DaemonClientError } from "@atlas-loop/daemon-client";
+import {
+  buildEvidenceMarkdownReport,
+  type CompactEvidenceSummary,
+  DaemonClient,
+  DaemonClientError,
+  evidenceReportDataFromSessionSummary,
+  type EvidenceReportData,
+  type SessionSummary
+} from "@atlas-loop/daemon-client";
 import type { ArtifactRef, AtlasLoopError } from "@atlas-loop/protocol";
 
 const DEFAULT_VIEWER_BASE_URL = "http://127.0.0.1:5173";
@@ -20,7 +28,7 @@ interface McpDaemonClient {
   listSessions(): Promise<unknown>;
   createSession(args: Record<string, unknown>): Promise<unknown>;
   getSession(sessionId: string): Promise<unknown>;
-  getSessionSummary(sessionId: string): Promise<McpSessionSummary>;
+  getSessionSummary(sessionId: string): Promise<SessionSummary>;
   performAction(sessionId: string, request: unknown): Promise<unknown>;
   screenshot(sessionId: string, reason?: string): Promise<unknown>;
   listArtifacts(sessionId: string): Promise<unknown>;
@@ -29,12 +37,6 @@ interface McpDaemonClient {
   build(sessionId: string, request: unknown): Promise<unknown>;
   install(sessionId: string, request: unknown): Promise<unknown>;
   launch(sessionId: string, request: unknown): Promise<unknown>;
-}
-
-interface McpSessionSummary {
-  session?: { id?: unknown };
-  paths?: { artifactDir?: unknown };
-  artifacts?: { latestScreenshot?: unknown };
 }
 
 interface ToolRuntime {
@@ -68,6 +70,15 @@ export const tools = [
   {
     name: "atlas.getEvidence",
     description: "Return compact agent evidence: artifact directory, latest screenshot path, and viewer URL.",
+    inputSchema: objectSchema(["sessionId"], {
+      sessionId: { type: "string", description: "Session id or latest." },
+      daemonUrl: { type: "string", description: "Optional daemon URL override." },
+      viewerBaseUrl: { type: "string", description: "Optional viewer app base URL override." }
+    })
+  },
+  {
+    name: "atlas.getEvidenceReport",
+    description: "Return compact evidence plus a paste-ready Markdown report.",
     inputSchema: objectSchema(["sessionId"], {
       sessionId: { type: "string", description: "Session id or latest." },
       daemonUrl: { type: "string", description: "Optional daemon URL override." },
@@ -166,6 +177,8 @@ async function callTool(name: string, args: Record<string, unknown>, runtime: To
       return getViewerUrl(args, runtime);
     case "atlas.getEvidence":
       return getEvidence(client, args, runtime);
+    case "atlas.getEvidenceReport":
+      return getEvidenceReport(client, args, runtime);
     case "atlas.endSession":
       return client.endSession(requireString(args, "sessionId"));
     case "atlas.build":
@@ -196,42 +209,71 @@ async function getEvidence(
   client: McpDaemonClient,
   args: Record<string, unknown>,
   runtime: ToolRuntime
-): Promise<{
-  sessionId: string;
-  requestedSessionId: string;
-  artifactDir: string;
-  latestScreenshotPath: string | null;
-  latestScreenshot: unknown | null;
-  viewerUrl: string;
-  daemonUrl: string;
-  viewerBaseUrl: string;
-}> {
+): Promise<CompactEvidenceSummary> {
   const requestedSessionId = requireString(args, "sessionId");
   const summary = await client.getSessionSummary(requestedSessionId);
-  const sessionId = firstString(summary.session?.id) ?? requestedSessionId;
+  const sessionId = firstString(summary.session.id) ?? requestedSessionId;
   const artifactDir = firstString(summary.paths?.artifactDir);
   if (!artifactDir) throw new Error("session summary did not include paths.artifactDir");
 
   const latestScreenshot = await evidenceLatestScreenshot(client, sessionId, summary);
-  const latestScreenshotPath = latestScreenshot ? requireArtifactPath(latestScreenshot) : null;
+  if (latestScreenshot) requireArtifactPath(latestScreenshot);
   const viewer = await getViewerUrl({ ...args, sessionId }, runtime);
 
   return {
     sessionId,
     requestedSessionId,
     artifactDir,
-    latestScreenshotPath,
-    latestScreenshot,
+    latestScreenshotPath: latestScreenshot ? requireArtifactPath(latestScreenshot) : null,
+    latestScreenshot: latestScreenshot as ArtifactRef | null,
     viewerUrl: viewer.url,
     daemonUrl: viewer.daemonUrl,
     viewerBaseUrl: viewer.viewerBaseUrl
   };
 }
 
+async function getEvidenceReport(
+  client: McpDaemonClient,
+  args: Record<string, unknown>,
+  runtime: ToolRuntime
+): Promise<{ evidence: EvidenceReportData; report: string }> {
+  const evidence = await getEvidenceReportData(client, args, runtime);
+  return {
+    evidence,
+    report: buildEvidenceMarkdownReport(evidence)
+  };
+}
+
+async function getEvidenceReportData(
+  client: McpDaemonClient,
+  args: Record<string, unknown>,
+  runtime: ToolRuntime
+): Promise<EvidenceReportData> {
+  const requestedSessionId = requireString(args, "sessionId");
+  const summary = await client.getSessionSummary(requestedSessionId);
+  const sessionId = firstString(summary.session.id) ?? requestedSessionId;
+  const artifactDir = firstString(summary.paths?.artifactDir);
+  if (!artifactDir) throw new Error("session summary did not include paths.artifactDir");
+  const latestScreenshot = await evidenceLatestScreenshot(client, sessionId, summary);
+  if (latestScreenshot) requireArtifactPath(latestScreenshot);
+  const viewer = await getViewerUrl({ ...args, sessionId }, runtime);
+
+  return evidenceReportDataFromSessionSummary({
+    ...summary,
+    session: { ...summary.session, id: sessionId }
+  }, {
+    requestedSessionId,
+    daemonUrl: viewer.daemonUrl,
+    viewerBaseUrl: viewer.viewerBaseUrl,
+    viewerUrl: viewer.url,
+    latestScreenshot: latestScreenshot as ArtifactRef | null
+  });
+}
+
 async function evidenceLatestScreenshot(
   client: McpDaemonClient,
   sessionId: string,
-  summary: McpSessionSummary
+  summary: SessionSummary
 ): Promise<unknown | null> {
   const summaryScreenshot = summary.artifacts?.latestScreenshot;
   if (artifactPath(summaryScreenshot)) return summaryScreenshot;

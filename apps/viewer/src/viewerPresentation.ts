@@ -166,7 +166,7 @@ export function artifactDetailRows(artifact: ArtifactRef): ArtifactDetailRow[] {
   ];
 
   if (artifact.sessionId) rows.splice(1, 0, { label: "Session", value: artifact.sessionId, mono: true });
-  if (artifact.sha256) rows.push({ label: "SHA-256", value: shortenHash(artifact.sha256), mono: true });
+  if (artifact.sha256) rows.push({ label: "SHA-256", value: artifact.sha256, mono: true });
 
   const metadataKeys = artifact.metadata ? Object.keys(artifact.metadata).sort() : [];
   if (metadataKeys.length > 0) {
@@ -269,9 +269,4 @@ function stringifyMetadata(metadata: ArtifactRef["metadata"]): string | undefine
   } catch {
     return Object.keys(metadata).join(" ");
   }
-}
-
-function shortenHash(value: string): string {
-  if (value.length <= 24) return value;
-  return `${value.slice(0, 12)}...${value.slice(-8)}`;
 }

@@ -21,7 +21,8 @@ Runs the fast local verification path used by CI:
   2. npm run typecheck
   3. npm test
   4. npm run test:viewer when viewer tests are present
-  5. npm run verify:artifacts
+  5. npm run build
+  6. npm run verify:artifacts
 
 iOS Simulator smoke is host-gated and off by default for CI. Enable it with
 --smoke-ios or ATLAS_LOOP_RUN_IOS_SMOKE=1 on a macOS/Xcode host with a booted
@@ -68,6 +69,9 @@ if [[ -n "$(find tests/viewer -type f \( -name '*.test.ts' -o -name '*.test.tsx'
 else
   echo "[verify-local] no viewer tests found; skipping npm run test:viewer"
 fi
+
+echo "[verify-local] npm run build"
+npm run build
 
 echo "[verify-local] npm run verify:artifacts"
 npm run verify:artifacts

@@ -1,11 +1,20 @@
 #!/usr/bin/env tsx
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createSimulator } from "@atlas-loop/simulator";
 import { loadConfig } from "@atlas-loop/config";
-import { DaemonClient, DaemonClientError, type SessionSummary } from "@atlas-loop/daemon-client";
+import {
+  buildEvidenceMarkdownReport,
+  type CompactEvidenceSummary,
+  DaemonClient,
+  DaemonClientError,
+  evidenceReportDataFromSessionSummary,
+  type EvidenceReportData,
+  type SessionSummary
+} from "@atlas-loop/daemon-client";
 import { startDaemonServer } from "../../daemon/src/server.ts";
 import type { ActionInput, ArtifactRef } from "@atlas-loop/protocol";
 
@@ -15,17 +24,6 @@ const DEFAULT_VIEWER_BASE_URL = "http://127.0.0.1:5173";
 interface EvidenceClient {
   getSessionSummary(sessionId: string): Promise<SessionSummary>;
   latestScreenshot(sessionId: string): Promise<ArtifactRef>;
-}
-
-export interface EvidenceSummary {
-  sessionId: string;
-  requestedSessionId: string;
-  artifactDir: string;
-  latestScreenshotPath: string | null;
-  latestScreenshot: ArtifactRef | null;
-  viewerUrl: string;
-  daemonUrl: string;
-  viewerBaseUrl: string;
 }
 
 export async function main(args: Args): Promise<number> {
@@ -163,6 +161,15 @@ export async function main(args: Args): Promise<number> {
 
   if (command === "evidence") {
     const viewerBaseUrl = stringFlag(flags, "viewer-base-url") ?? DEFAULT_VIEWER_BASE_URL;
+    if (subcommand === "report" || stringFlag(flags, "_0") === "report") {
+      const evidence = await buildEvidenceReportData(client, {
+        sessionId: requireFlag(flags, "session"),
+        daemonUrl,
+        viewerBaseUrl
+      });
+      await outputEvidenceReport(evidence, flags);
+      return 0;
+    }
     printJson(await buildEvidenceSummary(client, {
       sessionId: requireFlag(flags, "session"),
       daemonUrl,
@@ -194,7 +201,7 @@ export async function resolveDaemonUrl(flags: Map<string, string | boolean>): Pr
 export async function buildEvidenceSummary(
   client: EvidenceClient,
   params: { sessionId: string; daemonUrl: string; viewerBaseUrl?: string }
-): Promise<EvidenceSummary> {
+): Promise<CompactEvidenceSummary> {
   const summary = await client.getSessionSummary(params.sessionId);
   const sessionId = summary.session.id;
   const latestScreenshot = summary.artifacts.latestScreenshot ?? await tryLatestScreenshot(client, sessionId);
@@ -209,6 +216,43 @@ export async function buildEvidenceSummary(
     daemonUrl: params.daemonUrl,
     viewerBaseUrl
   };
+}
+
+export async function buildEvidenceReportData(
+  client: EvidenceClient,
+  params: { sessionId: string; daemonUrl: string; viewerBaseUrl?: string }
+): Promise<EvidenceReportData> {
+  const summary = await client.getSessionSummary(params.sessionId);
+  const sessionId = summary.session.id;
+  const latestScreenshot = summary.artifacts.latestScreenshot ?? await tryLatestScreenshot(client, sessionId);
+  const viewerBaseUrl = trimTrailingSlash(params.viewerBaseUrl ?? DEFAULT_VIEWER_BASE_URL);
+  return evidenceReportDataFromSessionSummary(summary, {
+    requestedSessionId: params.sessionId,
+    daemonUrl: params.daemonUrl,
+    viewerBaseUrl,
+    viewerUrl: buildViewerUrl({ daemonUrl: params.daemonUrl, sessionId, viewerBaseUrl }),
+    latestScreenshot
+  });
+}
+
+async function outputEvidenceReport(evidence: EvidenceReportData, flags: Map<string, string | boolean>): Promise<void> {
+  const report = buildEvidenceMarkdownReport(evidence);
+  const outPath = stringFlag(flags, "out");
+  if (!outPath) {
+    console.log(report.trimEnd());
+    return;
+  }
+
+  const reportPath = resolve(outPath);
+  await mkdir(dirname(reportPath), { recursive: true });
+  await writeFile(reportPath, report, "utf8");
+  printJson({
+    ok: true,
+    reportPath,
+    sessionId: evidence.sessionId,
+    viewerUrl: evidence.viewerUrl,
+    latestScreenshotPath: evidence.latestScreenshotPath
+  });
 }
 
 async function tryLatestScreenshot(client: EvidenceClient, sessionId: string): Promise<ArtifactRef | null> {
@@ -351,6 +395,7 @@ Usage:
   atlas-loop artifacts path --session <id|latest>
   atlas-loop artifacts open --session <id|latest> [--latest-screenshot]
   atlas-loop evidence --session <id|latest>
+  atlas-loop evidence report --session <id|latest> [--out report.md]
   atlas-loop viewer url --session <id|latest>
   atlas-loop viewer open --session <id|latest> [--launch]
 

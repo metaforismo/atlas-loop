@@ -105,6 +105,7 @@ Recommended additional tool names:
 - `atlas.getLatestScreenshotPath`
 - `atlas.getViewerUrl`
 - `atlas.getEvidence`
+- `atlas.getEvidenceReport`
 
 Tool calls should return structured JSON content:
 

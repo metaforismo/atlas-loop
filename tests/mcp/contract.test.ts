@@ -26,7 +26,8 @@ describe("MCP contract documentation", () => {
       "atlas.getArtifactPath",
       "atlas.getLatestScreenshotPath",
       "atlas.getViewerUrl",
-      "atlas.getEvidence"
+      "atlas.getEvidence",
+      "atlas.getEvidenceReport"
     ]));
     expect(tools.find((tool) => tool.name === "atlas.listSessions")?.description).toContain("active and persisted");
   });
@@ -181,6 +182,48 @@ describe("MCP contract documentation", () => {
     } finally {
       await server.close();
     }
+  });
+
+  it("returns a Markdown report without changing the compact evidence tool", async () => {
+    const artifact = {
+      id: "artifact_report",
+      sessionId: "sess_report",
+      type: "screenshot",
+      path: "/tmp/atlas-loop/sess-report/screenshots/latest.png",
+      createdAt: "2026-07-04T12:00:00.000Z"
+    };
+
+    const result = await callToolWithEnvelope("atlas.getEvidenceReport", { sessionId: "latest" }, {
+      client: {
+        getSessionSummary: async () => ({
+          session: {
+            id: "sess_report",
+            status: "ended",
+            createdAt: "2026-07-04T12:00:00.000Z",
+            updatedAt: "2026-07-04T12:00:01.000Z"
+          },
+          paths: { artifactDir: "/tmp/atlas-loop/sess-report" },
+          artifacts: { total: 1, byType: { screenshot: 1 }, latestScreenshot: artifact },
+          events: { total: 3 },
+          storage: { source: "disk", artifactBacked: true, warnings: [] }
+        })
+      } as never,
+      loadConfig: async () => ({ daemonUrl: "http://127.0.0.1:4317" }),
+      viewerBaseUrl: "http://127.0.0.1:5173/"
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      data: {
+        evidence: {
+          sessionId: "sess_report",
+          requestedSessionId: "latest",
+          artifactTotal: 1,
+          eventTotal: 3
+        },
+        report: expect.stringContaining("# Atlas Loop Evidence Report")
+      }
+    });
   });
 
   it("keeps evidence available when the session has no screenshots yet", async () => {

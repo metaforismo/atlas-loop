@@ -897,6 +897,10 @@ h2 {
   gap: 8px;
 }
 
+.artifact-detail-head > div {
+  min-width: 0;
+}
+
 .artifact-type {
   color: var(--accent);
   font-size: 10px;
