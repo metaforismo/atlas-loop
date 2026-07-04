@@ -31,10 +31,46 @@ export interface PersistedSessionRecord {
   warnings: PersistedSessionWarning[];
 }
 
+export type ExportSessionArtifactsOptions =
+  | { destinationDir: string; outputDir?: never }
+  | { destinationDir?: never; outputDir: string };
+
+export interface ExportedSessionFile {
+  path: string;
+  sizeBytes: number;
+  sha256: string;
+}
+
+export interface SessionArtifactExportMetadata {
+  schemaVersion: "atlas-loop.export.v1";
+  sessionId: string;
+  sourceSessionDir: string;
+  exportedAt: string;
+  fileCount: number;
+  byteCount: number;
+  files: ExportedSessionFile[];
+}
+
+export interface ExportSessionArtifactsResult {
+  outputDir: string;
+  metadataPath: string;
+  metadata: SessionArtifactExportMetadata;
+}
+
 interface ArtifactCandidate {
   artifact: unknown;
   sourcePath: string;
   metadata?: Record<string, unknown>;
+}
+
+interface ExportSourceFile {
+  sourcePath: string;
+  relativePath: string;
+}
+
+interface ExportSourceTree {
+  directories: string[];
+  files: ExportSourceFile[];
 }
 
 const sessionStatuses = new Set<Session["status"]>([
@@ -112,6 +148,47 @@ export async function readPersistedSession(artifactRoot: string, sessionId: stri
   if (!rootStat?.isDirectory() || rootStat.isSymbolicLink()) return undefined;
 
   return readPersistedSessionDir(root, await realpath(root), join(root, sessionId), sessionId);
+}
+
+export async function exportSessionArtifacts(
+  artifactRoot: string,
+  sessionId: string,
+  options: ExportSessionArtifactsOptions
+): Promise<ExportSessionArtifactsResult> {
+  const root = resolve(artifactRoot);
+  const record = await readPersistedSession(root, sessionId);
+  if (!record) {
+    throw new Error(`session ${sessionId} was not found in ${root}`);
+  }
+
+  const outputDir = resolveExportOutputDir(record.session.id, options);
+  await prepareExportOutputDir(root, record.layout.sessionPath, outputDir);
+
+  const sourceSessionDir = record.layout.sessionPath;
+  const sourceSessionReal = await realpath(sourceSessionDir);
+  const sourceTree = await collectExportSourceTree(sourceSessionDir, sourceSessionReal);
+  for (const directory of sourceTree.directories) {
+    await mkdir(join(outputDir, directory), { recursive: true });
+  }
+
+  const files: ExportedSessionFile[] = [];
+  for (const file of sourceTree.files) {
+    files.push(await exportSourceFile(file, sourceSessionDir, outputDir));
+  }
+
+  const metadata: SessionArtifactExportMetadata = {
+    schemaVersion: "atlas-loop.export.v1",
+    sessionId: record.session.id,
+    sourceSessionDir,
+    exportedAt: nowIso(),
+    fileCount: files.length,
+    byteCount: files.reduce((total, file) => total + file.sizeBytes, 0),
+    files
+  };
+  const metadataPath = join(outputDir, "export.json");
+  await writeJson(metadataPath, metadata);
+
+  return { outputDir, metadataPath, metadata };
 }
 
 export async function writeSession(layout: SessionArtifacts, session: Session): Promise<void> {
@@ -247,6 +324,306 @@ function sessionLayoutFromPath(root: string, sessionPath: string): SessionArtifa
     videoDir: join(sessionPath, "video"),
     buildDir: join(sessionPath, "build")
   };
+}
+
+function resolveExportOutputDir(sessionId: string, options: ExportSessionArtifactsOptions): string {
+  const destinationDir = "destinationDir" in options ? options.destinationDir : undefined;
+  const outputDir = "outputDir" in options ? options.outputDir : undefined;
+  if (Boolean(destinationDir) === Boolean(outputDir)) {
+    throw new Error("provide exactly one of destinationDir or outputDir when exporting session artifacts");
+  }
+  return resolve(outputDir ?? join(destinationDir as string, sessionId));
+}
+
+async function prepareExportOutputDir(artifactRoot: string, sourceSessionDir: string, outputDir: string): Promise<void> {
+  if (isPathInsideOrEqual(artifactRoot, outputDir)) {
+    throw new Error(`export output directory ${outputDir} must be outside artifact root ${artifactRoot}`);
+  }
+  if (isPathInsideOrEqual(outputDir, sourceSessionDir)) {
+    throw new Error(`export output directory ${outputDir} must not contain the source session ${sourceSessionDir}`);
+  }
+
+  const [rootReal, sourceReal] = await Promise.all([
+    realpath(artifactRoot),
+    realpath(sourceSessionDir)
+  ]);
+  const outputStat = await tryLstat(outputDir);
+  if (outputStat) {
+    if (!outputStat.isDirectory() || outputStat.isSymbolicLink()) {
+      throw new Error(`export output directory ${outputDir} must be a regular directory`);
+    }
+    const entries = await readdir(outputDir);
+    if (entries.length > 0) {
+      throw new Error(`export output directory ${outputDir} must be empty`);
+    }
+  } else {
+    const parentReal = await realpathNearestExistingOutputParent(outputDir);
+    if (isPathInsideOrEqual(rootReal, parentReal)) {
+      throw new Error(`export output directory ${outputDir} must be outside artifact root ${artifactRoot}`);
+    }
+    await mkdir(outputDir, { recursive: true });
+  }
+
+  const outputReal = await realpath(outputDir);
+  if (isPathInsideOrEqual(rootReal, outputReal)) {
+    throw new Error(`export output directory ${outputDir} must be outside artifact root ${artifactRoot}`);
+  }
+  if (isPathInsideOrEqual(outputReal, sourceReal)) {
+    throw new Error(`export output directory ${outputDir} must not contain the source session ${sourceSessionDir}`);
+  }
+}
+
+async function realpathNearestExistingOutputParent(outputDir: string): Promise<string> {
+  let current = dirname(outputDir);
+  while (true) {
+    const currentStat = await tryLstat(current);
+    if (currentStat) {
+      const currentReal = await realpath(current);
+      const currentRealStat = await lstat(currentReal);
+      if (!currentRealStat.isDirectory()) {
+        throw new Error(`export output parent directory ${current} must be a directory`);
+      }
+      return currentReal;
+    }
+    const next = dirname(current);
+    if (next === current) {
+      throw new Error(`export output parent directory ${dirname(outputDir)} does not exist`);
+    }
+    current = next;
+  }
+}
+
+async function collectExportSourceTree(sourceSessionDir: string, sourceSessionReal: string): Promise<ExportSourceTree> {
+  const tree: ExportSourceTree = { directories: [], files: [] };
+  await collectExportDirectory(sourceSessionDir, "", sourceSessionReal, new Set([sourceSessionReal]), tree);
+  tree.directories.sort((left, right) => left.localeCompare(right));
+  tree.files.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
+  return tree;
+}
+
+async function collectExportDirectory(
+  currentDir: string,
+  relativeDir: string,
+  sourceSessionReal: string,
+  visitedDirectories: Set<string>,
+  tree: ExportSourceTree
+): Promise<void> {
+  const entries = (await readdir(currentDir, { withFileTypes: true })).sort((left, right) => left.name.localeCompare(right.name));
+  for (const entry of entries) {
+    const sourcePath = join(currentDir, entry.name);
+    const relativePath = toPortablePath(relativeDir ? join(relativeDir, entry.name) : entry.name);
+    if (relativePath === "export.json") continue;
+
+    const sourceStat = await lstat(sourcePath);
+    if (sourceStat.isSymbolicLink()) {
+      await collectExportSymlink(sourcePath, relativePath, sourceSessionReal, visitedDirectories, tree);
+    } else if (sourceStat.isDirectory()) {
+      const realDirectory = await realpath(sourcePath);
+      if (!isPathInsideOrEqual(sourceSessionReal, realDirectory)) {
+        throw new Error(`directory ${relativePath} escapes the source session`);
+      }
+      if (visitedDirectories.has(realDirectory)) {
+        throw new Error(`directory ${relativePath} creates a cycle inside the source session`);
+      }
+      visitedDirectories.add(realDirectory);
+      tree.directories.push(relativePath);
+      await collectExportDirectory(sourcePath, relativePath, sourceSessionReal, visitedDirectories, tree);
+    } else if (sourceStat.isFile()) {
+      tree.files.push({ sourcePath, relativePath });
+    } else {
+      throw new Error(`cannot export non-regular file ${relativePath}`);
+    }
+  }
+}
+
+async function collectExportSymlink(
+  sourcePath: string,
+  relativePath: string,
+  sourceSessionReal: string,
+  visitedDirectories: Set<string>,
+  tree: ExportSourceTree
+): Promise<void> {
+  const targetReal = await realpath(sourcePath);
+  if (!isPathInsideOrEqual(sourceSessionReal, targetReal)) {
+    throw new Error(`symlink ${relativePath} escapes the source session`);
+  }
+
+  const targetStat = await lstat(targetReal);
+  if (targetStat.isFile()) {
+    tree.files.push({ sourcePath: targetReal, relativePath });
+    return;
+  }
+  if (!targetStat.isDirectory()) {
+    throw new Error(`symlink ${relativePath} does not point at a regular file or directory`);
+  }
+  if (visitedDirectories.has(targetReal)) {
+    throw new Error(`symlink ${relativePath} creates a cycle inside the source session`);
+  }
+
+  visitedDirectories.add(targetReal);
+  tree.directories.push(relativePath);
+  await collectExportDirectory(targetReal, relativePath, sourceSessionReal, visitedDirectories, tree);
+}
+
+async function exportSourceFile(file: ExportSourceFile, sourceSessionDir: string, outputDir: string): Promise<ExportedSessionFile> {
+  const targetPath = join(outputDir, file.relativePath);
+  await mkdir(dirname(targetPath), { recursive: true });
+
+  if (file.relativePath === "session.json") {
+    await writeJson(targetPath, rewriteSessionRecordForExport(await readJson<unknown>(file.sourcePath), sourceSessionDir));
+  } else if (file.relativePath === "manifest.json") {
+    await writeJson(targetPath, rewriteManifestForExport(await readJson<unknown>(file.sourcePath), sourceSessionDir));
+  } else if (file.relativePath === "actions.jsonl") {
+    await writeRewrittenActionsJsonl(file.sourcePath, targetPath, sourceSessionDir);
+  } else if (file.relativePath === "trace.jsonl") {
+    await writeRewrittenTraceJsonl(file.sourcePath, targetPath, sourceSessionDir);
+  } else {
+    await copyFile(file.sourcePath, targetPath);
+  }
+
+  const targetStat = await lstat(targetPath);
+  return {
+    path: file.relativePath,
+    sizeBytes: targetStat.size,
+    sha256: await sha256File(targetPath)
+  };
+}
+
+function rewriteSessionRecordForExport(value: unknown, sourceSessionDir: string): unknown {
+  if (!isRecord(value)) return value;
+  return rewritePathReferencesForExport({ ...value, artifactDir: "." }, sourceSessionDir);
+}
+
+function rewriteManifestForExport(value: unknown, sourceSessionDir: string): unknown {
+  if (!isRecord(value)) return value;
+  const manifest = rewritePathReferencesForExport({ ...value }, sourceSessionDir);
+  if (Array.isArray(manifest.artifacts)) {
+    manifest.artifacts = manifest.artifacts.map((artifact) => rewriteArtifactRefForExport(artifact, sourceSessionDir));
+  }
+  return manifest;
+}
+
+async function writeRewrittenActionsJsonl(sourcePath: string, targetPath: string, sourceSessionDir: string): Promise<void> {
+  const text = await readFile(sourcePath, "utf8");
+  const hasTrailingNewline = text.endsWith("\n");
+  const lines = text.split(/\r?\n/);
+  if (hasTrailingNewline) lines.pop();
+
+  const rewrittenLines = lines.map((line) => {
+    if (!line.trim()) return line;
+    try {
+      return JSON.stringify(rewriteActionRecordForExport(JSON.parse(line), sourceSessionDir));
+    } catch {
+      return line;
+    }
+  });
+  await writeFile(targetPath, `${rewrittenLines.join("\n")}${hasTrailingNewline ? "\n" : ""}`, "utf8");
+}
+
+async function writeRewrittenTraceJsonl(sourcePath: string, targetPath: string, sourceSessionDir: string): Promise<void> {
+  const text = await readFile(sourcePath, "utf8");
+  const hasTrailingNewline = text.endsWith("\n");
+  const lines = text.split(/\r?\n/);
+  if (hasTrailingNewline) lines.pop();
+
+  const rewrittenLines = lines.map((line) => {
+    if (!line.trim()) return line;
+    try {
+      return JSON.stringify(rewriteTraceEventForExport(JSON.parse(line), sourceSessionDir));
+    } catch {
+      return line;
+    }
+  });
+  await writeFile(targetPath, `${rewrittenLines.join("\n")}${hasTrailingNewline ? "\n" : ""}`, "utf8");
+}
+
+function rewriteActionRecordForExport(value: unknown, sourceSessionDir: string): unknown {
+  if (!isRecord(value)) return value;
+  const record = { ...value };
+  if (isRecord(record.action)) {
+    record.action = rewriteActionForExport(record.action, sourceSessionDir);
+  }
+  if (isRecord(record.result)) {
+    const result = { ...record.result };
+    if (Array.isArray(result.artifacts)) {
+      result.artifacts = result.artifacts.map((artifact) => rewriteArtifactRefForExport(artifact, sourceSessionDir));
+    }
+    record.result = result;
+  }
+  return record;
+}
+
+function rewriteTraceEventForExport(value: unknown, sourceSessionDir: string): unknown {
+  if (!isRecord(value)) return value;
+  const event = { ...value };
+  if (isRecord(event.session)) {
+    event.session = rewriteSessionRecordForExport(event.session, sourceSessionDir);
+  }
+  if (isRecord(event.action)) {
+    event.action = rewriteActionForExport(event.action, sourceSessionDir);
+  }
+  if (isRecord(event.result)) {
+    const result = { ...event.result };
+    if (Array.isArray(result.artifacts)) {
+      result.artifacts = result.artifacts.map((artifact) => rewriteArtifactRefForExport(artifact, sourceSessionDir));
+    }
+    event.result = result;
+  }
+  if (isRecord(event.artifact)) {
+    event.artifact = rewriteArtifactRefForExport(event.artifact, sourceSessionDir);
+  }
+  return event;
+}
+
+function rewriteActionForExport(value: Record<string, unknown>, sourceSessionDir: string): Record<string, unknown> {
+  const action = { ...value };
+  if (typeof action.appPath === "string") {
+    action.appPath = portablePathForSessionReference(sourceSessionDir, action.appPath);
+  }
+  return action;
+}
+
+function rewriteArtifactRefForExport(value: unknown, sourceSessionDir: string): unknown {
+  if (!isRecord(value)) return value;
+  const artifact = { ...value };
+  if (typeof artifact.path === "string") {
+    artifact.path = portablePathForSessionReference(sourceSessionDir, artifact.path);
+  }
+  if (isRecord(artifact.metadata)) {
+    artifact.metadata = rewritePathReferencesForExport({ ...artifact.metadata }, sourceSessionDir);
+  }
+  return artifact;
+}
+
+function rewritePathReferencesForExport(value: Record<string, unknown>, sourceSessionDir: string): Record<string, unknown> {
+  for (const key of ["summaryPath", "reportPath", "proofPath", "evidenceReportPath"] as const) {
+    if (typeof value[key] === "string") {
+      value[key] = portablePathForSessionReference(sourceSessionDir, value[key]);
+    }
+  }
+
+  if (isRecord(value.proofFiles)) {
+    const proofFiles = { ...value.proofFiles };
+    for (const key of ["summary", "report", "proof", "evidenceReport"] as const) {
+      if (typeof proofFiles[key] === "string") {
+        proofFiles[key] = portablePathForSessionReference(sourceSessionDir, proofFiles[key]);
+      }
+    }
+    value.proofFiles = proofFiles;
+  }
+
+  return value;
+}
+
+function portablePathForSessionReference(sourceSessionDir: string, path: string): string {
+  const absolutePath = isAbsolute(path) ? resolve(path) : resolve(sourceSessionDir, path);
+  if (!isPathInsideOrEqual(sourceSessionDir, absolutePath)) return path;
+  const relativePath = relative(sourceSessionDir, absolutePath);
+  return relativePath ? toPortablePath(relativePath) : ".";
+}
+
+function toPortablePath(path: string): string {
+  return path.replace(/\\/g, "/");
 }
 
 async function readPersistedSessionDir(

@@ -106,6 +106,7 @@ Recommended additional tool names:
 - `atlas.getViewerUrl`
 - `atlas.getEvidence`
 - `atlas.getEvidenceReport`
+- `atlas.exportEvidence`
 
 Tool calls should return structured JSON content:
 
@@ -156,6 +157,22 @@ Action execution accepts:
 ```
 
 The daemon materializes action IDs, sequence numbers, timestamps, action results, traces, and artifact references.
+
+Evidence export accepts a session id and a local output directory:
+
+```json
+{
+  "sessionId": "latest",
+  "outDir": "artifacts/exports/sess_123"
+}
+```
+
+`atlas.exportEvidence` reads the session summary, resolves
+`paths.artifactDir` as a local filesystem directory, copies that directory into
+`outDir`, and writes `atlas-evidence-export.json` metadata into the export
+bundle. It should not call upload services or download artifact bytes from the
+daemon. The only daemon read needed is the summary call that provides local
+session and artifact paths.
 
 ## Local Safety
 

@@ -1,7 +1,9 @@
 #!/usr/bin/env tsx
 import { createInterface } from "node:readline";
-import { resolve } from "node:path";
+import { writeFile } from "node:fs/promises";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { exportSessionArtifacts } from "@atlas-loop/artifacts";
 import { loadConfig as loadAtlasLoopConfig } from "@atlas-loop/config";
 import {
   buildEvidenceMarkdownReport,
@@ -45,6 +47,25 @@ interface ToolRuntime {
   viewerBaseUrl?: string;
 }
 
+interface LocalEvidenceExportMetadata {
+  schemaVersion: "atlas-loop.evidence-export.v1";
+  sessionId: string;
+  requestedSessionId: string;
+  exportedAt: string;
+  bundleDir: string;
+  metadataPath: string;
+  artifactExportMetadataPath: string;
+  sourceArtifactDir: string;
+  localOnly: true;
+  uploaded: false;
+  artifactTotal: number;
+  fileCount: number;
+  byteCount: number;
+  latestScreenshotPath: string | null;
+  exportedLatestScreenshotPath: string | null;
+  storage: SessionSummary["storage"];
+}
+
 export const tools = [
   { name: "atlas.health", description: "Check local daemon readiness.", inputSchema: objectSchema([]) },
   { name: "atlas.listSessions", description: "List active and persisted local iOS Simulator sessions.", inputSchema: objectSchema([]) },
@@ -84,6 +105,11 @@ export const tools = [
       daemonUrl: { type: "string", description: "Optional daemon URL override." },
       viewerBaseUrl: { type: "string", description: "Optional viewer app base URL override." }
     })
+  },
+  {
+    name: "atlas.exportEvidence",
+    description: "Copy a session's local artifact directory into a local export bundle and return metadata. Does not upload artifacts.",
+    inputSchema: evidenceExportSchema()
   },
   { name: "atlas.endSession", description: "End a local session.", inputSchema: sessionIdSchema() },
   { name: "atlas.build", description: "Build an iOS app through xcodebuild.", inputSchema: buildSchema() },
@@ -179,6 +205,11 @@ async function callTool(name: string, args: Record<string, unknown>, runtime: To
       return getEvidence(client, args, runtime);
     case "atlas.getEvidenceReport":
       return getEvidenceReport(client, args, runtime);
+    case "atlas.exportEvidence":
+      return exportLocalEvidence(client, {
+        sessionId: requireString(args, "sessionId"),
+        outDir: requireString(args, "outDir")
+      });
     case "atlas.endSession":
       return client.endSession(requireString(args, "sessionId"));
     case "atlas.build":
@@ -268,6 +299,48 @@ async function getEvidenceReportData(
     viewerUrl: viewer.url,
     latestScreenshot: latestScreenshot as ArtifactRef | null
   });
+}
+
+async function exportLocalEvidence(
+  client: Pick<McpDaemonClient, "getSessionSummary">,
+  params: { sessionId: string; outDir: string }
+): Promise<LocalEvidenceExportMetadata> {
+  const summary = await client.getSessionSummary(params.sessionId);
+  const sessionId = firstString(summary.session?.id) ?? params.sessionId;
+  const artifactDir = firstString(summary.paths?.artifactDir);
+  if (!artifactDir) throw new Error("session summary did not include paths.artifactDir");
+
+  const sourceArtifactDir = resolveLocalPath(artifactDir, "session summary paths.artifactDir");
+  const exported = await exportSessionArtifacts(dirname(sourceArtifactDir), basename(sourceArtifactDir), {
+    outputDir: resolve(params.outDir)
+  });
+
+  const artifacts = summary.artifacts ?? { total: 0, byType: {} };
+  const storage: SessionSummary["storage"] = summary.storage ?? { source: "memory", artifactBacked: false, warnings: [] };
+  const latestScreenshotPath = artifacts.latestScreenshot?.path ?? artifacts.latestScreenshotPath ?? null;
+  const metadataPath = join(exported.outputDir, "atlas-evidence-export.json");
+  const metadata: LocalEvidenceExportMetadata = {
+    schemaVersion: "atlas-loop.evidence-export.v1",
+    sessionId,
+    requestedSessionId: params.sessionId,
+    exportedAt: exported.metadata.exportedAt,
+    bundleDir: exported.outputDir,
+    metadataPath,
+    artifactExportMetadataPath: exported.metadataPath,
+    sourceArtifactDir: exported.metadata.sourceSessionDir,
+    localOnly: true,
+    uploaded: false,
+    artifactTotal: artifacts.total ?? 0,
+    fileCount: exported.metadata.fileCount,
+    byteCount: exported.metadata.byteCount,
+    latestScreenshotPath,
+    exportedLatestScreenshotPath: latestScreenshotPath
+      ? mapSourcePathToBundle(sourceArtifactDir, exported.outputDir, latestScreenshotPath)
+      : null,
+    storage
+  };
+  await writeFile(metadataPath, `${JSON.stringify(metadata, null, 2)}\n`, "utf8");
+  return metadata;
 }
 
 async function evidenceLatestScreenshot(
@@ -361,6 +434,18 @@ function requireArtifactPath(artifact: unknown): string {
   const path = artifactPath(artifact);
   if (!path) throw new Error("latest screenshot did not include a path");
   return path;
+}
+
+function resolveLocalPath(path: string, label: string): string {
+  if (!path || path.includes("://")) throw new Error(`${label} must be a local filesystem path`);
+  return resolve(path);
+}
+
+function mapSourcePathToBundle(sourceDir: string, bundleDir: string, sourcePath: string): string | null {
+  const resolvedPath = resolve(sourcePath);
+  const relativePath = relative(sourceDir, resolvedPath);
+  if (relativePath === "" || relativePath.startsWith("..") || isAbsolute(relativePath)) return null;
+  return join(bundleDir, relativePath);
 }
 
 function isNotFoundError(error: unknown): boolean {
@@ -504,6 +589,13 @@ function launchSchema(): Record<string, unknown> {
     bundleId: { type: "string" },
     arguments: { type: "array", items: { type: "string" } },
     environment: { type: "object", additionalProperties: { type: "string" } }
+  });
+}
+
+function evidenceExportSchema(): Record<string, unknown> {
+  return objectSchema(["sessionId", "outDir"], {
+    ...sessionIdProperty(),
+    outDir: { type: "string", description: "Local directory where the export bundle will be written." }
   });
 }
 

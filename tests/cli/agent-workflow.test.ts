@@ -1,5 +1,5 @@
 import { createServer, type Server } from "node:http";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -166,6 +166,67 @@ describe("CLI agent workflow helpers", () => {
     const writeResult = JSON.parse(logged[1]);
     expect(writeResult).toMatchObject({ ok: true, reportPath, sessionId: "sess_report" });
     expect(reportText).toContain("Latest screenshot");
+  });
+
+  it("exports local evidence bundles from summary artifact paths without artifact downloads", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "atlas-loop-cli-export-"));
+    const artifactDir = join(tempDir, "sessions", "sess_export");
+    const screenshotsDir = join(artifactDir, "screenshots");
+    const exportDir = join(tempDir, "export-bundle");
+    const originalCwd = process.cwd();
+    const originalLog = console.log;
+    const logged: string[] = [];
+    const requestedPaths: string[] = [];
+    const latestScreenshot: ArtifactRef = {
+      id: "artifact_export",
+      sessionId: "sess_export",
+      type: "screenshot",
+      path: join(screenshotsDir, "latest.png"),
+      createdAt: "2026-07-04T12:00:00.000Z"
+    };
+
+    await mkdir(screenshotsDir, { recursive: true });
+    await writeFile(join(artifactDir, "session.json"), JSON.stringify(sessionRecord("sess_export", artifactDir), null, 2));
+    await writeFile(join(artifactDir, "manifest.json"), JSON.stringify({ artifacts: [latestScreenshot] }, null, 2));
+    await writeFile(join(artifactDir, "trace.jsonl"), "");
+    await writeFile(latestScreenshot.path, "png-bytes");
+
+    const server = await startFakeDaemon((requestPath) => {
+      requestedPaths.push(requestPath);
+      return sessionSummary("sess_export", { artifactDir, latestScreenshot });
+    });
+    const daemonUrl = `http://127.0.0.1:${server.port}`;
+
+    await writeFile(join(tempDir, "atlas-loop.config.json"), JSON.stringify({ daemonUrl }, null, 2));
+    console.log = (value?: unknown) => {
+      logged.push(String(value));
+    };
+
+    try {
+      process.chdir(tempDir);
+      await expect(main(["evidence", "export", "--session", "latest", "--out", exportDir])).resolves.toBe(0);
+      expect(requestedPaths).toEqual(["/sessions/latest/summary"]);
+      const output = JSON.parse(logged[0]);
+      expect(output).toMatchObject({
+        schemaVersion: "atlas-loop.evidence-export.v1",
+        sessionId: "sess_export",
+        requestedSessionId: "latest",
+        bundleDir: exportDir,
+        sourceArtifactDir: artifactDir,
+        localOnly: true,
+        uploaded: false,
+        artifactTotal: 1,
+        latestScreenshotPath: latestScreenshot.path,
+        exportedLatestScreenshotPath: join(exportDir, "screenshots", "latest.png")
+      });
+      await expect(readFile(join(exportDir, "screenshots", "latest.png"), "utf8")).resolves.toBe("png-bytes");
+      await expect(readFile(join(exportDir, "atlas-evidence-export.json"), "utf8")).resolves.toContain("sess_export");
+    } finally {
+      process.chdir(originalCwd);
+      console.log = originalLog;
+      await server.close();
+      await rm(tempDir, { recursive: true, force: true });
+    }
   });
 
   it("serializes primitive action commands to daemon action requests", async () => {

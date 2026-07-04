@@ -11,11 +11,24 @@ import {
   isDisplayableScreenshot,
   markScreenshotFetchFailed,
   mergeScreenshotFetchResult,
+  performViewerAction,
   screenshotArtifactIdentity,
   screenshotObjectUrl
 } from "./api.js";
 import { buildTimelineItems, mergeTraceEvents, sortArtifacts } from "./timeline.js";
-import type { ArtifactRef, HealthState, ScreenshotState, Session, SessionListItem, SessionSummary, TraceEvent, ViewerParams } from "./types.js";
+import type {
+  ActionResultLike,
+  ArtifactRef,
+  HealthState,
+  ScreenshotState,
+  Session,
+  SessionListItem,
+  SessionSummary,
+  TraceEvent,
+  ViewerActionDraft,
+  ViewerActionKind,
+  ViewerParams
+} from "./types.js";
 import {
   artifactDetailRows,
   artifactDisplayName,
@@ -46,6 +59,48 @@ const TRACE_EVENT_TYPES = [
   "artifact.created",
   "error"
 ];
+
+const VIEWER_ACTION_LABELS: Record<ViewerActionKind, string> = {
+  screenshot: "Screenshot",
+  wait: "Wait",
+  tap: "Tap",
+  typeText: "Type",
+  swipe: "Swipe"
+};
+
+interface ViewerActionFormState {
+  screenshotReason: string;
+  waitDurationMs: string;
+  tapX: string;
+  tapY: string;
+  typeText: string;
+  swipeFromX: string;
+  swipeFromY: string;
+  swipeToX: string;
+  swipeToY: string;
+  swipeDurationMs: string;
+}
+
+type ViewerActionFormField = keyof ViewerActionFormState;
+
+type ViewerActionSubmitState =
+  | { status: "idle" }
+  | { status: "pending"; label: string }
+  | { status: "success"; label: string; message: string }
+  | { status: "error"; label: string; message: string };
+
+const DEFAULT_ACTION_FORM: ViewerActionFormState = {
+  screenshotReason: "",
+  waitDurationMs: "500",
+  tapX: "0.5",
+  tapY: "0.5",
+  typeText: "",
+  swipeFromX: "0.5",
+  swipeFromY: "0.82",
+  swipeToX: "0.5",
+  swipeToY: "0.18",
+  swipeDurationMs: "300"
+};
 
 function useViewerParams(): ViewerParams {
   const [params, setParams] = useState(() => readViewerParams(window.location.search));
@@ -566,6 +621,8 @@ export function App() {
           {session?.error ? <ErrorNotice message={session.error.message} compact /> : null}
         </section>
 
+        <ActionPanel params={params} selectedSessionId={selectedSessionId} />
+
         <section className="inspector-section artifact-section">
           <div className="panel-title-row">
             <h2>Artifacts</h2>
@@ -758,6 +815,242 @@ function SessionBrowserRow({ session, selected, onSelect }: { session: SessionLi
         </span>
       </button>
     </div>
+  );
+}
+
+function ActionPanel({ params, selectedSessionId }: { params: ViewerParams; selectedSessionId: string }) {
+  const [form, setForm] = useState<ViewerActionFormState>(DEFAULT_ACTION_FORM);
+  const [submitState, setSubmitState] = useState<ViewerActionSubmitState>({ status: "idle" });
+  const actionParams: ViewerParams = { ...params, sessionId: selectedSessionId };
+  const isPending = submitState.status === "pending";
+  const statusTone = actionSubmitTone(submitState);
+
+  useEffect(() => {
+    setSubmitState({ status: "idle" });
+  }, [params.daemonUrl, selectedSessionId]);
+
+  const updateField = (field: ViewerActionFormField, value: string): void => {
+    setForm((current) => ({ ...current, [field]: value }));
+  };
+
+  const submitAction = async (draft: ViewerActionDraft, label: string): Promise<void> => {
+    setSubmitState({ status: "pending", label });
+    try {
+      const result = await performViewerAction(actionParams, draft);
+      if (!result.ok) {
+        setSubmitState({ status: "error", label, message: result.error?.message ?? `${label} failed.` });
+        return;
+      }
+      setSubmitState({ status: "success", label, message: actionResultMessage(result) });
+    } catch (error) {
+      setSubmitState({ status: "error", label, message: error instanceof Error ? error.message : `${label} failed.` });
+    }
+  };
+
+  const onSubmit = (draft: ViewerActionDraft, label: string) => (event: FormEvent<HTMLFormElement>): void => {
+    event.preventDefault();
+    if (isPending) return;
+    void submitAction(draft, label);
+  };
+
+  return (
+    <section className="inspector-section action-panel" aria-label="Actions" aria-busy={isPending}>
+      <div className="panel-title-row">
+        <h2>Actions</h2>
+        <span>{selectedSessionId}</span>
+      </div>
+
+      <div className="action-panel-grid">
+        <form className="action-row" onSubmit={onSubmit({ kind: "screenshot", reason: form.screenshotReason }, VIEWER_ACTION_LABELS.screenshot)}>
+          <ActionTextInput
+            id="action-screenshot-reason"
+            label="Reason"
+            value={form.screenshotReason}
+            placeholder="manual"
+            onChange={(value) => updateField("screenshotReason", value)}
+          />
+          <ActionSubmitButton label={VIEWER_ACTION_LABELS.screenshot} pending={isPending} />
+        </form>
+
+        <form className="action-row" onSubmit={onSubmit({ kind: "wait", durationMs: form.waitDurationMs }, VIEWER_ACTION_LABELS.wait)}>
+          <ActionNumberInput
+            id="action-wait-duration"
+            label="Duration ms"
+            value={form.waitDurationMs}
+            min={0}
+            step={100}
+            onChange={(value) => updateField("waitDurationMs", value)}
+          />
+          <ActionSubmitButton label={VIEWER_ACTION_LABELS.wait} pending={isPending} />
+        </form>
+
+        <form className="action-row" onSubmit={onSubmit({ kind: "tap", x: form.tapX, y: form.tapY }, VIEWER_ACTION_LABELS.tap)}>
+          <div className="action-coordinate-pair">
+            <ActionNumberInput
+              id="action-tap-x"
+              label="X 0-1"
+              value={form.tapX}
+              min={0}
+              max={1}
+              step={0.01}
+              onChange={(value) => updateField("tapX", value)}
+            />
+            <ActionNumberInput
+              id="action-tap-y"
+              label="Y 0-1"
+              value={form.tapY}
+              min={0}
+              max={1}
+              step={0.01}
+              onChange={(value) => updateField("tapY", value)}
+            />
+          </div>
+          <ActionSubmitButton label={VIEWER_ACTION_LABELS.tap} pending={isPending} />
+        </form>
+
+        <form className="action-row" onSubmit={onSubmit({ kind: "typeText", text: form.typeText }, VIEWER_ACTION_LABELS.typeText)}>
+          <ActionTextInput
+            id="action-type-text"
+            label="Text"
+            value={form.typeText}
+            placeholder="Hello"
+            onChange={(value) => updateField("typeText", value)}
+          />
+          <ActionSubmitButton label={VIEWER_ACTION_LABELS.typeText} pending={isPending} />
+        </form>
+
+        <form
+          className="action-row action-row-wide"
+          onSubmit={onSubmit(
+            {
+              kind: "swipe",
+              from: { x: form.swipeFromX, y: form.swipeFromY },
+              to: { x: form.swipeToX, y: form.swipeToY },
+              durationMs: form.swipeDurationMs
+            },
+            VIEWER_ACTION_LABELS.swipe
+          )}
+        >
+          <div className="action-swipe-grid">
+            <ActionNumberInput
+              id="action-swipe-from-x"
+              label="From X 0-1"
+              value={form.swipeFromX}
+              min={0}
+              max={1}
+              step={0.01}
+              onChange={(value) => updateField("swipeFromX", value)}
+            />
+            <ActionNumberInput
+              id="action-swipe-from-y"
+              label="From Y 0-1"
+              value={form.swipeFromY}
+              min={0}
+              max={1}
+              step={0.01}
+              onChange={(value) => updateField("swipeFromY", value)}
+            />
+            <ActionNumberInput
+              id="action-swipe-to-x"
+              label="To X 0-1"
+              value={form.swipeToX}
+              min={0}
+              max={1}
+              step={0.01}
+              onChange={(value) => updateField("swipeToX", value)}
+            />
+            <ActionNumberInput
+              id="action-swipe-to-y"
+              label="To Y 0-1"
+              value={form.swipeToY}
+              min={0}
+              max={1}
+              step={0.01}
+              onChange={(value) => updateField("swipeToY", value)}
+            />
+            <ActionNumberInput
+              id="action-swipe-duration"
+              label="Duration ms"
+              value={form.swipeDurationMs}
+              min={0}
+              step={50}
+              onChange={(value) => updateField("swipeDurationMs", value)}
+            />
+          </div>
+          <ActionSubmitButton label={VIEWER_ACTION_LABELS.swipe} pending={isPending} />
+        </form>
+      </div>
+
+      <div className={`action-status tone-${statusTone}`} role="status" aria-live="polite" aria-atomic="true">
+        <strong>{actionStatusTitle(submitState)}</strong>
+        <span>{actionStatusMessage(submitState)}</span>
+      </div>
+    </section>
+  );
+}
+
+function ActionNumberInput({
+  id,
+  label,
+  value,
+  min,
+  max,
+  step,
+  onChange
+}: {
+  id: string;
+  label: string;
+  value: string;
+  min?: number;
+  max?: number;
+  step: number;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="action-field" htmlFor={id}>
+      <span>{label}</span>
+      <input
+        id={id}
+        type="number"
+        required
+        inputMode="decimal"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        aria-label={label}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    </label>
+  );
+}
+
+function ActionTextInput({
+  id,
+  label,
+  value,
+  placeholder,
+  onChange
+}: {
+  id: string;
+  label: string;
+  value: string;
+  placeholder: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="action-field" htmlFor={id}>
+      <span>{label}</span>
+      <input id={id} value={value} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} />
+    </label>
+  );
+}
+
+function ActionSubmitButton({ label, pending }: { label: string; pending: boolean }) {
+  return (
+    <button type="submit" disabled={pending}>
+      {pending ? "Pending" : label}
+    </button>
   );
 }
 
@@ -973,4 +1266,30 @@ function ErrorNotice({ message, compact = false }: { message: string; compact?: 
       {message}
     </p>
   );
+}
+
+function actionResultMessage(result: ActionResultLike): string {
+  const artifactCount = result.artifacts?.length ?? 0;
+  const artifactLabel = artifactCount === 1 ? "1 artifact" : `${artifactCount} artifacts`;
+  return `${result.actionId} completed, ${artifactLabel}.`;
+}
+
+function actionSubmitTone(state: ViewerActionSubmitState): UiTone {
+  if (state.status === "success") return "good";
+  if (state.status === "error") return "bad";
+  if (state.status === "pending") return "warn";
+  return "neutral";
+}
+
+function actionStatusTitle(state: ViewerActionSubmitState): string {
+  if (state.status === "idle") return "Ready";
+  if (state.status === "pending") return `${state.label} pending`;
+  if (state.status === "success") return `${state.label} complete`;
+  return `${state.label} failed`;
+}
+
+function actionStatusMessage(state: ViewerActionSubmitState): string {
+  if (state.status === "idle") return "No action submitted.";
+  if (state.status === "pending") return "Waiting for daemon response.";
+  return state.message;
 }
