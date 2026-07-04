@@ -1,4 +1,5 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { FormEvent, KeyboardEvent as ReactKeyboardEvent } from "react";
 import {
   fetchArtifacts,
   fetchEvents,
@@ -6,7 +7,12 @@ import {
   fetchLatestScreenshot,
   fetchSession,
   fetchSessionSummary,
-  fetchSessions
+  fetchSessions,
+  isDisplayableScreenshot,
+  markScreenshotFetchFailed,
+  mergeScreenshotFetchResult,
+  screenshotArtifactIdentity,
+  screenshotObjectUrl
 } from "./api.js";
 import { buildTimelineItems, mergeTraceEvents, sortArtifacts } from "./timeline.js";
 import type { ArtifactRef, HealthState, ScreenshotState, Session, SessionListItem, SessionSummary, TraceEvent, ViewerParams } from "./types.js";
@@ -63,9 +69,12 @@ function useAtlasLoopData(params: ViewerParams) {
   const [artifacts, setArtifacts] = useState<ArtifactRef[]>([]);
   const [events, setEvents] = useState<TraceEvent[]>([]);
   const [screenshot, setScreenshot] = useState<ScreenshotState>({ status: "loading" });
+  const [screenshotRetryNonce, setScreenshotRetryNonce] = useState(0);
   const [eventMode, setEventMode] = useState<"connecting" | "sse" | "polling">("connecting");
   const [lastError, setLastError] = useState<string | undefined>();
   const screenshotUrlRef = useRef<string | undefined>(undefined);
+  const resolvedScreenshotKeyRef = useRef<string | undefined>(undefined);
+  const latestScreenshotKey = useMemo(() => screenshotArtifactIdentity(sessionSummary, artifacts), [sessionSummary, artifacts]);
 
   useEffect(() => {
     setHealth("checking");
@@ -80,9 +89,20 @@ function useAtlasLoopData(params: ViewerParams) {
     setArtifacts([]);
     setEvents([]);
     setScreenshot({ status: "loading" });
+    setScreenshotRetryNonce(0);
     setEventMode("connecting");
     setLastError(undefined);
+    resolvedScreenshotKeyRef.current = undefined;
+    if (screenshotUrlRef.current) URL.revokeObjectURL(screenshotUrlRef.current);
+    screenshotUrlRef.current = undefined;
   }, [params.daemonUrl, params.sessionId]);
+
+  useEffect(() => {
+    return () => {
+      if (screenshotUrlRef.current) URL.revokeObjectURL(screenshotUrlRef.current);
+      screenshotUrlRef.current = undefined;
+    };
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -150,41 +170,57 @@ function useAtlasLoopData(params: ViewerParams) {
 
   useEffect(() => {
     const controller = new AbortController();
+    const hasStableArtifactKey = latestScreenshotKey !== undefined;
+
+    if (hasStableArtifactKey && resolvedScreenshotKeyRef.current === latestScreenshotKey) return;
+
+    let loading = false;
+    let retryTimer: number | undefined;
 
     const load = async (): Promise<void> => {
+      if (loading) return;
+      loading = true;
+
       try {
         const nextScreenshot = await fetchLatestScreenshot(params, controller.signal);
         if (controller.signal.aborted) return;
         setScreenshot((previous) => {
-          const nextBlobUrl = nextScreenshot.status === "ready" && nextScreenshot.source === "blob" ? nextScreenshot.src : undefined;
-          if (previous.status === "ready" && previous.source === "blob" && previous.src !== nextBlobUrl) {
-            URL.revokeObjectURL(previous.src);
-          }
-          if (nextBlobUrl) {
-            screenshotUrlRef.current = nextBlobUrl;
-          } else {
-            screenshotUrlRef.current = undefined;
-          }
-          return nextScreenshot;
+          const resolvedScreenshot = mergeScreenshotFetchResult(previous, nextScreenshot, { hasStableArtifactKey });
+          const previousObjectUrl = screenshotObjectUrl(previous);
+          const nextObjectUrl = screenshotObjectUrl(resolvedScreenshot);
+          if (previousObjectUrl && previousObjectUrl !== nextObjectUrl) URL.revokeObjectURL(previousObjectUrl);
+          screenshotUrlRef.current = nextObjectUrl;
+          return resolvedScreenshot;
         });
+        if (hasStableArtifactKey && nextScreenshot.status === "ready") {
+          resolvedScreenshotKeyRef.current = latestScreenshotKey;
+        } else if (hasStableArtifactKey && nextScreenshot.status === "empty") {
+          retryTimer = window.setTimeout(() => setScreenshotRetryNonce((nonce) => nonce + 1), 2500);
+        }
       } catch (error) {
         if (controller.signal.aborted) return;
-        setScreenshot({
-          status: "error",
-          message: error instanceof Error ? error.message : "Failed to load screenshot."
+        const message = error instanceof Error ? error.message : "Failed to load screenshot.";
+        setScreenshot((previous) => {
+          const nextScreenshot = markScreenshotFetchFailed(previous, message);
+          screenshotUrlRef.current = screenshotObjectUrl(nextScreenshot);
+          return nextScreenshot;
         });
+        if (hasStableArtifactKey) {
+          retryTimer = window.setTimeout(() => setScreenshotRetryNonce((nonce) => nonce + 1), 2500);
+        }
+      } finally {
+        loading = false;
       }
     };
 
     void load();
-    const timer = window.setInterval(() => void load(), 1200);
+    const timer = hasStableArtifactKey ? undefined : window.setInterval(() => void load(), 1200);
     return () => {
       controller.abort();
-      window.clearInterval(timer);
-      if (screenshotUrlRef.current) URL.revokeObjectURL(screenshotUrlRef.current);
-      screenshotUrlRef.current = undefined;
+      if (timer !== undefined) window.clearInterval(timer);
+      if (retryTimer !== undefined) window.clearTimeout(retryTimer);
     };
-  }, [params.daemonUrl, params.sessionId]);
+  }, [params, latestScreenshotKey, screenshotRetryNonce]);
 
   useEffect(() => {
     let closed = false;
@@ -331,6 +367,8 @@ export function App() {
     [filteredArtifacts, selectedArtifactId]
   );
   const showLastError = Boolean(lastError && !(isLatestFirstRun && (health !== "online" || /^404\b/.test(lastError))));
+  const screenshotIsDisplayable = isDisplayableScreenshot(screenshot);
+  const screenshotTone: UiTone = screenshot.status === "error" ? "bad" : screenshot.status === "stale" ? "warn" : screenshot.status === "ready" ? "good" : "neutral";
 
   useEffect(() => {
     if (!selectedArtifact) {
@@ -355,6 +393,47 @@ export function App() {
     const nextParams = { daemonUrl: params.daemonUrl, sessionId };
     setDraft(nextParams);
     applyViewerParams(nextParams);
+  };
+
+  const focusArtifactOption = (artifactId: string): void => {
+    window.requestAnimationFrame(() => document.getElementById(artifactOptionId(artifactId))?.focus());
+  };
+
+  const selectArtifactAtIndex = (index: number): void => {
+    const nextArtifact = filteredArtifacts[index];
+    if (!nextArtifact) return;
+    setSelectedArtifactId(nextArtifact.id);
+    focusArtifactOption(nextArtifact.id);
+  };
+
+  const handleArtifactListKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
+    if (filteredArtifacts.length === 0) return;
+
+    const currentIndex = Math.max(
+      0,
+      filteredArtifacts.findIndex((artifact) => artifact.id === selectedArtifact?.id)
+    );
+
+    switch (event.key) {
+      case "ArrowDown":
+      case "ArrowRight":
+        event.preventDefault();
+        selectArtifactAtIndex(Math.min(filteredArtifacts.length - 1, currentIndex + 1));
+        break;
+      case "ArrowUp":
+      case "ArrowLeft":
+        event.preventDefault();
+        selectArtifactAtIndex(Math.max(0, currentIndex - 1));
+        break;
+      case "Home":
+        event.preventDefault();
+        selectArtifactAtIndex(0);
+        break;
+      case "End":
+        event.preventDefault();
+        selectArtifactAtIndex(filteredArtifacts.length - 1);
+        break;
+    }
   };
 
   return (
@@ -453,9 +532,9 @@ export function App() {
 
         <div className="device-workbench">
           <div className="viewport-meta" aria-label="Screenshot metadata">
-            <MetricTile label="Screenshot" value={screenshot.status} tone={screenshot.status === "error" ? "bad" : screenshot.status === "ready" ? "good" : "neutral"} />
-            <MetricTile label="Updated" value={screenshot.status === "ready" ? formatTime(screenshot.updatedAt) : "--"} />
-            <MetricTile label="Source" value={screenshot.status === "ready" ? screenshot.source : "--"} />
+            <MetricTile label="Screenshot" value={screenshot.status} tone={screenshotTone} />
+            <MetricTile label="Updated" value={screenshotIsDisplayable ? formatTime(screenshot.updatedAt) : "--"} />
+            <MetricTile label="Source" value={screenshotIsDisplayable ? screenshot.source : "--"} />
           </div>
 
           <div className="phone-stand">
@@ -467,7 +546,7 @@ export function App() {
 
           <div className="viewport-footer">
             <span>{latestScreenshotArtifact ? `Artifact ${latestScreenshotArtifact.id}` : "No screenshot artifact reported"}</span>
-            {screenshot.status === "ready" ? (
+            {screenshotIsDisplayable ? (
               <a href={screenshot.src} target="_blank" rel="noreferrer">
                 Open image
               </a>
@@ -536,10 +615,17 @@ export function App() {
               <EmptyState title="No matching artifacts" detail="Clear the artifact search or switch the type filter to inspect the full evidence set." />
             ) : (
               <>
-                <div className="artifact-list">
+                <div
+                  className="artifact-list"
+                  role="listbox"
+                  aria-label="Artifacts"
+                  aria-orientation="vertical"
+                  onKeyDown={handleArtifactListKeyDown}
+                >
                   {filteredArtifacts.map((artifact) => (
                     <ArtifactRow
                       key={artifact.id}
+                      id={artifactOptionId(artifact.id)}
                       artifact={artifact}
                       selected={selectedArtifact?.id === artifact.id}
                       onSelect={() => setSelectedArtifactId(artifact.id)}
@@ -676,8 +762,22 @@ function SessionBrowserRow({ session, selected, onSelect }: { session: SessionLi
 }
 
 function ScreenshotView({ screenshot, emptyMessage }: { screenshot: ScreenshotState; emptyMessage?: string }) {
-  if (screenshot.status === "ready") {
-    return <img className="screenshot-image" src={screenshot.src} alt="Latest iOS Simulator screenshot" />;
+  if (isDisplayableScreenshot(screenshot)) {
+    return (
+      <div className={`screenshot-image-wrap ${screenshot.status}`}>
+        <img
+          className="screenshot-image"
+          src={screenshot.src}
+          alt={screenshot.status === "stale" ? "Stale iOS Simulator screenshot" : "Latest iOS Simulator screenshot"}
+        />
+        {screenshot.status === "stale" ? (
+          <div className="screenshot-stale-banner" role="status" aria-live="polite" aria-atomic="true">
+            <strong>Stale image</strong>
+            <span>{`Refresh failed: ${screenshot.message}`}</span>
+          </div>
+        ) : null}
+      </div>
+    );
   }
 
   const message =
@@ -795,9 +895,21 @@ function MetricTile({ label, value, tone = "neutral" }: { label: string; value: 
   );
 }
 
-function ArtifactRow({ artifact, selected, onSelect }: { artifact: ArtifactRef; selected: boolean; onSelect: () => void }) {
+function artifactOptionId(artifactId: string): string {
+  return `artifact-option-${artifactId.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
+}
+
+function ArtifactRow({ id, artifact, selected, onSelect }: { id: string; artifact: ArtifactRef; selected: boolean; onSelect: () => void }) {
   return (
-    <button type="button" className={`artifact-row ${selected ? "selected" : ""}`} aria-pressed={selected} onClick={onSelect}>
+    <button
+      id={id}
+      type="button"
+      role="option"
+      className={`artifact-row ${selected ? "selected" : ""}`}
+      aria-selected={selected}
+      tabIndex={selected ? 0 : -1}
+      onClick={onSelect}
+    >
       <span className="artifact-row-top">
         <span className="artifact-type">{artifact.type}</span>
         <small>{formatDateTime(artifact.createdAt)}</small>

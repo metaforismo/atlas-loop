@@ -150,4 +150,5 @@ export type ScreenshotState =
   | { status: "loading" }
   | { status: "empty"; message: string }
   | { status: "ready"; src: string; source: "blob" | "url" | "data-url"; mediaType?: string; updatedAt: string }
+  | { status: "stale"; src: string; source: "blob" | "url" | "data-url"; mediaType?: string; updatedAt: string; message: string; staleAt: string }
   | { status: "error"; message: string };

@@ -1,4 +1,5 @@
 #!/usr/bin/env tsx
+import { createHash } from "node:crypto";
 import { constants } from "node:fs";
 import { access, opendir, readFile, realpath, stat } from "node:fs/promises";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
@@ -22,6 +23,18 @@ export interface ValidationReport {
 
 const requiredSessionDirs = ["screenshots", "logs", "metadata"] as const;
 const actionKinds = new Set(["tap", "typeText", "swipe", "edgeGesture", "screenshot", "install", "launch", "wait"]);
+const sessionStatuses = new Set<Session["status"]>([
+  "created",
+  "booting",
+  "booted",
+  "building",
+  "installing",
+  "installed",
+  "launching",
+  "running",
+  "ended",
+  "failed"
+]);
 const artifactTypeDirs: Partial<Record<ArtifactRef["type"], string>> = {
   screenshot: "screenshots",
   log: "logs",
@@ -31,6 +44,10 @@ const artifactTypeDirs: Partial<Record<ArtifactRef["type"], string>> = {
   action: ".",
   "app-bundle": "build"
 };
+const sha256Pattern = /^[a-f0-9]{64}$/i;
+const isoUtcPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/;
+const proofPathKeys = ["summaryPath", "reportPath", "proofPath", "evidenceReportPath"] as const;
+const proofFileKeys = ["summary", "report", "proof", "evidenceReport"] as const;
 
 export async function validateArtifactTarget(target: string): Promise<ValidationReport> {
   const resolvedTarget = resolve(target);
@@ -82,12 +99,18 @@ async function discoverSessionDirs(target: string, issues: ValidationIssue[]): P
 
 async function validateSessionDir(sessionDir: string, issues: ValidationIssue[]): Promise<void> {
   const sessionPath = join(sessionDir, "session.json");
-  const session = await readJsonFile<Session>(sessionPath, issues);
-  if (!session) return;
+  const session = await readJsonFile<unknown>(sessionPath, issues);
+  if (session === undefined) return;
+
+  if (!isRecord(session)) {
+    issues.push(error(sessionPath, "session.json must be an object"));
+    return;
+  }
 
   if (session.schemaVersion !== "atlas-loop.session.v1") {
     issues.push(error(sessionPath, "session.json schemaVersion must be atlas-loop.session.v1"));
   }
+  const sessionId = typeof session.id === "string" && session.id ? session.id : basename(sessionDir);
   if (!session.id || typeof session.id !== "string") {
     issues.push(error(sessionPath, "session.json id must be a non-empty string"));
   } else if (session.id !== basename(sessionDir)) {
@@ -96,11 +119,24 @@ async function validateSessionDir(sessionDir: string, issues: ValidationIssue[])
   if (session.platform !== "ios-simulator") {
     issues.push(error(sessionPath, "session platform must be ios-simulator"));
   }
-  if (typeof session.artifactDir === "string") {
+  if (!isSessionStatus(session.status)) {
+    issues.push(error(sessionPath, "session status is not recognized"));
+  }
+  if (!isIsoTimestamp(session.createdAt)) {
+    issues.push(error(sessionPath, "session createdAt must be an ISO timestamp"));
+  }
+  if (!isIsoTimestamp(session.updatedAt)) {
+    issues.push(error(sessionPath, "session updatedAt must be an ISO timestamp"));
+  }
+  if (!isRecord(session.simulator)) {
+    issues.push(error(sessionPath, "session simulator must be an object"));
+  }
+  if (typeof session.artifactDir === "string" && session.artifactDir) {
     await validateContainedPath(sessionDir, session.artifactDir, "session.artifactDir", issues, { mustExist: true });
   } else {
-    issues.push(error(sessionPath, "session artifactDir must be a string"));
+    issues.push(error(sessionPath, "session artifactDir must be a non-empty string"));
   }
+  await validateProofFileRefs(sessionPath, session, sessionDir, "session", issues);
 
   for (const dirName of requiredSessionDirs) {
     const dirPath = join(sessionDir, dirName);
@@ -111,8 +147,8 @@ async function validateSessionDir(sessionDir: string, issues: ValidationIssue[])
     await validateDirectoryTreeContained(sessionDir, dirPath, issues);
   }
 
-  await validateActions(sessionDir, session.id, issues);
-  await validateManifest(sessionDir, session.id, issues);
+  await validateActions(sessionDir, sessionId, issues);
+  await validateManifest(sessionDir, sessionId, issues);
 }
 
 async function validateActions(sessionDir: string, sessionId: string, issues: ValidationIssue[]): Promise<void> {
@@ -169,6 +205,9 @@ function validateActionRecord(path: string, action: Partial<Action>, sessionId: 
   if (typeof action.createdAt !== "string" || Number.isNaN(Date.parse(action.createdAt))) {
     issues.push(error(path, "action.createdAt must be an ISO timestamp"));
   }
+  if (action.sequence !== undefined && (!Number.isInteger(action.sequence) || action.sequence < 0)) {
+    issues.push(error(path, "action.sequence must be a non-negative integer when present"));
+  }
 }
 
 async function validateActionResult(
@@ -185,6 +224,18 @@ async function validateActionResult(
   if (typeof result.ok !== "boolean") {
     issues.push(error(path, "result.ok must be boolean"));
   }
+  if (!isIsoTimestamp(result.startedAt)) {
+    issues.push(error(path, "result.startedAt must be an ISO timestamp"));
+  }
+  if (!isIsoTimestamp(result.endedAt)) {
+    issues.push(error(path, "result.endedAt must be an ISO timestamp"));
+  }
+  if (isIsoTimestamp(result.startedAt) && isIsoTimestamp(result.endedAt) && Date.parse(result.endedAt) < Date.parse(result.startedAt)) {
+    issues.push(error(path, "result.endedAt must not be earlier than result.startedAt"));
+  }
+  if (result.error !== undefined) {
+    validateErrorObject(path, result.error, "result.error", issues);
+  }
   if (!Array.isArray(result.artifacts)) {
     issues.push(error(path, "result.artifacts must be an array"));
     return;
@@ -200,7 +251,21 @@ async function validateManifest(sessionDir: string, sessionId: string, issues: V
   if (!(await exists(manifestPath))) return;
 
   const manifest = await readJsonFile<Record<string, unknown>>(manifestPath, issues);
-  if (!manifest) return;
+  if (manifest === undefined) return;
+  if (!isRecord(manifest)) {
+    issues.push(error(manifestPath, "manifest.json must be an object"));
+    return;
+  }
+  if (manifest.schemaVersion !== "atlas-loop.manifest.v1") {
+    issues.push(error(manifestPath, "manifest schemaVersion must be atlas-loop.manifest.v1"));
+  }
+  if (manifest.createdAt !== undefined && !isIsoTimestamp(manifest.createdAt)) {
+    issues.push(error(manifestPath, "manifest createdAt must be an ISO timestamp when present"));
+  }
+  if (manifest.updatedAt !== undefined && !isIsoTimestamp(manifest.updatedAt)) {
+    issues.push(error(manifestPath, "manifest updatedAt must be an ISO timestamp when present"));
+  }
+  await validateProofFileRefs(manifestPath, manifest, sessionDir, "manifest", issues);
   if (!Array.isArray(manifest.artifacts)) {
     issues.push(error(manifestPath, "manifest artifacts must be an array when manifest.json is present"));
     return;
@@ -236,13 +301,26 @@ async function validateArtifactRef(
     issues.push(error(path, "artifact.path must be a non-empty string"));
     return;
   }
+  if (!isIsoTimestamp(artifact.createdAt)) {
+    issues.push(error(path, "artifact.createdAt must be an ISO timestamp"));
+  }
+  if (artifact.metadata !== undefined) {
+    if (!isRecord(artifact.metadata)) {
+      issues.push(error(path, "artifact.metadata must be an object when present"));
+    } else {
+      await validateProofFileRefs(path, artifact.metadata, sessionDir, "artifact metadata", issues);
+    }
+  }
 
   const expectedDir = artifactTypeDirs[artifact.type as ArtifactRef["type"]];
   const requiredRoot = expectedDir && expectedDir !== "." ? join(sessionDir, expectedDir) : sessionDir;
-  await validateContainedPath(sessionDir, artifact.path, `artifact ${artifact.id} path`, issues, {
+  const pathIsValid = await validateContainedPath(sessionDir, artifact.path, `artifact ${artifact.id} path`, issues, {
     requiredRoot,
     mustExist: true
   });
+  if (pathIsValid && artifact.sha256 !== undefined) {
+    await validateSha256(path, artifact.sha256, resolveCandidatePath(sessionDir, artifact.path), issues);
+  }
 }
 
 async function validateContainedPath(
@@ -251,28 +329,29 @@ async function validateContainedPath(
   label: string,
   issues: ValidationIssue[],
   options: { requiredRoot?: string; mustExist?: boolean } = {}
-): Promise<void> {
+): Promise<boolean> {
   const absoluteSessionDir = resolve(sessionDir);
   const absoluteRequiredRoot = resolve(options.requiredRoot ?? sessionDir);
   const absoluteCandidate = isAbsolute(candidatePath) ? resolve(candidatePath) : resolve(sessionDir, candidatePath);
 
   if (!isPathInsideOrEqual(absoluteSessionDir, absoluteCandidate)) {
     issues.push(error(candidatePath, `${label} escapes session directory`));
-    return;
+    return false;
   }
   if (!isPathInsideOrEqual(absoluteRequiredRoot, absoluteCandidate)) {
     issues.push(error(candidatePath, `${label} must be inside ${relative(absoluteSessionDir, absoluteRequiredRoot) || "."}/`));
-    return;
+    return false;
   }
 
   if (options.mustExist && !(await exists(absoluteCandidate))) {
     issues.push(error(candidatePath, `${label} does not exist`));
-    return;
+    return false;
   }
 
   if (await exists(absoluteCandidate)) {
-    await validateRealPathContained(absoluteSessionDir, absoluteRequiredRoot, absoluteCandidate, label, issues);
+    return validateRealPathContained(absoluteSessionDir, absoluteRequiredRoot, absoluteCandidate, label, issues);
   }
+  return true;
 }
 
 async function validateDirectoryTreeContained(sessionDir: string, dirPath: string, issues: ValidationIssue[]): Promise<void> {
@@ -294,18 +373,94 @@ async function validateRealPathContained(
   candidatePath: string,
   label: string,
   issues: ValidationIssue[]
-): Promise<void> {
+): Promise<boolean> {
   const [realSessionDir, realRequiredRoot, realCandidate] = await Promise.all([
     realpath(sessionDir),
     realpath(requiredRoot),
     realpath(candidatePath)
   ]);
 
+  let valid = true;
   if (!isPathInsideOrEqual(realSessionDir, realCandidate)) {
     issues.push(error(candidatePath, `${label} realpath escapes session directory`));
+    valid = false;
   }
   if (!isPathInsideOrEqual(realRequiredRoot, realCandidate)) {
     issues.push(error(candidatePath, `${label} realpath is outside expected artifact directory`));
+    valid = false;
+  }
+  return valid;
+}
+
+async function validateProofFileRefs(
+  sourcePath: string,
+  container: Record<string, unknown>,
+  sessionDir: string,
+  label: string,
+  issues: ValidationIssue[]
+): Promise<void> {
+  for (const key of proofPathKeys) {
+    if (container[key] !== undefined) {
+      await validateProofFileRef(sourcePath, container[key], sessionDir, `${label} ${key}`, issues);
+    }
+  }
+
+  if (container.proofFiles === undefined) return;
+  if (!isRecord(container.proofFiles)) {
+    issues.push(error(sourcePath, `${label}.proofFiles must be an object when present`));
+    return;
+  }
+
+  for (const key of proofFileKeys) {
+    if (container.proofFiles[key] !== undefined) {
+      await validateProofFileRef(sourcePath, container.proofFiles[key], sessionDir, `${label} proofFiles.${key}`, issues);
+    }
+  }
+}
+
+async function validateProofFileRef(
+  sourcePath: string,
+  value: unknown,
+  sessionDir: string,
+  label: string,
+  issues: ValidationIssue[]
+): Promise<void> {
+  if (typeof value !== "string" || !value) {
+    issues.push(error(sourcePath, `${label} must be a non-empty string when present`));
+    return;
+  }
+  const pathIsValid = await validateContainedPath(sessionDir, value, label, issues, { mustExist: true });
+  if (!pathIsValid) return;
+
+  try {
+    const proofStat = await stat(resolveCandidatePath(sessionDir, value));
+    if (!proofStat.isFile()) {
+      issues.push(error(value, `${label} must reference a regular file`));
+    }
+  } catch (statError) {
+    issues.push(error(value, `${label} could not be statted: ${(statError as Error).message}`));
+  }
+}
+
+async function validateSha256(path: string, expected: unknown, filePath: string, issues: ValidationIssue[]): Promise<void> {
+  if (typeof expected !== "string" || !sha256Pattern.test(expected)) {
+    issues.push(error(path, "artifact.sha256 must be a 64-character hex SHA-256 string when present"));
+    return;
+  }
+
+  try {
+    const fileStat = await stat(filePath);
+    if (!fileStat.isFile()) {
+      issues.push(error(path, "artifact.sha256 can only be verified for regular files"));
+      return;
+    }
+
+    const actual = createHash("sha256").update(await readFile(filePath)).digest("hex");
+    if (actual !== expected.toLowerCase()) {
+      issues.push(error(path, "artifact.sha256 does not match file contents"));
+    }
+  } catch (hashError) {
+    issues.push(error(path, `artifact.sha256 could not be verified: ${(hashError as Error).message}`));
   }
 }
 
@@ -325,6 +480,31 @@ async function exists(path: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+function validateErrorObject(path: string, value: unknown, label: string, issues: ValidationIssue[]): void {
+  if (!isRecord(value)) {
+    issues.push(warning(path, `${label} should be an object when present`));
+    return;
+  }
+  if (typeof value.code !== "string" || !value.code) {
+    issues.push(warning(path, `${label}.code should be a non-empty string`));
+  }
+  if (typeof value.message !== "string" || !value.message) {
+    issues.push(warning(path, `${label}.message should be a non-empty string`));
+  }
+}
+
+function isSessionStatus(value: unknown): value is Session["status"] {
+  return typeof value === "string" && sessionStatuses.has(value as Session["status"]);
+}
+
+function isIsoTimestamp(value: unknown): value is string {
+  return typeof value === "string" && isoUtcPattern.test(value) && !Number.isNaN(Date.parse(value));
+}
+
+function resolveCandidatePath(sessionDir: string, candidatePath: string): string {
+  return isAbsolute(candidatePath) ? resolve(candidatePath) : resolve(sessionDir, candidatePath);
 }
 
 function isPathInsideOrEqual(parent: string, child: string): boolean {

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -24,6 +25,8 @@ async function writeValidSession(root: string): Promise<string> {
   await writeFile(join(sessionDir, "screenshots", "first.png"), "png");
   await writeFile(join(sessionDir, "logs", "daemon.log"), "booted\n");
   await writeFile(join(sessionDir, "metadata", "env.json"), "{\"node\":\"test\"}\n");
+  await writeFile(join(sessionDir, "metadata", "summary.json"), "{\"ok\":true}\n");
+  await writeFile(join(sessionDir, "logs", "evidence.md"), "# Atlas Loop Evidence Report\n");
   await writeFile(
     join(sessionDir, "session.json"),
     JSON.stringify(
@@ -61,25 +64,59 @@ async function writeValidSession(root: string): Promise<string> {
             sessionId: "session_ok",
             type: "screenshot",
             path: join(sessionDir, "screenshots", "first.png"),
-            createdAt: "2026-07-04T00:00:00.600Z"
+            createdAt: "2026-07-04T00:00:00.600Z",
+            sha256: sha256Text("png")
           },
           {
             id: "log_1",
             sessionId: "session_ok",
             type: "log",
             path: join(sessionDir, "logs", "daemon.log"),
-            createdAt: "2026-07-04T00:00:00.600Z"
+            createdAt: "2026-07-04T00:00:00.600Z",
+            sha256: sha256Text("booted\n")
           },
           {
             id: "metadata_1",
             sessionId: "session_ok",
             type: "metadata",
             path: join(sessionDir, "metadata", "env.json"),
-            createdAt: "2026-07-04T00:00:00.600Z"
+            createdAt: "2026-07-04T00:00:00.600Z",
+            sha256: sha256Text("{\"node\":\"test\"}\n"),
+            metadata: {
+              proofFiles: {
+                summary: join(sessionDir, "metadata", "summary.json"),
+                report: join(sessionDir, "logs", "evidence.md")
+              }
+            }
           }
         ]
       }
     })}\n`
+  );
+  await writeFile(
+    join(sessionDir, "manifest.json"),
+    JSON.stringify(
+      {
+        schemaVersion: "atlas-loop.manifest.v1",
+        updatedAt: "2026-07-04T00:00:01.000Z",
+        proofFiles: {
+          summary: join(sessionDir, "metadata", "summary.json"),
+          report: join(sessionDir, "logs", "evidence.md")
+        },
+        artifacts: [
+          {
+            id: "screenshot_1",
+            sessionId: "session_ok",
+            type: "screenshot",
+            path: join(sessionDir, "screenshots", "first.png"),
+            createdAt: "2026-07-04T00:00:00.600Z",
+            sha256: sha256Text("png")
+          }
+        ]
+      },
+      null,
+      2
+    )
   );
   return sessionDir;
 }
@@ -223,4 +260,118 @@ describe("artifact validator", () => {
     expect(report.ok).toBe(false);
     expect(report.issues.map((issue) => issue.message).join("\n")).toMatch(/realpath escapes session directory/);
   });
+
+  it("rejects corrupt session timestamps, status, and action result shape", async () => {
+    const root = await makeTempRoot();
+    const sessionDir = await writeValidSession(root);
+
+    const sessionJson = JSON.parse(await readFile(join(sessionDir, "session.json"), "utf8"));
+    sessionJson.status = "stale";
+    sessionJson.createdAt = "not-a-date";
+    await writeFile(join(sessionDir, "session.json"), JSON.stringify(sessionJson, null, 2));
+    await writeFile(
+      join(sessionDir, "actions.jsonl"),
+      `${JSON.stringify({
+        action: {
+          id: "act_bad",
+          sessionId: "session_ok",
+          kind: "screenshot",
+          createdAt: "2026-07-04T00:00:00.500Z"
+        },
+        result: {
+          actionId: "act_bad",
+          ok: true,
+          startedAt: "bad-start",
+          endedAt: "2026-07-04T00:00:00.600Z",
+          artifacts: []
+        }
+      })}\n`
+    );
+
+    const report = await validateArtifactTarget(sessionDir);
+    const messages = report.issues.map((issue) => issue.message).join("\n");
+
+    expect(report.ok).toBe(false);
+    expect(messages).toContain("session status is not recognized");
+    expect(messages).toContain("session createdAt must be an ISO timestamp");
+    expect(messages).toContain("result.startedAt must be an ISO timestamp");
+  });
+
+  it("rejects loose date strings where an ISO UTC timestamp is required", async () => {
+    const root = await makeTempRoot();
+    const sessionDir = await writeValidSession(root);
+
+    const sessionJson = JSON.parse(await readFile(join(sessionDir, "session.json"), "utf8"));
+    sessionJson.updatedAt = "2026-07-04";
+    await writeFile(join(sessionDir, "session.json"), JSON.stringify(sessionJson, null, 2));
+
+    const report = await validateArtifactTarget(sessionDir);
+
+    expect(report.ok).toBe(false);
+    expect(report.issues.map((issue) => issue.message)).toContain("session updatedAt must be an ISO timestamp");
+  });
+
+  it("rejects falsy parsed JSON records instead of treating them as unreadable skips", async () => {
+    const root = await makeTempRoot();
+    const sessionDir = join(root, "session_null");
+    await mkdir(sessionDir, { recursive: true });
+    await writeFile(join(sessionDir, "session.json"), "null");
+
+    const report = await validateArtifactTarget(sessionDir);
+
+    expect(report.ok).toBe(false);
+    expect(report.issues.map((issue) => issue.message)).toContain("session.json must be an object");
+  });
+
+  it("rejects falsy manifest JSON after validating the session shape", async () => {
+    const root = await makeTempRoot();
+    const sessionDir = await writeValidSession(root);
+    await writeFile(join(sessionDir, "manifest.json"), "null");
+
+    const report = await validateArtifactTarget(sessionDir);
+
+    expect(report.ok).toBe(false);
+    expect(report.issues.map((issue) => issue.message)).toContain("manifest.json must be an object");
+  });
+
+  it("rejects corrupt artifact hashes and missing referenced proof files", async () => {
+    const root = await makeTempRoot();
+    const sessionDir = await writeValidSession(root);
+
+    await writeFile(
+      join(sessionDir, "manifest.json"),
+      JSON.stringify(
+        {
+          schemaVersion: "atlas-loop.manifest.v1",
+          updatedAt: "2026-07-04T00:00:01.000Z",
+          artifacts: [
+            {
+              id: "screenshot_bad_hash",
+              sessionId: "session_ok",
+              type: "screenshot",
+              path: join(sessionDir, "screenshots", "first.png"),
+              createdAt: "2026-07-04T00:00:00.600Z",
+              sha256: "0".repeat(64),
+              metadata: {
+                reportPath: join(sessionDir, "logs", "missing-report.md")
+              }
+            }
+          ]
+        },
+        null,
+        2
+      )
+    );
+
+    const report = await validateArtifactTarget(sessionDir);
+    const messages = report.issues.map((issue) => issue.message).join("\n");
+
+    expect(report.ok).toBe(false);
+    expect(messages).toContain("artifact.sha256 does not match file contents");
+    expect(messages).toContain("artifact metadata reportPath does not exist");
+  });
 });
+
+function sha256Text(text: string): string {
+  return createHash("sha256").update(text).digest("hex");
+}

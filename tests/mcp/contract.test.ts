@@ -89,6 +89,135 @@ describe("MCP contract documentation", () => {
     });
   });
 
+  it("validates MCP action payloads before calling the daemon", async () => {
+    let daemonCalled = false;
+
+    const result = await callToolWithEnvelope("atlas.performAction", {
+      sessionId: "sess_invalid",
+      action: { kind: "tap", x: 1.2, y: 0.5 }
+    }, {
+      client: {
+        performAction: async () => {
+          daemonCalled = true;
+          return {};
+        }
+      } as never
+    });
+
+    expect(daemonCalled).toBe(false);
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: "INVALID_REQUEST",
+        message: expect.stringContaining("normalized coordinates")
+      }
+    });
+  });
+
+  it("normalizes MCP action payloads before forwarding them", async () => {
+    const forwarded: unknown[] = [];
+
+    const result = await callToolWithEnvelope("atlas.performAction", {
+      sessionId: "sess_action",
+      action: {
+        kind: "tap",
+        x: 0.2,
+        y: 0.8,
+        unexpected: "should not be persisted"
+      }
+    }, {
+      client: {
+        performAction: async (_sessionId: string, request: unknown) => {
+          forwarded.push(request);
+          return { actionId: "act_1", ok: true, startedAt: "2026-07-04T12:00:00.000Z", endedAt: "2026-07-04T12:00:00.010Z", artifacts: [] };
+        }
+      } as never
+    });
+
+    expect(result).toMatchObject({ ok: true });
+    expect(forwarded).toEqual([{ action: { kind: "tap", x: 0.2, y: 0.8 } }]);
+  });
+
+  it("normalizes MCP build and launch requests before forwarding them", async () => {
+    const forwarded: Array<{ method: string; sessionId: string; request: unknown }> = [];
+
+    const client = {
+      build: async (sessionId: string, request: unknown) => {
+        forwarded.push({ method: "build", sessionId, request });
+        return { route: "build" };
+      },
+      launch: async (sessionId: string, request: unknown) => {
+        forwarded.push({ method: "launch", sessionId, request });
+        return { route: "launch" };
+      }
+    } as never;
+
+    await expect(callToolWithEnvelope("atlas.build", {
+      sessionId: "sess_runtime",
+      scheme: "CommerceDemo",
+      projectPath: "apps/ios-commerce-demo/CommerceDemo.xcodeproj",
+      configuration: "Release",
+      derivedDataPath: "artifacts/DerivedData",
+      extra: "ignored-by-runtime-normalizer"
+    }, { client })).resolves.toMatchObject({ ok: true, data: { route: "build" } });
+
+    await expect(callToolWithEnvelope("atlas.launch", {
+      sessionId: "sess_runtime",
+      bundleId: "dev.atlas-loop.CommerceDemo",
+      arguments: ["-UITest", "checkout"],
+      environment: { ATLAS_LOOP_DEMO_MODE: "checkout" },
+      extra: "ignored-by-runtime-normalizer"
+    }, { client })).resolves.toMatchObject({ ok: true, data: { route: "launch" } });
+
+    expect(forwarded).toEqual([
+      {
+        method: "build",
+        sessionId: "sess_runtime",
+        request: {
+          projectPath: "apps/ios-commerce-demo/CommerceDemo.xcodeproj",
+          scheme: "CommerceDemo",
+          configuration: "Release",
+          derivedDataPath: "artifacts/DerivedData"
+        }
+      },
+      {
+        method: "launch",
+        sessionId: "sess_runtime",
+        request: {
+          bundleId: "dev.atlas-loop.CommerceDemo",
+          arguments: ["-UITest", "checkout"],
+          environment: { ATLAS_LOOP_DEMO_MODE: "checkout" }
+        }
+      }
+    ]);
+  });
+
+  it("rejects malformed MCP launch arrays before daemon I/O", async () => {
+    let daemonCalled = false;
+
+    const result = await callToolWithEnvelope("atlas.launch", {
+      sessionId: "sess_runtime",
+      bundleId: "dev.atlas-loop.CommerceDemo",
+      arguments: "-UITest"
+    }, {
+      client: {
+        launch: async () => {
+          daemonCalled = true;
+          return {};
+        }
+      } as never
+    });
+
+    expect(daemonCalled).toBe(false);
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: "INVALID_REQUEST",
+        message: "arguments must be an array of strings"
+      }
+    });
+  });
+
   it("returns the artifact directory path through the structured MCP envelope", async () => {
     const result = await callToolWithEnvelope("atlas.getArtifactPath", { sessionId: "sess_1" }, {
       client: {
