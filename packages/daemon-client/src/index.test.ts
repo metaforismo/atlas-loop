@@ -421,7 +421,8 @@ describe("DaemonClient", () => {
           sessionId: "sess_report",
           type: "screenshot",
           path: "/tmp/atlas-loop/sess-report/screenshots/latest.png",
-          createdAt: "2026-07-04T12:00:09.000Z"
+          createdAt: "2026-07-04T12:00:09.000Z",
+          metadata: { actionId: "act_1", operation: "screenshot", sizeBytes: 2048 }
         }
       },
       events: {
@@ -445,7 +446,17 @@ describe("DaemonClient", () => {
       requestedSessionId: "latest",
       daemonUrl: "http://127.0.0.1:4317",
       viewerBaseUrl: "http://127.0.0.1:5173",
-      viewerUrl: "http://127.0.0.1:5173?sessionId=sess_report"
+      viewerUrl: "http://127.0.0.1:5173?sessionId=sess_report",
+      artifactHighlights: [
+        {
+          id: "log_1",
+          sessionId: "sess_report",
+          type: "log",
+          path: "/tmp/atlas-loop/sess-report/logs/install.log",
+          createdAt: "2026-07-04T12:00:08.000Z",
+          metadata: { actionId: "act_install", operation: "install", sizeBytes: 512 }
+        }
+      ]
     });
 
     expect(evidence).toMatchObject({
@@ -453,10 +464,17 @@ describe("DaemonClient", () => {
       requestedSessionId: "latest",
       artifactTotal: 2,
       artifactCounts: { screenshot: 1, log: 1 },
+      artifactHighlights: [
+        expect.objectContaining({ id: "shot_1" }),
+        expect.objectContaining({ id: "log_1" })
+      ],
       eventTotal: 5
     });
     expect(buildEvidenceMarkdownReport(evidence)).toContain("# Atlas Loop Evidence Report");
     expect(buildEvidenceMarkdownReport(evidence)).toContain("Latest screenshot");
     expect(buildEvidenceMarkdownReport(evidence)).toContain("act_1");
+    expect(buildEvidenceMarkdownReport(evidence)).toContain("Artifact Highlights");
+    expect(buildEvidenceMarkdownReport(evidence)).toContain("log_1");
+    expect(buildEvidenceMarkdownReport(evidence)).toContain("512 B");
   });
 });

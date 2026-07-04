@@ -93,6 +93,26 @@ The daemon can recover artifact references from both places when it reads a
 session after restart. Duplicate references are collapsed by artifact id and
 path.
 
+## Evidence Correlation
+
+The primary correlation keys are action ids, artifact ids, artifact paths, and
+trace timestamps. Modern sessions should make it possible to answer:
+
+- Which action started at a given time.
+- Whether that action completed or failed.
+- Which screenshots, logs, metadata, video, or build artifacts were produced by
+  that action.
+- Whether the same artifact was recovered from an action result, a trace event,
+  or `manifest.json`.
+
+The viewer and report/export tooling use these keys to navigate from timeline
+events to concrete local files. `action.completed` results should carry the
+artifacts produced by that action. `artifact.created` trace events should carry
+the same artifact reference when available. `manifest.json` is the recovery
+index after daemon restart. If one source is missing, the remaining sources keep
+the session inspectable; validators should report malformed references without
+discarding the rest of the readable evidence.
+
 Artifact path containment rules:
 
 - `screenshot` paths must be inside `screenshots/`.
@@ -150,7 +170,9 @@ valid session can still be loaded.
 
 The local viewer uses these same read routes. It can follow `latest` or a
 concrete session id, show recovered screenshots and artifacts, and surface stale
-or incomplete evidence without requiring a cloud service.
+or incomplete evidence without requiring a cloud service. Timeline items are a
+navigation aid over local evidence; the artifact directory remains the durable
+source of truth.
 
 ## Local Export Bundles
 

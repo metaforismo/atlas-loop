@@ -17,6 +17,10 @@ runtime dependencies.
 - Local MCP-compatible stdio server exposing the same runtime controls.
 - Screenshot-based live viewer built with React and Vite.
 - Disk-backed session discovery after daemon restarts.
+- Timeline and artifact navigation that correlates trace events, action results,
+  screenshots, logs, metadata, and persisted artifact references.
+- Agent/operator handoff command that summarizes readiness, artifact health,
+  viewer URL, blockers, and next local evidence commands.
 - Repo-owned Swift HID helper with a stable NDJSON protocol.
 - Deterministic SwiftUI commerce checkout demo app.
 - Local evidence under `artifacts/sessions/<session-id>/`, with optional local
@@ -73,6 +77,18 @@ The viewer is a local Vite app served on loopback. It reads the daemon session
 state, screenshots, artifacts, and timeline events; it is not a hosted
 dashboard.
 
+## Evidence Navigation
+
+Atlas Loop treats the files under `artifacts/sessions/<session-id>/` as the
+source of truth. The daemon and viewer read that local evidence back through
+session, event, artifact, and latest-screenshot routes. The viewer timeline
+merges `action.started`, `action.completed`, and `artifact.created` trace events
+with manifest and action-result artifacts, so a reviewer can move from an
+action to the screenshots, logs, or metadata produced by that action. When a
+daemon restarts, disk-backed sessions remain inspectable by id or `latest`, but
+they are evidence-only and cannot receive new build, launch, screenshot, or
+input commands.
+
 ## Agent Handoff Quick Path
 
 For an agent-to-operator handoff, keep the daemon and viewer local, resolve the
@@ -115,7 +131,8 @@ The shortcut command is `atlas-loop session handoff --session latest`. It
 aggregates the readiness, health, viewer URL, blockers, and copy-paste next
 commands that otherwise come from the explicit commands above. See
 [docs/handoff-workflow.md](docs/handoff-workflow.md) for the full local
-handoff checklist.
+handoff checklist. The handoff output is a local operator note, not a share link
+or hosted workspace.
 
 ## Main Commands
 
@@ -204,6 +221,8 @@ Simulator and backend, `actions.jsonl` records requested actions and results,
 `manifest.json` indexes known artifacts, and screenshots/logs/metadata remain
 under the session directory. The daemon can read prior session directories after
 a restart, so evidence remains inspectable when the runtime process exits.
+Action ids and artifact ids are the correlation keys used by the daemon,
+viewer, report/export commands, and validators.
 Validate a single session or the whole artifact root with:
 
 ```bash
@@ -279,21 +298,24 @@ primitive HID success.
 
 ## Verification
 
-Fast local checks that are safe for CI:
+Use the non-Simulator path for CI and most PRs:
 
 ```bash
+bash scripts/verify-local.sh --no-smoke
+# or
 npm run verify:local
 ```
 
-This runs dependency installation when needed, TypeScript checks, unit/viewer/MCP
-tests, the workspace build, and artifact validation. It skips Simulator smoke
-unless explicitly enabled.
+This runs dependency installation when needed, TypeScript checks, unit tests,
+viewer tests when present, the workspace build, and artifact validation. It
+does not boot or drive a Simulator unless smoke is explicitly enabled.
 
 Equivalent direct commands:
 
 ```bash
 npm run typecheck
 npm test
+npm run test:viewer
 npm run build
 npm run verify:artifacts
 ```
@@ -327,6 +349,9 @@ Native helper protocol compatibility can be checked without a booted Simulator:
 swift build --package-path native/ios-hid-helper
 node scripts/check-hid-helper-protocol.mjs native/ios-hid-helper/.build/debug/ios-hid-helper
 ```
+
+See [docs/verification.md](docs/verification.md) for the PR checklist, CI/local
+split, and how to interpret warning-only artifact validation.
 
 ## Objective Function
 

@@ -27,6 +27,7 @@ const DEFAULT_VIEWER_BASE_URL = "http://127.0.0.1:5173";
 interface EvidenceClient {
   getSessionSummary(sessionId: string): Promise<SessionSummary>;
   latestScreenshot(sessionId: string): Promise<ArtifactRef>;
+  listArtifacts?(sessionId: string): Promise<ArtifactRef[]>;
 }
 
 interface SessionReadyClient {
@@ -392,13 +393,15 @@ export async function buildEvidenceReportData(
   const summary = await client.getSessionSummary(params.sessionId);
   const sessionId = summary.session.id;
   const latestScreenshot = summary.artifacts.latestScreenshot ?? await tryLatestScreenshot(client, sessionId);
+  const artifactHighlights = await tryListArtifacts(client, sessionId);
   const viewerBaseUrl = trimTrailingSlash(params.viewerBaseUrl ?? DEFAULT_VIEWER_BASE_URL);
   return evidenceReportDataFromSessionSummary(summary, {
     requestedSessionId: params.sessionId,
     daemonUrl: params.daemonUrl,
     viewerBaseUrl,
     viewerUrl: buildViewerUrl({ daemonUrl: params.daemonUrl, sessionId, viewerBaseUrl }),
-    latestScreenshot
+    latestScreenshot,
+    artifactHighlights
   });
 }
 
@@ -517,6 +520,16 @@ async function tryLatestScreenshot(client: EvidenceClient, sessionId: string): P
     return await client.latestScreenshot(sessionId);
   } catch (error) {
     if (isNotFoundError(error)) return null;
+    throw error;
+  }
+}
+
+async function tryListArtifacts(client: EvidenceClient, sessionId: string): Promise<ArtifactRef[]> {
+  if (typeof client.listArtifacts !== "function") return [];
+  try {
+    return await client.listArtifacts(sessionId);
+  } catch (error) {
+    if (isNotFoundError(error)) return [];
     throw error;
   }
 }
