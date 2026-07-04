@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildEvidenceSummary, buildSessionReadiness, buildViewerUrl, main } from "../../apps/cli/src/index.ts";
 import type { SessionSummary } from "@atlas-loop/daemon-client";
-import type { ArtifactRef, Session } from "@atlas-loop/protocol";
+import type { ArtifactRef, Session, TraceEvent } from "@atlas-loop/protocol";
 
 describe("CLI agent workflow helpers", () => {
   it("builds compact evidence with a resolved latest session id", async () => {
@@ -246,6 +246,77 @@ describe("CLI agent workflow helpers", () => {
       daemonUrl,
       viewerUrl: `http://127.0.0.1:5176?daemonUrl=${encodeURIComponent(daemonUrl)}&sessionId=sess_ready_cli`
     });
+  });
+
+  it("prints filtered daemon events with configured URL and stable JSON metadata", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "atlas-loop-cli-events-"));
+    const originalCwd = process.cwd();
+    const originalLog = console.log;
+    const logged: string[] = [];
+    const requestedPaths: string[] = [];
+    const events = traceEvents("sess_events");
+    const server = await startEventsDaemon((requestPath) => {
+      requestedPaths.push(requestPath);
+      return events;
+    });
+    const daemonUrl = `http://127.0.0.1:${server.port}`;
+
+    await writeFile(join(tempDir, "atlas-loop.config.json"), JSON.stringify({ daemonUrl }, null, 2));
+    console.log = (value?: unknown) => {
+      logged.push(String(value));
+    };
+
+    try {
+      process.chdir(tempDir);
+      await expect(main([
+        "events",
+        "list",
+        "--session",
+        "latest",
+        "--type",
+        "action.completed",
+        "--limit",
+        "1"
+      ])).resolves.toBe(0);
+    } finally {
+      process.chdir(originalCwd);
+      console.log = originalLog;
+      await server.close();
+      await rm(tempDir, { recursive: true, force: true });
+    }
+
+    expect(requestedPaths).toEqual(["/sessions/latest/events"]);
+    expect(JSON.parse(logged[0])).toEqual({
+      requestedSessionId: "latest",
+      filters: {
+        type: "action.completed",
+        limit: 1
+      },
+      total: 4,
+      matched: 2,
+      count: 1,
+      events: [events[2]]
+    });
+  });
+
+  it("rejects invalid event limits before daemon I/O", async () => {
+    await expect(main([
+      "events",
+      "list",
+      "--session",
+      "latest",
+      "--limit",
+      "-1"
+    ])).rejects.toThrow("--limit must be a non-negative integer");
+
+    await expect(main([
+      "events",
+      "list",
+      "--session",
+      "latest",
+      "--limit",
+      "1.5"
+    ])).rejects.toThrow("--limit must be a non-negative integer");
   });
 
   it("prints session handoff JSON and keeps health failures as blockers", async () => {
@@ -791,6 +862,34 @@ async function startArtifactHealthDaemon(healthForPath: (requestPath: string) =>
   };
 }
 
+async function startEventsDaemon(eventsForPath: (requestPath: string) => TraceEvent[]): Promise<{
+  port: number;
+  close: () => Promise<void>;
+}> {
+  const server = createServer((request, response) => {
+    if (request.method !== "GET" || !request.url || !/^\/sessions\/[^/]+\/events$/.test(request.url)) {
+      response.writeHead(404, { "content-type": "application/json" });
+      response.end(JSON.stringify({
+        ok: false,
+        error: { code: "NOT_FOUND", message: `unexpected route ${request.method} ${request.url}` }
+      }));
+      return;
+    }
+
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({ ok: true, data: eventsForPath(request.url) }));
+  });
+
+  await new Promise<void>((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("fake events daemon did not bind a TCP port");
+
+  return {
+    port: address.port,
+    close: () => closeServer(server)
+  };
+}
+
 async function startSessionHandoffDaemon(responseForPath: (requestPath: string) => {
   ok: true;
   data: unknown;
@@ -952,6 +1051,45 @@ function sessionRecord(sessionId: string, artifactDir: string): Session {
     simulator: { name: "iPhone 16" },
     artifactDir
   };
+}
+
+function traceEvents(sessionId: string): TraceEvent[] {
+  return [
+    {
+      type: "session.created",
+      at: "2026-07-04T12:00:00.000Z",
+      session: sessionRecord(sessionId, `/tmp/atlas-loop/${sessionId}`)
+    },
+    {
+      type: "action.completed",
+      at: "2026-07-04T12:00:01.000Z",
+      result: {
+        actionId: "act_first",
+        ok: true,
+        startedAt: "2026-07-04T12:00:00.900Z",
+        endedAt: "2026-07-04T12:00:01.000Z",
+        artifacts: []
+      }
+    },
+    {
+      type: "action.completed",
+      at: "2026-07-04T12:00:02.000Z",
+      result: {
+        actionId: "act_second",
+        ok: false,
+        startedAt: "2026-07-04T12:00:01.900Z",
+        endedAt: "2026-07-04T12:00:02.000Z",
+        artifacts: [],
+        error: { code: "HID_FAILED", message: "tap failed" }
+      }
+    },
+    {
+      type: "error",
+      at: "2026-07-04T12:00:02.001Z",
+      sessionId,
+      error: { code: "HID_FAILED", message: "tap failed" }
+    }
+  ];
 }
 
 async function writeValidArtifactSession(artifactDir: string, sessionId: string): Promise<void> {

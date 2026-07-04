@@ -100,12 +100,14 @@ Recommended additional tool names:
 - `atlas.getLatestSession`
 - `atlas.sessionReady`
 - `atlas.getSessionHandoff`
+- `atlas.listEvents`
 - `atlas.build`
 - `atlas.install`
 - `atlas.launch`
 - `atlas.listArtifacts`
 - `atlas.getArtifactHealth`
 - `atlas.latestScreenshot`
+- `atlas.takeScreenshot`
 - `atlas.getArtifactPath`
 - `atlas.getLatestScreenshotPath`
 - `atlas.verifyArtifacts`
@@ -172,6 +174,55 @@ Atlas Loop error code and message preserved:
   }
 }
 ```
+
+## Event And Trace Inspection
+
+The stable read-only inspection surface is the daemon events route:
+
+```sh
+curl -s "http://127.0.0.1:4317/v1/sessions/latest/events"
+atlas-loop events list --session latest --type action.completed --limit 20
+```
+
+It accepts a concrete session id or `latest`, resolves the session through the
+same readable-session rules as summary, artifact, health, and screenshot reads,
+and returns the parsed `TraceEvent[]` payload from that session's local
+`trace.jsonl` in the normal protocol envelope:
+
+```json
+{
+  "ok": true,
+  "data": [
+    {
+      "type": "action.started",
+      "at": "2026-07-04T09:00:02.000Z",
+      "action": {
+        "id": "act_123",
+        "sessionId": "sess_123",
+        "kind": "tap",
+        "x": 0.5,
+        "y": 0.75,
+        "createdAt": "2026-07-04T09:00:02.000Z",
+        "sequence": 1
+      }
+    }
+  ]
+}
+```
+
+This route does not mutate the session, re-run actions, copy artifacts, upload
+files, or imply that disk-backed evidence can receive new input. For live
+in-memory sessions, malformed trace JSON is an `ARTIFACT_WRITE_FAILED` error
+because the current run's trace is expected to be well-formed. For recovered
+disk sessions, malformed trace lines are skipped so legacy evidence can remain
+inspectable while artifact validators still report structural problems.
+
+Use this route, the CLI `events list` command, the MCP `atlas.listEvents` tool,
+or the daemon client's `events(sessionId)` method when an agent needs exact raw
+JSON, ordering, action ids, or event counts. Use the viewer timeline when a
+human needs to inspect event, screenshot, log, metadata, and artifact health
+context together. The CLI and MCP wrappers are thin, read-only convenience
+layers over the daemon event read model.
 
 ## Request Semantics
 

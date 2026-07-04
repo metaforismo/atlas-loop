@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildViewerUrl, callToolWithEnvelope, tools } from "../../apps/mcp-server/src/index.ts";
+import type { Session, TraceEvent } from "@atlas-loop/protocol";
 
 describe("MCP contract documentation", () => {
   it("documents the daemon-backed MCP tool surface without requiring a daemon process", async () => {
@@ -26,6 +27,7 @@ describe("MCP contract documentation", () => {
       "atlas.getLatestSession",
       "atlas.sessionReady",
       "atlas.getSessionHandoff",
+      "atlas.listEvents",
       "atlas.getArtifactPath",
       "atlas.getLatestScreenshotPath",
       "atlas.verifyArtifacts",
@@ -44,6 +46,7 @@ describe("MCP contract documentation", () => {
     const action = schemaFor("atlas.performAction");
     const ready = schemaFor("atlas.sessionReady");
     const handoff = schemaFor("atlas.getSessionHandoff");
+    const listEvents = schemaFor("atlas.listEvents");
     const verifyArtifacts = schemaFor("atlas.verifyArtifacts");
     const artifactHealth = schemaFor("atlas.getArtifactHealth");
 
@@ -82,6 +85,16 @@ describe("MCP contract documentation", () => {
         daemonUrl: { type: "string" },
         viewerBaseUrl: { type: "string" }
       }
+    });
+    expect(listEvents).toMatchObject({
+      required: ["sessionId"],
+      properties: {
+        sessionId: { type: "string", description: "Session id or latest." },
+        type: { type: "string", description: "Exact trace event type to include." },
+        limit: { type: "integer", minimum: 0 },
+        daemonUrl: { type: "string" }
+      },
+      additionalProperties: false
     });
     expect(action).toMatchObject({
       required: ["sessionId", "action"],
@@ -479,6 +492,102 @@ describe("MCP contract documentation", () => {
       ok: true,
       data: health
     });
+  });
+
+  it("returns filtered daemon events through the structured MCP envelope", async () => {
+    const calls: string[] = [];
+    const events = traceEvents("sess_events");
+
+    const result = await callToolWithEnvelope("atlas.listEvents", {
+      sessionId: "latest",
+      type: "action.completed",
+      limit: 1
+    }, {
+      client: {
+        events: async (sessionId: string) => {
+          calls.push(sessionId);
+          return events;
+        }
+      } as never
+    });
+
+    expect(calls).toEqual(["latest"]);
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        requestedSessionId: "latest",
+        filters: {
+          type: "action.completed",
+          limit: 1
+        },
+        total: 4,
+        matched: 2,
+        count: 1,
+        events: [events[2]]
+      }
+    });
+  });
+
+  it("uses configured daemon URL for default MCP event clients", async () => {
+    const requestedPaths: string[] = [];
+    const events = traceEvents("sess_configured");
+    const server = await startFakeMcpEventsDaemon((requestPath) => {
+      requestedPaths.push(requestPath);
+      return events;
+    });
+    const daemonUrl = `http://127.0.0.1:${server.port}`;
+
+    try {
+      const result = await callToolWithEnvelope("atlas.listEvents", {
+        sessionId: "latest",
+        limit: 2
+      }, {
+        loadConfig: async () => ({ daemonUrl })
+      });
+
+      expect(requestedPaths).toEqual(["/sessions/latest/events"]);
+      expect(result).toMatchObject({
+        ok: true,
+        data: {
+          requestedSessionId: "latest",
+          filters: { limit: 2 },
+          total: 4,
+          matched: 4,
+          count: 2,
+          events: [events[2], events[3]]
+        }
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("rejects invalid event limits without calling the daemon client", async () => {
+    const calls: string[] = [];
+
+    for (const limit of [-1, 1.5, "2"]) {
+      const result = await callToolWithEnvelope("atlas.listEvents", {
+        sessionId: "latest",
+        limit
+      }, {
+        client: {
+          events: async (sessionId: string) => {
+            calls.push(sessionId);
+            return [];
+          }
+        } as never
+      });
+
+      expect(result).toEqual({
+        ok: false,
+        error: {
+          code: "INVALID_REQUEST",
+          message: "limit must be a non-negative integer"
+        }
+      });
+    }
+
+    expect(calls).toEqual([]);
   });
 
   it("validates an explicit local artifact path without daemon I/O", async () => {
@@ -933,6 +1042,34 @@ async function startFakeMcpDaemon(summaryForPath: (requestPath: string) => unkno
   };
 }
 
+async function startFakeMcpEventsDaemon(eventsForPath: (requestPath: string) => TraceEvent[]): Promise<{
+  port: number;
+  close: () => Promise<void>;
+}> {
+  const server = createServer((request, response) => {
+    if (request.method !== "GET" || !request.url || !/^\/sessions\/[^/]+\/events$/.test(request.url)) {
+      response.writeHead(404, { "content-type": "application/json" });
+      response.end(JSON.stringify({
+        ok: false,
+        error: { code: "NOT_FOUND", message: `unexpected route ${request.method} ${request.url}` }
+      }));
+      return;
+    }
+
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({ ok: true, data: eventsForPath(request.url) }));
+  });
+
+  await new Promise<void>((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("fake MCP events daemon did not bind a TCP port");
+
+  return {
+    port: address.port,
+    close: () => closeServer(server)
+  };
+}
+
 function closeServer(server: Server): Promise<void> {
   return new Promise((resolveClose, rejectClose) => {
     server.close((error) => {
@@ -964,6 +1101,58 @@ function artifactHealth(sessionId: string, requestedSessionId: string, ok: boole
       issueCount: 0
     }
   };
+}
+
+function sessionRecord(sessionId: string, artifactDir: string): Session {
+  return {
+    id: sessionId,
+    schemaVersion: "atlas-loop.session.v1",
+    platform: "ios-simulator",
+    status: "running",
+    createdAt: "2026-07-04T12:00:00.000Z",
+    updatedAt: "2026-07-04T12:00:01.000Z",
+    simulator: { name: "iPhone 16" },
+    artifactDir
+  };
+}
+
+function traceEvents(sessionId: string): TraceEvent[] {
+  return [
+    {
+      type: "session.created",
+      at: "2026-07-04T12:00:00.000Z",
+      session: sessionRecord(sessionId, `/tmp/atlas-loop/${sessionId}`)
+    },
+    {
+      type: "action.completed",
+      at: "2026-07-04T12:00:01.000Z",
+      result: {
+        actionId: "act_first",
+        ok: true,
+        startedAt: "2026-07-04T12:00:00.900Z",
+        endedAt: "2026-07-04T12:00:01.000Z",
+        artifacts: []
+      }
+    },
+    {
+      type: "action.completed",
+      at: "2026-07-04T12:00:02.000Z",
+      result: {
+        actionId: "act_second",
+        ok: false,
+        startedAt: "2026-07-04T12:00:01.900Z",
+        endedAt: "2026-07-04T12:00:02.000Z",
+        artifacts: [],
+        error: { code: "HID_FAILED", message: "tap failed" }
+      }
+    },
+    {
+      type: "error",
+      at: "2026-07-04T12:00:02.001Z",
+      sessionId,
+      error: { code: "HID_FAILED", message: "tap failed" }
+    }
+  ];
 }
 
 async function writeValidArtifactSession(artifactDir: string, sessionId: string): Promise<void> {

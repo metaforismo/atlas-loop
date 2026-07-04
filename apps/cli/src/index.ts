@@ -18,7 +18,7 @@ import {
   type SessionSummary
 } from "@atlas-loop/daemon-client";
 import { startDaemonServer } from "../../daemon/src/server.ts";
-import type { ActionInput, ArtifactRef } from "@atlas-loop/protocol";
+import type { ActionInput, ArtifactRef, TraceEvent } from "@atlas-loop/protocol";
 import { validateArtifactTarget, type ValidationReport } from "../../../scripts/verify-artifacts.ts";
 
 type Args = string[];
@@ -36,6 +36,10 @@ interface SessionReadyClient {
 
 interface ArtifactValidationClient {
   getSessionSummary(sessionId: string): Promise<SessionSummary>;
+}
+
+interface EventClient {
+  events(sessionId: string): Promise<TraceEvent[]>;
 }
 
 interface ArtifactHealthClient {
@@ -111,6 +115,24 @@ export interface ArtifactHealth {
     warningCount: number;
     issueCount: number;
   };
+}
+
+export interface EventListOptions {
+  sessionId: string;
+  type?: string;
+  limit?: number;
+}
+
+export interface EventListResult {
+  requestedSessionId: string;
+  filters: {
+    type?: string;
+    limit?: number;
+  };
+  total: number;
+  matched: number;
+  count: number;
+  events: TraceEvent[];
 }
 
 export async function main(args: Args): Promise<number> {
@@ -281,6 +303,15 @@ export async function main(args: Args): Promise<number> {
     return 0;
   }
 
+  if (command === "events" && (subcommand === "list" || subcommand === "ls")) {
+    printJson(await listSessionEvents(client, {
+      sessionId: requireFlag(flags, "session"),
+      type: stringFlag(flags, "type"),
+      limit: integerFlag(flags, "limit")
+    }));
+    return 0;
+  }
+
   if (command === "evidence") {
     const viewerBaseUrl = stringFlag(flags, "viewer-base-url") ?? DEFAULT_VIEWER_BASE_URL;
     if (subcommand === "export" || stringFlag(flags, "_0") === "export") {
@@ -325,6 +356,28 @@ export async function main(args: Args): Promise<number> {
 
 export async function resolveDaemonUrl(flags: Map<string, string | boolean>): Promise<string> {
   return stringFlag(flags, "daemon-url") ?? (await loadConfig()).daemonUrl;
+}
+
+export async function listSessionEvents(client: EventClient, params: EventListOptions): Promise<EventListResult> {
+  const limit = normalizeEventLimit(params.limit, "limit");
+  const events = await client.events(params.sessionId);
+  const matchingEvents = params.type
+    ? events.filter((event) => event.type === params.type)
+    : events;
+  const selectedEvents = limit === undefined
+    ? matchingEvents
+    : limit === 0
+      ? []
+      : matchingEvents.slice(-limit);
+
+  return {
+    requestedSessionId: params.sessionId,
+    filters: eventFilters(params.type, limit),
+    total: events.length,
+    matched: matchingEvents.length,
+    count: selectedEvents.length,
+    events: selectedEvents
+  };
 }
 
 export async function buildEvidenceSummary(
@@ -619,6 +672,12 @@ function numberFlagRequired(flags: Map<string, string | boolean>, name: string):
   return value;
 }
 
+function integerFlag(flags: Map<string, string | boolean>, name: string): number | undefined {
+  const value = numberFlag(flags, name);
+  if (value === undefined) return undefined;
+  return normalizeEventLimit(value, `--${name}`);
+}
+
 function csvFlag(flags: Map<string, string | boolean>, name: string): string[] | undefined {
   const value = stringFlag(flags, name);
   return value ? value.split(",").filter(Boolean) : undefined;
@@ -641,6 +700,19 @@ function configurationFlag(flags: Map<string, string | boolean>): "Debug" | "Rel
   const value = stringFlag(flags, "configuration");
   if (value === undefined || value === "Debug" || value === "Release") return value;
   throw new Error("--configuration must be Debug or Release");
+}
+
+function normalizeEventLimit(value: number | undefined, label: string): number | undefined {
+  if (value === undefined) return undefined;
+  if (!Number.isInteger(value) || value < 0) throw new Error(`${label} must be a non-negative integer`);
+  return value;
+}
+
+function eventFilters(type: string | undefined, limit: number | undefined): EventListResult["filters"] {
+  const filters: EventListResult["filters"] = {};
+  if (type !== undefined) filters.type = type;
+  if (limit !== undefined) filters.limit = limit;
+  return filters;
 }
 
 function parsePoint(value: string): { x: number; y: number } {
@@ -706,6 +778,7 @@ Usage:
   atlas-loop artifacts verify --path <dir>
   atlas-loop artifacts health --session <id|latest>
   atlas-loop artifacts open --session <id|latest> [--latest-screenshot]
+  atlas-loop events list --session <id|latest> [--type action.completed] [--limit 20]
   atlas-loop evidence --session <id|latest>
   atlas-loop evidence report --session <id|latest> [--out report.md]
   atlas-loop evidence export --session <id|latest> --out <dir>

@@ -489,8 +489,18 @@ function screenshotTapTargetFromClientPoint(image: HTMLImageElement, clientX: nu
 
   if (xInImage < 0 || yInImage < 0 || xInImage > box.width || yInImage > box.height) return undefined;
 
-  const x = clampNormalizedCoordinate(xInImage / box.width);
-  const y = clampNormalizedCoordinate(yInImage / box.height);
+  return screenshotTapTargetFromNormalizedPoint(image, xInImage / box.width, yInImage / box.height);
+}
+
+function screenshotTapTargetFromNormalizedPoint(image: HTMLImageElement, xValue: number, yValue: number): ScreenshotTapTarget | undefined {
+  const rect = image.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) return undefined;
+
+  const box = containedImageBox(rect, image.naturalWidth, image.naturalHeight);
+  if (box.width <= 0 || box.height <= 0) return undefined;
+
+  const x = clampNormalizedCoordinate(xValue);
+  const y = clampNormalizedCoordinate(yValue);
   const markerLeftPercent = ((box.left + x * box.width) / rect.width) * 100;
   const markerTopPercent = ((box.top + y * box.height) / rect.height) * 100;
 
@@ -1355,6 +1365,17 @@ function ScreenshotView({
     onTapTarget(target);
   };
 
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>): void => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    const image = imageRef.current;
+    if (!image) return;
+
+    const target = screenshotTapTargetFromNormalizedPoint(image, 0.5, 0.5);
+    if (!target) return;
+    event.preventDefault();
+    onTapTarget(target);
+  };
+
   if (isDisplayableScreenshot(screenshot)) {
     const targetStyle = tapTarget
       ? ({
@@ -1367,8 +1388,9 @@ function ScreenshotView({
       <button
         type="button"
         className={`screenshot-image-wrap ${screenshot.status}`}
-        aria-label="Select normalized tap target from screenshot"
+        aria-label="Select normalized tap target from screenshot; press Enter for center"
         onPointerDown={handlePointerDown}
+        onKeyDown={handleKeyDown}
       >
         <img
           ref={imageRef}
