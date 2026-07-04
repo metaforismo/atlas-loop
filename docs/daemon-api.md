@@ -1,0 +1,102 @@
+# Daemon API
+
+The daemon is the local process that owns Simulator state, action execution, and artifact writes. Clients may be CLI commands, the viewer, or an MCP server that translates tool calls into daemon requests.
+
+## HTTP Contract
+
+The daemon should expose JSON endpoints on `ATLAS_LOOP_DAEMON_URL`, defaulting to `http://127.0.0.1:4317`.
+
+Recommended endpoints:
+
+- `GET /healthz`: Returns daemon readiness and version metadata.
+- `POST /v1/sessions`: Creates a session from a `CreateSessionRequest`.
+- `GET /v1/sessions/:id`: Returns the current session object.
+- `POST /v1/sessions/:id/build`: Builds an app for the target Simulator.
+- `POST /v1/sessions/:id/install`: Installs an app bundle.
+- `POST /v1/sessions/:id/launch`: Launches an installed app.
+- `POST /v1/sessions/:id/actions`: Performs one action and returns an `ActionResult`.
+- `POST /v1/sessions/:id/end`: Ends the session and flushes artifacts.
+- `GET /v1/sessions/:id/artifacts`: Lists known artifact references.
+- `GET /v1/sessions/:id/latest-screenshot`: Returns the latest screenshot image.
+
+The daemon also accepts the same session routes without the `/v1` prefix for
+older local clients.
+
+Responses should use the protocol envelope:
+
+```json
+{
+  "ok": true,
+  "data": {}
+}
+```
+
+On failure:
+
+```json
+{
+  "ok": false,
+  "error": {
+    "code": "INVALID_REQUEST",
+    "message": "tap must use normalized coordinates between 0 and 1",
+    "retryable": false
+  }
+}
+```
+
+## MCP Contract Basics
+
+The MCP server should not require a real daemon for `tools/list`. It should publish the daemon-backed tool surface and connect to the daemon only when a tool is called.
+
+Required JSON-RPC methods:
+
+- `tools/list`
+- `tools/call`
+
+Required tool names:
+
+- `atlas.createSession`
+- `atlas.getSession`
+- `atlas.performAction`
+- `atlas.endSession`
+
+Recommended additional tool names:
+
+- `atlas.build`
+- `atlas.install`
+- `atlas.launch`
+- `atlas.listArtifacts`
+
+Tool calls should return structured JSON content. Daemon failures should be surfaced as MCP tool errors with the Atlas Loop error code and message preserved.
+
+## Request Semantics
+
+Session creation accepts:
+
+```json
+{
+  "simulator": {
+    "name": "iPhone 16"
+  },
+  "artifactRoot": "artifacts/sessions",
+  "viewer": true
+}
+```
+
+Action execution accepts:
+
+```json
+{
+  "action": {
+    "kind": "tap",
+    "x": 0.5,
+    "y": 0.5
+  }
+}
+```
+
+The daemon materializes action IDs, sequence numbers, timestamps, action results, traces, and artifact references.
+
+## Local Safety
+
+The daemon is intended for local use. Bind to loopback by default, reject non-normalized coordinates, keep artifact paths inside the session directory, and never expose Simulator logs or screenshots over a public interface unless the caller explicitly configures that behavior.

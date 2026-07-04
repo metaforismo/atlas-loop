@@ -1,0 +1,140 @@
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import { validateArtifactTarget } from "../../scripts/verify-artifacts.ts";
+
+const tempRoots: string[] = [];
+
+async function makeTempRoot(): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), "atlas-artifacts-"));
+  tempRoots.push(root);
+  return root;
+}
+
+afterEach(async () => {
+  await Promise.all(tempRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+});
+
+async function writeValidSession(root: string): Promise<string> {
+  const sessionDir = join(root, "session_ok");
+  await mkdir(join(sessionDir, "screenshots"), { recursive: true });
+  await mkdir(join(sessionDir, "logs"), { recursive: true });
+  await mkdir(join(sessionDir, "metadata"), { recursive: true });
+  await writeFile(join(sessionDir, "screenshots", "first.png"), "png");
+  await writeFile(join(sessionDir, "logs", "daemon.log"), "booted\n");
+  await writeFile(join(sessionDir, "metadata", "env.json"), "{\"node\":\"test\"}\n");
+  await writeFile(
+    join(sessionDir, "session.json"),
+    JSON.stringify(
+      {
+        id: "session_ok",
+        schemaVersion: "atlas-loop.session.v1",
+        platform: "ios-simulator",
+        status: "ended",
+        createdAt: "2026-07-04T00:00:00.000Z",
+        updatedAt: "2026-07-04T00:00:01.000Z",
+        simulator: { name: "iPhone 16" },
+        artifactDir: sessionDir
+      },
+      null,
+      2
+    )
+  );
+  await writeFile(
+    join(sessionDir, "actions.jsonl"),
+    `${JSON.stringify({
+      action: {
+        id: "act_1",
+        sessionId: "session_ok",
+        kind: "screenshot",
+        createdAt: "2026-07-04T00:00:00.500Z"
+      },
+      result: {
+        actionId: "act_1",
+        ok: true,
+        startedAt: "2026-07-04T00:00:00.500Z",
+        endedAt: "2026-07-04T00:00:00.600Z",
+        artifacts: [
+          {
+            id: "screenshot_1",
+            sessionId: "session_ok",
+            type: "screenshot",
+            path: join(sessionDir, "screenshots", "first.png"),
+            createdAt: "2026-07-04T00:00:00.600Z"
+          },
+          {
+            id: "log_1",
+            sessionId: "session_ok",
+            type: "log",
+            path: join(sessionDir, "logs", "daemon.log"),
+            createdAt: "2026-07-04T00:00:00.600Z"
+          },
+          {
+            id: "metadata_1",
+            sessionId: "session_ok",
+            type: "metadata",
+            path: join(sessionDir, "metadata", "env.json"),
+            createdAt: "2026-07-04T00:00:00.600Z"
+          }
+        ]
+      }
+    })}\n`
+  );
+  return sessionDir;
+}
+
+describe("artifact validator", () => {
+  it("accepts a complete session tree with contained artifacts", async () => {
+    const root = await makeTempRoot();
+    const sessionDir = await writeValidSession(root);
+
+    const report = await validateArtifactTarget(sessionDir);
+
+    expect(report.ok).toBe(true);
+    expect(report.sessionCount).toBe(1);
+    expect(report.issues).toEqual([]);
+  });
+
+  it("rejects session metadata and action artifacts that escape the session directory", async () => {
+    const root = await makeTempRoot();
+    const sessionDir = await writeValidSession(root);
+    const escapedPath = resolve(root, "..", "outside.png");
+    await writeFile(escapedPath, "outside");
+
+    const sessionJson = JSON.parse(await readFile(join(sessionDir, "session.json"), "utf8"));
+    sessionJson.artifactDir = resolve(root, "..");
+    await writeFile(join(sessionDir, "session.json"), JSON.stringify(sessionJson, null, 2));
+    await writeFile(
+      join(sessionDir, "actions.jsonl"),
+      `${JSON.stringify({
+        action: {
+          id: "act_2",
+          sessionId: "session_ok",
+          kind: "screenshot",
+          createdAt: "2026-07-04T00:00:00.500Z"
+        },
+        result: {
+          actionId: "act_2",
+          ok: true,
+          startedAt: "2026-07-04T00:00:00.500Z",
+          endedAt: "2026-07-04T00:00:00.600Z",
+          artifacts: [
+            {
+              id: "screenshot_2",
+              sessionId: "session_ok",
+              type: "screenshot",
+              path: escapedPath,
+              createdAt: "2026-07-04T00:00:00.600Z"
+            }
+          ]
+        }
+      })}\n`
+    );
+
+    const report = await validateArtifactTarget(sessionDir);
+
+    expect(report.ok).toBe(false);
+    expect(report.issues.map((issue) => issue.message).join("\n")).toMatch(/escapes session directory/);
+  });
+});

@@ -1,0 +1,46 @@
+{
+  "name": "atlas-loop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local-first iOS Simulator verification loop for coding agents.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "check": "npm run typecheck && npm test",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:viewer": "vitest run tests/viewer",
+    "daemon": "tsx apps/daemon/src/index.ts",
+    "cli": "tsx apps/cli/src/index.ts",
+    "mcp": "tsx apps/mcp-server/src/index.ts",
+    "viewer": "vite --host 127.0.0.1 --config apps/viewer/vite.config.ts",
+    "smoke:ios": "bash scripts/smoke-ios.sh",
+    "verify:artifacts": "tsx scripts/verify-artifacts.ts",
+    "verify:local": "bash scripts/verify-local.sh"
+  },
+  "bin": {
+    "atlas-loop": "apps/cli/src/index.ts"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^6.0.3",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "vite": "^8.1.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^4.1.9"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

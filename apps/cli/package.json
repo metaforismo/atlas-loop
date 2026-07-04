@@ -1,0 +1,9 @@
+{
+  "name": "@atlas-loop/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "atlas-loop": "./src/index.ts"
+  }
+}

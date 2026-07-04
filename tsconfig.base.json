@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "baseUrl": ".",
+    "paths": {
+      "@atlas-loop/protocol": ["packages/protocol/src/index.ts"],
+      "@atlas-loop/artifacts": ["packages/artifacts/src/index.ts"],
+      "@atlas-loop/traces": ["packages/traces/src/index.ts"],
+      "@atlas-loop/simulator": ["packages/simulator/src/index.ts"],
+      "@atlas-loop/hid-client": ["packages/hid-client/src/index.ts"],
+      "@atlas-loop/daemon-client": ["packages/daemon-client/src/index.ts"],
+      "@atlas-loop/config": ["packages/config/src/index.ts"]
+    }
+  }
+}

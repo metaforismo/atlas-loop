@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.turbo/
+.vite/
+coverage/
+/artifacts/
+DerivedData/
+*.xcresult
+*.xcarchive
+*.app
+*.ipa
+native/**/.build/
+.DS_Store
+.env
+.env.*
+!.env.example

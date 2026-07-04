@@ -1,0 +1,24 @@
+name: Bug report
+description: Report a reproducible local Atlas Loop issue.
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What happened?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction
+      description: Include commands, Simulator model/runtime, and relevant artifact paths.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Paste structured errors or logs. Do not attach sensitive screenshots publicly.
