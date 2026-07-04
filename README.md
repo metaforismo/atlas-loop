@@ -87,6 +87,8 @@ atlas-loop launch --session <id> --bundle-id app.atlasloop.CommerceDemo
 atlas-loop tap --session <id> --x 0.5 --y 0.8
 atlas-loop type --session <id> --text "Ada Lovelace"
 atlas-loop swipe --session <id> --from 0.5,0.8 --to 0.5,0.2 --duration-ms 450
+atlas-loop edge --session <id> --edge left --distance 0.75 --duration-ms 350
+atlas-loop wait --session <id> --duration-ms 1000
 atlas-loop screenshot --session <id> --reason confirmation
 atlas-loop artifacts list --session <id>
 atlas-loop artifacts latest-screenshot --session <id>
@@ -222,6 +224,13 @@ backend needs a visible Simulator window, Accessibility permission, and a host
 configuration where posted macOS events are actually consumed by the guest app.
 The demo route proof is a launch-argument proof path, not evidence that HID
 input succeeded.
+
+Native helper protocol compatibility can be checked without a booted Simulator:
+
+```bash
+swift build --package-path native/ios-hid-helper
+node scripts/check-hid-helper-protocol.mjs native/ios-hid-helper/.build/debug/ios-hid-helper
+```
 
 ## Objective Function
 

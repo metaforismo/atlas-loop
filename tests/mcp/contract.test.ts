@@ -32,6 +32,50 @@ describe("MCP contract documentation", () => {
     expect(tools.find((tool) => tool.name === "atlas.listSessions")?.description).toContain("active and persisted");
   });
 
+  it("publishes concrete input schemas for agent-authored runtime calls", () => {
+    const createSession = schemaFor("atlas.createSession");
+    const build = schemaFor("atlas.build");
+    const action = schemaFor("atlas.performAction");
+
+    expect(createSession.properties).toMatchObject({
+      simulator: {
+        type: "object",
+        properties: expect.objectContaining({
+          name: { type: "string" },
+          udid: { type: "string" },
+          runtime: { type: "string" }
+        })
+      },
+      artifactRoot: { type: "string" },
+      viewer: { type: "boolean" }
+    });
+    expect(build).toMatchObject({
+      required: ["sessionId", "scheme"],
+      properties: {
+        sessionId: { type: "string", description: "Session id or latest." },
+        scheme: { type: "string" },
+        configuration: { type: "string", enum: ["Debug", "Release"] }
+      }
+    });
+    expect(action).toMatchObject({
+      required: ["sessionId", "action"],
+      properties: {
+        action: {
+          oneOf: expect.arrayContaining([
+            expect.objectContaining({ required: ["kind", "x", "y"] }),
+            expect.objectContaining({ required: ["kind", "durationMs"] }),
+            expect.objectContaining({
+              required: ["kind", "edge", "distance", "durationMs"],
+              properties: expect.objectContaining({
+                edge: { type: "string", enum: ["left", "right", "top", "bottom"] }
+              })
+            })
+          ])
+        }
+      }
+    });
+  });
+
   it("returns the daemon latest session through a dedicated MCP helper", async () => {
     const result = await callToolWithEnvelope("atlas.getLatestSession", {}, {
       client: {
@@ -292,4 +336,10 @@ function closeServer(server: Server): Promise<void> {
       else resolveClose();
     });
   });
+}
+
+function schemaFor(name: string): Record<string, any> {
+  const schema = tools.find((tool) => tool.name === name)?.inputSchema;
+  if (!schema || typeof schema !== "object") throw new Error(`missing schema for ${name}`);
+  return schema as Record<string, any>;
 }

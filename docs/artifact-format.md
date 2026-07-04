@@ -65,6 +65,21 @@ Artifact path containment rules:
 
 The validator checks both the string path and the filesystem realpath so symlinks cannot escape the session directory.
 
+## HID Action Metadata
+
+Primitive HID actions (`tap`, `typeText`, `swipe`, and `edgeGesture`) write a
+metadata artifact for both success and failure:
+
+```text
+metadata/hid-action-<sequence>.json
+```
+
+The artifact uses `schemaVersion: "atlas-loop.hid-action.v1"` and records the
+helper path, selected backend, helper target string, Simulator metadata, attach
+options, materialized action, and final result/error. This is intentionally
+local diagnostic evidence; it does not claim that the Simulator guest consumed a
+host-posted event.
+
 ## Persisted Discovery
 
 `GET /v1/sessions`, `GET /v1/sessions/:id`, summary, artifact, event, and latest

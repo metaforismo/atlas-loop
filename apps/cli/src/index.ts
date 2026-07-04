@@ -122,10 +122,14 @@ export async function main(args: Args): Promise<number> {
   if (command === "edge") {
     return action(client, flags, {
       kind: "edgeGesture",
-      edge: requireFlag(flags, "edge") as ActionInput & string,
+      edge: requireFlag(flags, "edge") as "left" | "right" | "top" | "bottom",
       distance: numberFlag(flags, "distance") ?? 0.75,
       durationMs: numberFlag(flags, "duration-ms") ?? 350
     } as ActionInput);
+  }
+
+  if (command === "wait") {
+    return action(client, flags, { kind: "wait", durationMs: numberFlagRequired(flags, "duration-ms") });
   }
 
   if (command === "screenshot") {
@@ -389,6 +393,8 @@ Usage:
   atlas-loop tap --session <id|latest> --x 0.5 --y 0.5
   atlas-loop type --session <id|latest> --text "Ada Lovelace"
   atlas-loop swipe --session <id|latest> --from 0.5,0.8 --to 0.5,0.2 --duration-ms 350
+  atlas-loop edge --session <id|latest> --edge left --distance 0.75 --duration-ms 350
+  atlas-loop wait --session <id|latest> --duration-ms 1000
   atlas-loop screenshot --session <id|latest> [--reason label]
   atlas-loop artifacts list --session <id|latest>
   atlas-loop artifacts latest-screenshot --session <id|latest>

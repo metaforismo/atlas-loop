@@ -91,6 +91,34 @@ export interface ActionResultLike {
   error?: AtlasLoopError;
 }
 
+export interface SessionSummary {
+  session: Session;
+  paths: {
+    artifactDir: string;
+    manifest: string;
+    trace: string;
+    screenshots: string;
+  };
+  artifacts: {
+    total: number;
+    byType: Partial<Record<ArtifactType, number>>;
+    latestScreenshot?: ArtifactRef;
+    latestScreenshotId?: string;
+    latestScreenshotPath?: string;
+    latestScreenshotCreatedAt?: string;
+  };
+  events: {
+    total: number;
+    latestAction?: ActionResultLike & { artifactCount: number };
+    latestError?: AtlasLoopError;
+  };
+  storage: {
+    source: "memory" | "disk" | string;
+    artifactBacked: boolean;
+    warnings: Array<{ path: string; message: string }>;
+  };
+}
+
 export interface TraceEvent {
   type: string;
   at?: string;

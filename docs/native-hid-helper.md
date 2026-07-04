@@ -49,6 +49,14 @@ Use `metrics` as the lightweight helper self-test:
 {"id":"2","type":"metrics","data":{}}
 ```
 
+CI and local contributors can run the repo verifier after building the helper:
+
+```sh
+node scripts/check-hid-helper-protocol.mjs \
+  native/ios-hid-helper/.build/debug/ios-hid-helper \
+  --out artifacts/ci/hid-helper-protocol.ndjson
+```
+
 The TypeScript `HidClient` exposes this as both `metrics()` and
 `diagnostics()`. The response includes:
 

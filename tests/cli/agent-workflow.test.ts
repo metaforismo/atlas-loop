@@ -167,6 +167,45 @@ describe("CLI agent workflow helpers", () => {
     expect(writeResult).toMatchObject({ ok: true, reportPath, sessionId: "sess_report" });
     expect(reportText).toContain("Latest screenshot");
   });
+
+  it("serializes primitive action commands to daemon action requests", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "atlas-loop-cli-actions-"));
+    const originalCwd = process.cwd();
+    const originalLog = console.log;
+    const logged: string[] = [];
+    const requests: Array<{ path: string; body: unknown }> = [];
+    const server = await startRecordingDaemon(requests);
+    const daemonUrl = `http://127.0.0.1:${server.port}`;
+
+    await writeFile(join(tempDir, "atlas-loop.config.json"), JSON.stringify({ daemonUrl }, null, 2));
+    console.log = (value?: unknown) => {
+      logged.push(String(value));
+    };
+
+    try {
+      process.chdir(tempDir);
+      await expect(main(["tap", "--session", "sess_cli", "--x", "0.25", "--y", "0.75"])).resolves.toBe(0);
+      await expect(main(["type", "--session", "sess_cli", "--text", "Ada"])).resolves.toBe(0);
+      await expect(main(["swipe", "--session", "sess_cli", "--from", "0.5,0.8", "--to", "0.5,0.2", "--duration-ms", "450"])).resolves.toBe(0);
+      await expect(main(["edge", "--session", "sess_cli", "--edge", "left", "--distance", "0.5", "--duration-ms", "300"])).resolves.toBe(0);
+      await expect(main(["wait", "--session", "sess_cli", "--duration-ms", "1200"])).resolves.toBe(0);
+    } finally {
+      process.chdir(originalCwd);
+      console.log = originalLog;
+      await server.close();
+      await rm(tempDir, { recursive: true, force: true });
+    }
+
+    expect(logged).toHaveLength(5);
+    expect(requests.map((request) => request.path)).toEqual(Array.from({ length: 5 }, () => "/sessions/sess_cli/actions"));
+    expect(requests.map((request) => request.body)).toEqual([
+      { action: { kind: "tap", x: 0.25, y: 0.75 } },
+      { action: { kind: "typeText", text: "Ada" } },
+      { action: { kind: "swipe", from: { x: 0.5, y: 0.8 }, to: { x: 0.5, y: 0.2 }, durationMs: 450 } },
+      { action: { kind: "edgeGesture", edge: "left", distance: 0.5, durationMs: 300 } },
+      { action: { kind: "wait", durationMs: 1200 } }
+    ]);
+  });
 });
 
 async function startFakeDaemon(summaryForPath: (requestPath: string) => SessionSummary): Promise<{
@@ -190,6 +229,47 @@ async function startFakeDaemon(summaryForPath: (requestPath: string) => SessionS
   await new Promise<void>((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("fake daemon did not bind a TCP port");
+
+  return {
+    port: address.port,
+    close: () => closeServer(server)
+  };
+}
+
+async function startRecordingDaemon(requests: Array<{ path: string; body: unknown }>): Promise<{
+  port: number;
+  close: () => Promise<void>;
+}> {
+  const server = createServer(async (request, response) => {
+    if (request.method !== "POST" || !request.url?.endsWith("/actions")) {
+      response.writeHead(404, { "content-type": "application/json" });
+      response.end(JSON.stringify({
+        ok: false,
+        error: { code: "NOT_FOUND", message: `unexpected route ${request.method} ${request.url}` }
+      }));
+      return;
+    }
+
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) chunks.push(Buffer.from(chunk));
+    const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    requests.push({ path: request.url, body });
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({
+      ok: true,
+      data: {
+        actionId: "act_cli",
+        ok: true,
+        startedAt: "2026-07-04T12:00:00.000Z",
+        endedAt: "2026-07-04T12:00:00.100Z",
+        artifacts: []
+      }
+    }));
+  });
+
+  await new Promise<void>((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("recording daemon did not bind a TCP port");
 
   return {
     port: address.port,

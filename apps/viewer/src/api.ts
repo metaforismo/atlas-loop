@@ -1,4 +1,4 @@
-import type { ApiEnvelope, ArtifactRef, ScreenshotState, Session, SessionListItem, TraceEvent, ViewerParams } from "./types.js";
+import type { ApiEnvelope, ArtifactRef, ScreenshotState, Session, SessionListItem, SessionSummary, TraceEvent, ViewerParams } from "./types.js";
 import { buildSessionsUrl, buildSessionUrl, normalizeDaemonUrl } from "./viewerParams.js";
 
 export class ApiError extends Error {
@@ -62,6 +62,10 @@ export async function fetchHealth(daemonUrl: string, signal?: AbortSignal): Prom
 
 export async function fetchSession(params: ViewerParams, signal?: AbortSignal): Promise<Session | undefined> {
   return fetchJson<Session>(buildSessionUrl(params), signal);
+}
+
+export async function fetchSessionSummary(params: ViewerParams, signal?: AbortSignal): Promise<SessionSummary | undefined> {
+  return fetchJson<SessionSummary>(buildSessionUrl(params, "summary"), signal);
 }
 
 export async function fetchSessions(daemonUrl: string, signal?: AbortSignal): Promise<SessionListItem[]> {

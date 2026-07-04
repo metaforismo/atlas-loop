@@ -49,13 +49,13 @@ export const tools = [
   { name: "atlas.health", description: "Check local daemon readiness.", inputSchema: objectSchema([]) },
   { name: "atlas.listSessions", description: "List active and persisted local iOS Simulator sessions.", inputSchema: objectSchema([]) },
   { name: "atlas.getLatestSession", description: "Return the newest readable session using the daemon latest alias.", inputSchema: objectSchema([]) },
-  { name: "atlas.createSession", description: "Create a local iOS Simulator session.", inputSchema: { type: "object" } },
-  { name: "atlas.getSession", description: "Get a session by id.", inputSchema: objectSchema(["sessionId"]) },
-  { name: "atlas.getSessionSummary", description: "Get session status, artifact paths, counts, latest action, and latest screenshot metadata.", inputSchema: objectSchema(["sessionId"]) },
-  { name: "atlas.performAction", description: "Perform tap/type/swipe/wait/screenshot action.", inputSchema: objectSchema(["sessionId", "action"]) },
-  { name: "atlas.takeScreenshot", description: "Capture a screenshot artifact.", inputSchema: objectSchema(["sessionId"]) },
-  { name: "atlas.listArtifacts", description: "List local evidence artifacts.", inputSchema: objectSchema(["sessionId"]) },
-  { name: "atlas.latestScreenshot", description: "Return the latest screenshot artifact reference.", inputSchema: objectSchema(["sessionId"]) },
+  { name: "atlas.createSession", description: "Create a local iOS Simulator session.", inputSchema: createSessionSchema() },
+  { name: "atlas.getSession", description: "Get a session by id.", inputSchema: sessionIdSchema() },
+  { name: "atlas.getSessionSummary", description: "Get session status, artifact paths, counts, latest action, and latest screenshot metadata.", inputSchema: sessionIdSchema() },
+  { name: "atlas.performAction", description: "Perform tap/type/swipe/wait/screenshot action.", inputSchema: performActionSchema() },
+  { name: "atlas.takeScreenshot", description: "Capture a screenshot artifact.", inputSchema: objectSchema(["sessionId"], { ...sessionIdProperty(), reason: { type: "string" } }) },
+  { name: "atlas.listArtifacts", description: "List local evidence artifacts.", inputSchema: sessionIdSchema() },
+  { name: "atlas.latestScreenshot", description: "Return the latest screenshot artifact reference.", inputSchema: sessionIdSchema() },
   { name: "atlas.getArtifactPath", description: "Return the local artifact directory path for a session.", inputSchema: objectSchema(["sessionId"], { sessionId: { type: "string" } }) },
   { name: "atlas.getLatestScreenshotPath", description: "Return the local path for the latest screenshot artifact.", inputSchema: objectSchema(["sessionId"], { sessionId: { type: "string" } }) },
   {
@@ -85,10 +85,10 @@ export const tools = [
       viewerBaseUrl: { type: "string", description: "Optional viewer app base URL override." }
     })
   },
-  { name: "atlas.endSession", description: "End a local session.", inputSchema: objectSchema(["sessionId"]) },
-  { name: "atlas.build", description: "Build an iOS app through xcodebuild.", inputSchema: objectSchema(["sessionId", "scheme"]) },
-  { name: "atlas.install", description: "Install a simulator .app.", inputSchema: objectSchema(["sessionId", "appPath"]) },
-  { name: "atlas.launch", description: "Launch an installed bundle.", inputSchema: objectSchema(["sessionId", "bundleId"]) }
+  { name: "atlas.endSession", description: "End a local session.", inputSchema: sessionIdSchema() },
+  { name: "atlas.build", description: "Build an iOS app through xcodebuild.", inputSchema: buildSchema() },
+  { name: "atlas.install", description: "Install a simulator .app.", inputSchema: installSchema() },
+  { name: "atlas.launch", description: "Launch an installed bundle.", inputSchema: launchSchema() }
 ];
 
 export function startStdioServer(runtime: ToolRuntime = {}): void {
@@ -348,8 +348,106 @@ function isNotFoundError(error: unknown): boolean {
   );
 }
 
+function sessionIdProperty(): Record<string, unknown> {
+  return { sessionId: { type: "string", description: "Session id or latest." } };
+}
+
+function sessionIdSchema(): Record<string, unknown> {
+  return objectSchema(["sessionId"], sessionIdProperty());
+}
+
+function createSessionSchema(): Record<string, unknown> {
+  return objectSchema([], {
+    simulator: objectSchema([], {
+      udid: { type: "string" },
+      name: { type: "string" },
+      runtime: { type: "string" },
+      booted: { type: "boolean" }
+    }),
+    artifactRoot: { type: "string" },
+    viewer: { type: "boolean" }
+  });
+}
+
+function buildSchema(): Record<string, unknown> {
+  return objectSchema(["sessionId", "scheme"], {
+    ...sessionIdProperty(),
+    workspacePath: { type: "string", description: "Path to an .xcworkspace." },
+    projectPath: { type: "string", description: "Path to an .xcodeproj." },
+    scheme: { type: "string" },
+    configuration: { type: "string", enum: ["Debug", "Release"] },
+    derivedDataPath: { type: "string" }
+  });
+}
+
+function installSchema(): Record<string, unknown> {
+  return objectSchema(["sessionId", "appPath"], {
+    ...sessionIdProperty(),
+    appPath: { type: "string", description: "Path to a Simulator-compatible .app bundle." }
+  });
+}
+
+function launchSchema(): Record<string, unknown> {
+  return objectSchema(["sessionId", "bundleId"], {
+    ...sessionIdProperty(),
+    bundleId: { type: "string" },
+    arguments: { type: "array", items: { type: "string" } },
+    environment: { type: "object", additionalProperties: { type: "string" } }
+  });
+}
+
+function performActionSchema(): Record<string, unknown> {
+  return objectSchema(["sessionId", "action"], {
+    ...sessionIdProperty(),
+    action: {
+      oneOf: [
+        objectSchema(["kind", "x", "y"], {
+          kind: { const: "tap" },
+          x: normalizedNumberSchema(),
+          y: normalizedNumberSchema()
+        }),
+        objectSchema(["kind", "text"], {
+          kind: { const: "typeText" },
+          text: { type: "string", minLength: 1 }
+        }),
+        objectSchema(["kind", "from", "to", "durationMs"], {
+          kind: { const: "swipe" },
+          from: pointSchema(),
+          to: pointSchema(),
+          durationMs: { type: "number", minimum: 0 }
+        }),
+        objectSchema(["kind", "edge", "distance", "durationMs"], {
+          kind: { const: "edgeGesture" },
+          edge: { type: "string", enum: ["left", "right", "top", "bottom"] },
+          distance: normalizedNumberSchema(),
+          durationMs: { type: "number", minimum: 0 }
+        }),
+        objectSchema(["kind"], {
+          kind: { const: "screenshot" },
+          reason: { type: "string" }
+        }),
+        objectSchema(["kind", "durationMs"], {
+          kind: { const: "wait" },
+          durationMs: { type: "number", minimum: 0 }
+        })
+      ]
+    }
+  });
+}
+
+function pointSchema(): Record<string, unknown> {
+  return objectSchema(["x", "y"], {
+    x: normalizedNumberSchema(),
+    y: normalizedNumberSchema()
+  });
+}
+
+function normalizedNumberSchema(): Record<string, unknown> {
+  return { type: "number", minimum: 0, maximum: 1 };
+}
+
 function objectSchema(required: string[], properties: Record<string, unknown> = {}): Record<string, unknown> {
-  return { type: "object", properties, required };
+  return { type: "object", properties, required, additionalProperties: false };
 }
 
 function withoutSessionId(args: Record<string, unknown>): Record<string, unknown> {
