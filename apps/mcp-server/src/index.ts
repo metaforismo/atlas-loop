@@ -4,10 +4,9 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { loadConfig as loadAtlasLoopConfig } from "@atlas-loop/config";
 import { DaemonClient, DaemonClientError } from "@atlas-loop/daemon-client";
-import type { AtlasLoopError } from "@atlas-loop/protocol";
+import type { ArtifactRef, AtlasLoopError } from "@atlas-loop/protocol";
 
 const DEFAULT_VIEWER_BASE_URL = "http://127.0.0.1:5173";
-const defaultClient = new DaemonClient();
 
 interface JsonRpcRequest {
   jsonrpc?: string;
@@ -21,15 +20,21 @@ interface McpDaemonClient {
   listSessions(): Promise<unknown>;
   createSession(args: Record<string, unknown>): Promise<unknown>;
   getSession(sessionId: string): Promise<unknown>;
-  getSessionSummary(sessionId: string): Promise<{ paths?: { artifactDir?: unknown } }>;
+  getSessionSummary(sessionId: string): Promise<McpSessionSummary>;
   performAction(sessionId: string, request: unknown): Promise<unknown>;
   screenshot(sessionId: string, reason?: string): Promise<unknown>;
   listArtifacts(sessionId: string): Promise<unknown>;
-  latestScreenshot(sessionId: string): Promise<{ path?: unknown }>;
+  latestScreenshot(sessionId: string): Promise<Partial<ArtifactRef>>;
   endSession(sessionId: string): Promise<unknown>;
   build(sessionId: string, request: unknown): Promise<unknown>;
   install(sessionId: string, request: unknown): Promise<unknown>;
   launch(sessionId: string, request: unknown): Promise<unknown>;
+}
+
+interface McpSessionSummary {
+  session?: { id?: unknown };
+  paths?: { artifactDir?: unknown };
+  artifacts?: { latestScreenshot?: unknown };
 }
 
 interface ToolRuntime {
@@ -40,7 +45,8 @@ interface ToolRuntime {
 
 export const tools = [
   { name: "atlas.health", description: "Check local daemon readiness.", inputSchema: objectSchema([]) },
-  { name: "atlas.listSessions", description: "List active local iOS Simulator sessions.", inputSchema: objectSchema([]) },
+  { name: "atlas.listSessions", description: "List active and persisted local iOS Simulator sessions.", inputSchema: objectSchema([]) },
+  { name: "atlas.getLatestSession", description: "Return the newest readable session using the daemon latest alias.", inputSchema: objectSchema([]) },
   { name: "atlas.createSession", description: "Create a local iOS Simulator session.", inputSchema: { type: "object" } },
   { name: "atlas.getSession", description: "Get a session by id.", inputSchema: objectSchema(["sessionId"]) },
   { name: "atlas.getSessionSummary", description: "Get session status, artifact paths, counts, latest action, and latest screenshot metadata.", inputSchema: objectSchema(["sessionId"]) },
@@ -55,6 +61,15 @@ export const tools = [
     description: "Return the local viewer URL for a session without opening a browser.",
     inputSchema: objectSchema(["sessionId"], {
       sessionId: { type: "string" },
+      daemonUrl: { type: "string", description: "Optional daemon URL override." },
+      viewerBaseUrl: { type: "string", description: "Optional viewer app base URL override." }
+    })
+  },
+  {
+    name: "atlas.getEvidence",
+    description: "Return compact agent evidence: artifact directory, latest screenshot path, and viewer URL.",
+    inputSchema: objectSchema(["sessionId"], {
+      sessionId: { type: "string", description: "Session id or latest." },
       daemonUrl: { type: "string", description: "Optional daemon URL override." },
       viewerBaseUrl: { type: "string", description: "Optional viewer app base URL override." }
     })
@@ -121,12 +136,14 @@ export async function callToolWithEnvelope(name: string, args: Record<string, un
 }
 
 async function callTool(name: string, args: Record<string, unknown>, runtime: ToolRuntime): Promise<unknown> {
-  const client = runtime.client ?? defaultClient;
+  const client = runtime.client ?? await defaultDaemonClient(args, runtime);
   switch (name) {
     case "atlas.health":
       return client.health();
     case "atlas.listSessions":
       return client.listSessions();
+    case "atlas.getLatestSession":
+      return client.getSession("latest");
     case "atlas.createSession":
       return client.createSession(args);
     case "atlas.getSession":
@@ -147,6 +164,8 @@ async function callTool(name: string, args: Record<string, unknown>, runtime: To
       return getLatestScreenshotPath(client, args);
     case "atlas.getViewerUrl":
       return getViewerUrl(args, runtime);
+    case "atlas.getEvidence":
+      return getEvidence(client, args, runtime);
     case "atlas.endSession":
       return client.endSession(requireString(args, "sessionId"));
     case "atlas.build":
@@ -173,10 +192,61 @@ async function getLatestScreenshotPath(client: McpDaemonClient, args: Record<str
   return { path: artifact.path, artifact };
 }
 
+async function getEvidence(
+  client: McpDaemonClient,
+  args: Record<string, unknown>,
+  runtime: ToolRuntime
+): Promise<{
+  sessionId: string;
+  requestedSessionId: string;
+  artifactDir: string;
+  latestScreenshotPath: string | null;
+  latestScreenshot: unknown | null;
+  viewerUrl: string;
+  daemonUrl: string;
+  viewerBaseUrl: string;
+}> {
+  const requestedSessionId = requireString(args, "sessionId");
+  const summary = await client.getSessionSummary(requestedSessionId);
+  const sessionId = firstString(summary.session?.id) ?? requestedSessionId;
+  const artifactDir = firstString(summary.paths?.artifactDir);
+  if (!artifactDir) throw new Error("session summary did not include paths.artifactDir");
+
+  const latestScreenshot = await evidenceLatestScreenshot(client, sessionId, summary);
+  const latestScreenshotPath = latestScreenshot ? requireArtifactPath(latestScreenshot) : null;
+  const viewer = await getViewerUrl({ ...args, sessionId }, runtime);
+
+  return {
+    sessionId,
+    requestedSessionId,
+    artifactDir,
+    latestScreenshotPath,
+    latestScreenshot,
+    viewerUrl: viewer.url,
+    daemonUrl: viewer.daemonUrl,
+    viewerBaseUrl: viewer.viewerBaseUrl
+  };
+}
+
+async function evidenceLatestScreenshot(
+  client: McpDaemonClient,
+  sessionId: string,
+  summary: McpSessionSummary
+): Promise<unknown | null> {
+  const summaryScreenshot = summary.artifacts?.latestScreenshot;
+  if (artifactPath(summaryScreenshot)) return summaryScreenshot;
+  try {
+    const latestScreenshot = await client.latestScreenshot(sessionId);
+    return artifactPath(latestScreenshot) ? latestScreenshot : null;
+  } catch (error) {
+    if (isNotFoundError(error)) return null;
+    throw error;
+  }
+}
+
 async function getViewerUrl(args: Record<string, unknown>, runtime: ToolRuntime): Promise<{ url: string; sessionId: string; daemonUrl: string; viewerBaseUrl: string }> {
   const sessionId = requireString(args, "sessionId");
-  const config = optionalString(args, "daemonUrl") ? undefined : await (runtime.loadConfig ?? loadAtlasLoopConfig)();
-  const daemonUrl = optionalString(args, "daemonUrl") ?? config?.daemonUrl ?? "http://127.0.0.1:4317";
+  const daemonUrl = await resolveRuntimeDaemonUrl(args, runtime);
   const viewerBaseUrl = optionalString(args, "viewerBaseUrl") ?? runtime.viewerBaseUrl ?? DEFAULT_VIEWER_BASE_URL;
   return {
     url: buildViewerUrl({ daemonUrl, sessionId, viewerBaseUrl }),
@@ -184,6 +254,14 @@ async function getViewerUrl(args: Record<string, unknown>, runtime: ToolRuntime)
     daemonUrl,
     viewerBaseUrl: trimTrailingSlash(viewerBaseUrl)
   };
+}
+
+async function defaultDaemonClient(args: Record<string, unknown>, runtime: ToolRuntime): Promise<McpDaemonClient> {
+  return new DaemonClient({ baseUrl: await resolveRuntimeDaemonUrl(args, runtime) });
+}
+
+async function resolveRuntimeDaemonUrl(args: Record<string, unknown>, runtime: ToolRuntime): Promise<string> {
+  return optionalString(args, "daemonUrl") ?? (await (runtime.loadConfig ?? loadAtlasLoopConfig)()).daemonUrl;
 }
 
 export function buildViewerUrl(params: { daemonUrl: string; sessionId: string; viewerBaseUrl?: string }): string {
@@ -202,6 +280,30 @@ function optionalString(args: Record<string, unknown>, key: string): string | un
   if (value === undefined || value === null) return undefined;
   if (typeof value !== "string" || !value) throw new Error(`${key} must be a non-empty string`);
   return value;
+}
+
+function firstString(value: unknown): string | undefined {
+  return typeof value === "string" && value ? value : undefined;
+}
+
+function artifactPath(artifact: unknown): string | undefined {
+  if (!artifact || typeof artifact !== "object") return undefined;
+  return firstString((artifact as { path?: unknown }).path);
+}
+
+function requireArtifactPath(artifact: unknown): string {
+  const path = artifactPath(artifact);
+  if (!path) throw new Error("latest screenshot did not include a path");
+  return path;
+}
+
+function isNotFoundError(error: unknown): boolean {
+  if (error instanceof DaemonClientError) return error.code === "NOT_FOUND";
+  return Boolean(
+    error &&
+    typeof error === "object" &&
+    (error as { code?: unknown }).code === "NOT_FOUND"
+  );
 }
 
 function objectSchema(required: string[], properties: Record<string, unknown> = {}): Record<string, unknown> {

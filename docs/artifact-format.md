@@ -76,6 +76,10 @@ Malformed session records are skipped. Malformed artifact references are dropped
 from the recovered artifact list and reported as summary storage warnings when a
 valid session can still be loaded.
 
+The local viewer uses these same read routes. It can follow `latest` or a
+concrete session id, show recovered screenshots and artifacts, and surface stale
+or incomplete evidence without requiring a cloud service.
+
 ## Validator
 
 Run:
@@ -91,3 +95,8 @@ npm run verify:artifacts -- artifacts/sessions
 ```
 
 If no target is supplied and `artifacts/sessions` does not exist, the command prints a skip message and exits successfully for fast CI paths.
+
+Warnings are non-fatal. They are meant to keep old or minimal persisted sessions
+inspectable while still calling out incomplete evidence such as missing
+`actions.jsonl`, `screenshots/`, `logs/`, or `metadata/`. Errors fail the
+validator and should be fixed before using the artifact tree as proof.

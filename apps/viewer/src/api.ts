@@ -1,5 +1,5 @@
-import type { ApiEnvelope, ArtifactRef, ScreenshotState, Session, TraceEvent, ViewerParams } from "./types.js";
-import { buildSessionUrl, normalizeDaemonUrl } from "./viewerParams.js";
+import type { ApiEnvelope, ArtifactRef, ScreenshotState, Session, SessionListItem, TraceEvent, ViewerParams } from "./types.js";
+import { buildSessionsUrl, buildSessionUrl, normalizeDaemonUrl } from "./viewerParams.js";
 
 export class ApiError extends Error {
   readonly status?: number;
@@ -64,6 +64,11 @@ export async function fetchSession(params: ViewerParams, signal?: AbortSignal): 
   return fetchJson<Session>(buildSessionUrl(params), signal);
 }
 
+export async function fetchSessions(daemonUrl: string, signal?: AbortSignal): Promise<SessionListItem[]> {
+  const value = await fetchJson<unknown>(buildSessionsUrl(daemonUrl), signal);
+  return normalizeSessionList(value);
+}
+
 export async function fetchArtifacts(params: ViewerParams, signal?: AbortSignal): Promise<ArtifactRef[]> {
   const value = await fetchJson<unknown>(buildSessionUrl(params, "artifacts"), signal);
   return normalizeArtifactList(value);
@@ -122,6 +127,18 @@ export function normalizeArtifactList(value: unknown): ArtifactRef[] {
       : [];
 
   return list.filter(isArtifactRef);
+}
+
+export function normalizeSessionList(value: unknown): SessionListItem[] {
+  const list = Array.isArray(value)
+    ? value
+    : value && typeof value === "object" && Array.isArray((value as { sessions?: unknown[] }).sessions)
+      ? (value as { sessions: unknown[] }).sessions
+      : value && typeof value === "object" && Array.isArray((value as { items?: unknown[] }).items)
+        ? (value as { items: unknown[] }).items
+        : [];
+
+  return list.map(normalizeSessionListItem).filter((session): session is SessionListItem => Boolean(session));
 }
 
 export function normalizeEventList(value: unknown): TraceEvent[] {
@@ -195,6 +212,33 @@ export function toResourceUrl(value: string, daemonUrl: string): string {
 
 function firstString(...values: unknown[]): string | undefined {
   return values.find((value): value is string => typeof value === "string" && value.trim().length > 0);
+}
+
+function normalizeSessionListItem(value: unknown): SessionListItem | undefined {
+  if (typeof value === "string" && value.trim()) return { id: value.trim() };
+  if (!value || typeof value !== "object") return undefined;
+
+  const record = value as Record<string, unknown>;
+  const id = firstString(record.id, record.sessionId);
+  if (!id) return undefined;
+
+  return {
+    id,
+    status: firstString(record.status, record.state),
+    createdAt: firstString(record.createdAt, record.startedAt),
+    updatedAt: firstString(record.updatedAt, record.lastUpdatedAt, record.lastActivityAt, record.lastEventAt),
+    simulator: objectOrUndefined(record.simulator),
+    app: objectOrUndefined(record.app),
+    artifactDir: firstString(record.artifactDir, record.artifactsDir),
+    viewerUrl: firstString(record.viewerUrl),
+    backend: firstString(record.backend),
+    platform: firstString(record.platform),
+    error: objectOrUndefined(record.error)
+  };
+}
+
+function objectOrUndefined<T extends object>(value: unknown): T | undefined {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as T) : undefined;
 }
 
 function isArtifactRef(value: unknown): value is ArtifactRef {

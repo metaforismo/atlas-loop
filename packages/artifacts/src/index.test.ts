@@ -33,9 +33,19 @@ describe("persisted session discovery", () => {
 
     expect(records).toHaveLength(1);
     expect(records[0].session).toMatchObject({ id: "sess_persisted", artifactDir: layout.sessionPath });
-    expect(records[0].artifacts).toMatchObject([{ id: "shot_1", path: screenshotPath }]);
+    expect(records[0].artifacts).toMatchObject([{
+      id: "shot_1",
+      path: screenshotPath,
+      metadata: {
+        sizeBytes: 3,
+        mediaType: "image/png",
+        latest: true,
+        latestScreenshot: true
+      }
+    }]);
     expect(records[0].warnings).toEqual([]);
     expect(fetched?.session.id).toBe("sess_persisted");
+    expect(fetched?.artifacts[0].metadata).toMatchObject({ sizeBytes: 3, mediaType: "image/png" });
   });
 
   it("recovers action result artifacts when the manifest is absent", async () => {
@@ -49,7 +59,8 @@ describe("persisted session discovery", () => {
       sessionId: "sess_actions",
       kind: "install",
       appPath: "/tmp/Test.app",
-      createdAt: "2026-07-04T00:00:00.500Z"
+      createdAt: "2026-07-04T00:00:00.500Z",
+      sequence: 4
     };
     await appendActionRecord(layout, action, {
       actionId: "act_1",
@@ -61,7 +72,38 @@ describe("persisted session discovery", () => {
 
     const fetched = await readPersistedSession(root, "sess_actions");
 
-    expect(fetched?.artifacts).toMatchObject([{ id: "log_1", type: "log", path: logPath }]);
+    expect(fetched?.artifacts).toMatchObject([{
+      id: "log_1",
+      type: "log",
+      path: logPath,
+      metadata: {
+        sizeBytes: 10,
+        mediaType: "text/plain",
+        actionId: "act_1",
+        actionSequence: 4,
+        actionKind: "install"
+      }
+    }]);
+  });
+
+  it("marks only the newest recovered screenshot as the latest screenshot", async () => {
+    const root = await makeTempRoot();
+    const layout = await writeSessionTree(root, "sess_screenshots");
+    const firstPath = join(layout.screenshotsDir, "first.png");
+    const secondPath = join(layout.screenshotsDir, "second.png");
+    await writeFile(firstPath, "first");
+    await writeFile(secondPath, "second");
+    await writeManifest(layout, [
+      artifactRef(layout, "shot_1", "screenshot", firstPath, "2026-07-04T00:00:00.100Z"),
+      artifactRef(layout, "shot_2", "screenshot", secondPath, "2026-07-04T00:00:00.200Z")
+    ]);
+
+    const fetched = await readPersistedSession(root, "sess_screenshots");
+
+    expect(fetched?.artifacts.map((artifact) => artifact.metadata)).toMatchObject([
+      { latest: false, latestScreenshot: false, sizeBytes: 5 },
+      { latest: true, latestScreenshot: true, sizeBytes: 6 }
+    ]);
   });
 
   it("skips malformed session records without dropping valid sessions", async () => {
@@ -130,13 +172,14 @@ function artifactRef(
   layout: SessionArtifacts,
   id: string,
   type: ArtifactRef["type"],
-  path: string
+  path: string,
+  createdAt = "2026-07-04T00:00:00.600Z"
 ): ArtifactRef {
   return {
     id,
     sessionId: basename(layout.sessionPath),
     type,
     path,
-    createdAt: "2026-07-04T00:00:00.600Z"
+    createdAt
   };
 }

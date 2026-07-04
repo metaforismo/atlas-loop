@@ -1,3 +1,4 @@
+import { createServer, type Server } from "node:http";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -21,10 +22,26 @@ describe("MCP contract documentation", () => {
 
   it("publishes agent-friendly artifact and viewer helper tools", () => {
     expect(tools.map((tool) => tool.name)).toEqual(expect.arrayContaining([
+      "atlas.getLatestSession",
       "atlas.getArtifactPath",
       "atlas.getLatestScreenshotPath",
-      "atlas.getViewerUrl"
+      "atlas.getViewerUrl",
+      "atlas.getEvidence"
     ]));
+    expect(tools.find((tool) => tool.name === "atlas.listSessions")?.description).toContain("active and persisted");
+  });
+
+  it("returns the daemon latest session through a dedicated MCP helper", async () => {
+    const result = await callToolWithEnvelope("atlas.getLatestSession", {}, {
+      client: {
+        getSession: async (sessionId: string) => ({ id: "sess_latest", requested: sessionId })
+      } as never
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      data: { id: "sess_latest", requested: "latest" }
+    });
   });
 
   it("returns the artifact directory path through the structured MCP envelope", async () => {
@@ -85,4 +102,151 @@ describe("MCP contract documentation", () => {
       viewerBaseUrl: "http://127.0.0.1:5173/"
     })).toBe("http://127.0.0.1:5173?daemonUrl=http%3A%2F%2F127.0.0.1%3A4317&sessionId=sess%2Fwith%20slash");
   });
+
+  it("returns compact evidence for agents from persisted session summaries", async () => {
+    const artifact = {
+      id: "artifact_1",
+      sessionId: "sess/with slash",
+      type: "screenshot",
+      path: "/tmp/atlas-loop/sess-with-slash/screenshots/latest.png",
+      createdAt: "2026-07-04T12:00:00.000Z"
+    };
+
+    const result = await callToolWithEnvelope("atlas.getEvidence", { sessionId: "latest" }, {
+      client: {
+        getSessionSummary: async (sessionId: string) => {
+          expect(sessionId).toBe("latest");
+          return {
+            session: { id: "sess/with slash" },
+            paths: { artifactDir: "/tmp/atlas-loop/sess-with-slash" },
+            artifacts: { latestScreenshot: artifact }
+          };
+        }
+      } as never,
+      loadConfig: async () => ({ daemonUrl: "http://127.0.0.1:4317" }),
+      viewerBaseUrl: "http://127.0.0.1:5173/"
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        sessionId: "sess/with slash",
+        requestedSessionId: "latest",
+        artifactDir: "/tmp/atlas-loop/sess-with-slash",
+        latestScreenshotPath: "/tmp/atlas-loop/sess-with-slash/screenshots/latest.png",
+        latestScreenshot: artifact,
+        viewerUrl: "http://127.0.0.1:5173?daemonUrl=http%3A%2F%2F127.0.0.1%3A4317&sessionId=sess%2Fwith%20slash",
+        daemonUrl: "http://127.0.0.1:4317",
+        viewerBaseUrl: "http://127.0.0.1:5173"
+      }
+    });
+  });
+
+  it("uses configured daemon URL for default MCP evidence clients and viewer URLs", async () => {
+    const requestedPaths: string[] = [];
+    const server = await startFakeMcpDaemon((requestPath) => {
+      requestedPaths.push(requestPath);
+      return {
+        session: { id: "sess_configured" },
+        paths: { artifactDir: "/tmp/atlas-loop/sess-configured" },
+        artifacts: {
+          latestScreenshot: {
+            id: "artifact_configured",
+            sessionId: "sess_configured",
+            type: "screenshot",
+            path: "/tmp/atlas-loop/sess-configured/screenshots/latest.png",
+            createdAt: "2026-07-04T12:00:00.000Z"
+          }
+        }
+      };
+    });
+    const daemonUrl = `http://127.0.0.1:${server.port}`;
+
+    try {
+      const result = await callToolWithEnvelope("atlas.getEvidence", { sessionId: "latest" }, {
+        loadConfig: async () => ({ daemonUrl }),
+        viewerBaseUrl: "http://127.0.0.1:5176/"
+      });
+
+      expect(requestedPaths).toEqual(["/sessions/latest/summary"]);
+      expect(result).toMatchObject({
+        ok: true,
+        data: {
+          sessionId: "sess_configured",
+          requestedSessionId: "latest",
+          daemonUrl,
+          viewerUrl: `http://127.0.0.1:5176?daemonUrl=${encodeURIComponent(daemonUrl)}&sessionId=sess_configured`
+        }
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("keeps evidence available when the session has no screenshots yet", async () => {
+    const result = await callToolWithEnvelope("atlas.getEvidence", { sessionId: "sess_empty" }, {
+      client: {
+        getSessionSummary: async () => ({
+          session: { id: "sess_empty" },
+          paths: { artifactDir: "/tmp/atlas-loop/sess-empty" },
+          artifacts: {}
+        }),
+        latestScreenshot: async () => {
+          throw { code: "NOT_FOUND", message: "no screenshot" };
+        }
+      } as never,
+      loadConfig: async () => ({ daemonUrl: "http://127.0.0.1:4317" })
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        sessionId: "sess_empty",
+        requestedSessionId: "sess_empty",
+        artifactDir: "/tmp/atlas-loop/sess-empty",
+        latestScreenshotPath: null,
+        latestScreenshot: null,
+        viewerUrl: "http://127.0.0.1:5173?daemonUrl=http%3A%2F%2F127.0.0.1%3A4317&sessionId=sess_empty",
+        daemonUrl: "http://127.0.0.1:4317",
+        viewerBaseUrl: "http://127.0.0.1:5173"
+      }
+    });
+  });
 });
+
+async function startFakeMcpDaemon(summaryForPath: (requestPath: string) => unknown): Promise<{
+  port: number;
+  close: () => Promise<void>;
+}> {
+  const server = createServer((request, response) => {
+    if (request.method !== "GET" || request.url !== "/sessions/latest/summary") {
+      response.writeHead(404, { "content-type": "application/json" });
+      response.end(JSON.stringify({
+        ok: false,
+        error: { code: "NOT_FOUND", message: `unexpected route ${request.method} ${request.url}` }
+      }));
+      return;
+    }
+
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({ ok: true, data: summaryForPath(request.url) }));
+  });
+
+  await new Promise<void>((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("fake MCP daemon did not bind a TCP port");
+
+  return {
+    port: address.port,
+    close: () => closeServer(server)
+  };
+}
+
+function closeServer(server: Server): Promise<void> {
+  return new Promise((resolveClose, rejectClose) => {
+    server.close((error) => {
+      if (error) rejectClose(error);
+      else resolveClose();
+    });
+  });
+}

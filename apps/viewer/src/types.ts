@@ -33,11 +33,9 @@ export interface AppRef {
   appPath?: string;
 }
 
-export interface Session {
+export interface SessionListItem {
   id: string;
-  schemaVersion?: string;
-  platform?: string;
-  status: SessionStatus;
+  status?: SessionStatus;
   createdAt?: string;
   updatedAt?: string;
   simulator?: SimulatorRef;
@@ -46,6 +44,12 @@ export interface Session {
   viewerUrl?: string;
   backend?: string;
   error?: AtlasLoopError;
+  platform?: string;
+}
+
+export interface Session extends SessionListItem {
+  schemaVersion?: string;
+  status: SessionStatus;
 }
 
 export type ArtifactType =

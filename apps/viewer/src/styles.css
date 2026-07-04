@@ -108,7 +108,7 @@ a {
   flex-direction: column;
   gap: 16px;
   padding: 14px;
-  overflow: hidden;
+  overflow-y: auto;
 }
 
 .brand-block,
@@ -241,6 +241,7 @@ h2 {
 .session-list {
   display: grid;
   gap: 10px;
+  min-height: 0;
 }
 
 .session-row {
@@ -255,6 +256,32 @@ h2 {
   background: linear-gradient(90deg, rgba(74, 179, 216, 0.12), rgba(255, 255, 255, 0.018));
 }
 
+.session-choice {
+  width: 100%;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition:
+    transform 160ms ease,
+    border-color 180ms ease,
+    background 180ms ease;
+}
+
+.session-choice:hover {
+  border-color: var(--line-strong);
+  background: linear-gradient(90deg, rgba(74, 179, 216, 0.18), rgba(255, 255, 255, 0.03));
+  transform: translateY(-1px);
+}
+
+.session-choice:active {
+  transform: translateY(0) scale(0.995);
+}
+
+.session-choice.selected {
+  border-color: rgba(74, 179, 216, 0.7);
+  background: linear-gradient(90deg, rgba(74, 179, 216, 0.2), rgba(255, 255, 255, 0.032));
+}
+
 .session-row.tone-good {
   border-left-color: var(--good);
 }
@@ -267,9 +294,22 @@ h2 {
   border-left-color: var(--bad);
 }
 
+.session-row.tone-neutral {
+  border-left-color: var(--line-strong);
+}
+
+.session-row > div {
+  min-width: 0;
+}
+
+.session-row > div > span {
+  display: block;
+}
+
 .session-row strong,
 .session-row span,
-.session-row small {
+.session-row small,
+.session-row time {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -297,29 +337,32 @@ h2 {
   font-weight: 760;
 }
 
+.session-row time {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 680;
+}
+
+.session-row-meta {
+  display: grid;
+  justify-items: end;
+  gap: 3px;
+  min-width: 82px;
+  max-width: 92px;
+}
+
+.session-browser-list {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  max-height: min(32dvh, 330px);
+  min-height: 0;
+  overflow: auto;
+  padding-right: 2px;
+}
+
 .hint-text {
   margin: 0;
-}
-
-.first-run-notice {
-  border: 1px solid var(--line);
-  border-left: 3px solid currentColor;
-  border-radius: 8px;
-  padding: 10px;
-  background: rgba(12, 17, 23, 0.58);
-}
-
-.first-run-notice strong {
-  display: block;
-  color: var(--soft);
-  font-size: 12px;
-}
-
-.first-run-notice p {
-  margin: 5px 0 0;
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1.45;
 }
 
 .status-stack {
@@ -971,6 +1014,11 @@ h2 {
   min-height: 100%;
 }
 
+.empty-state.compact {
+  min-height: 104px;
+  padding: 12px;
+}
+
 .empty-glyph {
   width: 28px;
   height: 28px;
@@ -1136,6 +1184,23 @@ h2 {
     overflow: visible;
   }
 
+  .stage {
+    order: 1;
+    min-height: min(760px, calc(100dvh - 20px));
+  }
+
+  .rail {
+    order: 2;
+  }
+
+  .inspector {
+    order: 3;
+  }
+
+  .timeline-panel {
+    order: 4;
+  }
+
   .rail,
   .stage,
   .inspector,
@@ -1178,6 +1243,7 @@ h2 {
   }
 
   .artifact-list,
+  .session-browser-list,
   .artifact-detail-grid {
     max-height: 260px;
   }

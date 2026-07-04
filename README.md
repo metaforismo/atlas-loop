@@ -78,6 +78,9 @@ dashboard.
 atlas-loop doctor
 atlas-loop daemon start --port 4317
 atlas-loop session start --simulator "iPhone 16" --viewer
+atlas-loop session list
+atlas-loop session latest
+atlas-loop session status --session latest
 atlas-loop build --session <id> --project apps/ios-commerce-demo/CommerceDemo.xcodeproj --scheme CommerceDemo
 atlas-loop install --session <id> --app <path-to-app>
 atlas-loop launch --session <id> --bundle-id app.atlasloop.CommerceDemo
@@ -87,6 +90,9 @@ atlas-loop swipe --session <id> --from 0.5,0.8 --to 0.5,0.2 --duration-ms 450
 atlas-loop screenshot --session <id> --reason confirmation
 atlas-loop artifacts list --session <id>
 atlas-loop artifacts latest-screenshot --session <id>
+atlas-loop artifacts path --session <id>
+atlas-loop artifacts open --session <id> [--latest-screenshot]
+atlas-loop evidence --session <id>
 atlas-loop viewer url --session <id>
 atlas-loop viewer open --session <id> [--launch]
 atlas-loop session stop --session <id>
@@ -137,6 +143,35 @@ Validate a single session or the whole artifact root with:
 npm run verify:artifacts -- artifacts/sessions/<session-id>
 npm run verify:artifacts -- artifacts/sessions
 ```
+
+Warnings from `verify:artifacts` are non-fatal. They usually mean a legacy or
+minimal persisted session is still readable, but some expected evidence such as
+`actions.jsonl`, screenshots, logs, or metadata was never written. Errors mean
+the session record or artifact references should not be trusted until fixed.
+
+## Inspecting Persisted Evidence
+
+Keep the daemon on loopback and start the viewer locally:
+
+```bash
+npm run daemon -- --port 4317
+npm run viewer
+```
+
+After a daemon restart, read-only routes can discover sessions from
+`artifacts/sessions`:
+
+```bash
+npm run cli -- session list
+npm run cli -- session status --session latest
+npm run cli -- artifacts path --session <session-id>
+npm run cli -- artifacts open --session <session-id>
+npm run cli -- viewer url --session <session-id>
+```
+
+The viewer URL can point at a concrete session id or `latest`. Persisted
+sessions are evidence for inspection only: build, install, launch, coordinate
+actions, screenshots, and session stop still require a live in-memory session.
 
 Do not commit `artifacts/`; it may contain screenshots or logs from local apps.
 

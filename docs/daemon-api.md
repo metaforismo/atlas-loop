@@ -28,11 +28,11 @@ The daemon also accepts the same session routes without the `/v1` prefix for
 older local clients.
 
 Read-only session routes accept `latest` anywhere `:id` is shown. The alias
-prefers the most recently updated active in-memory session, then active
-artifact-backed sessions, then the most recently updated ended or failed
-session. Mutation routes such as build, install, launch, actions, screenshot,
-and end require an active in-memory session. When no sessions exist, the daemon
-returns `NOT_FOUND`.
+prefers the most recently updated active in-memory session, then the most
+recently updated persisted session. Persisted sessions are read-only evidence,
+even if their saved status is not `ended` or `failed`. Mutation routes such as
+build, install, launch, actions, screenshot, and end require an active in-memory
+session. When no sessions exist, the daemon returns `NOT_FOUND`.
 
 Responses should use the protocol envelope:
 
@@ -95,6 +95,7 @@ Recommended additional tool names:
 
 - `atlas.health`
 - `atlas.listSessions`
+- `atlas.getLatestSession`
 - `atlas.build`
 - `atlas.install`
 - `atlas.launch`
@@ -103,6 +104,7 @@ Recommended additional tool names:
 - `atlas.getArtifactPath`
 - `atlas.getLatestScreenshotPath`
 - `atlas.getViewerUrl`
+- `atlas.getEvidence`
 
 Tool calls should return structured JSON content:
 

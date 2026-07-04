@@ -18,6 +18,9 @@ weakening the others:
    - Evidence is written under artifacts/sessions/<session-id>/.
    - session.json, manifest.json, actions.jsonl, trace.jsonl, screenshots, logs, and
      metadata are readable after the daemon exits.
+   - Persisted sessions remain discoverable by id and by `latest` after daemon
+     restarts, with incomplete legacy evidence labeled as warnings rather than
+     hidden.
    - Failures are recorded as evidence, not hidden in terminal output.
    - Any host-gated behavior is labeled honestly.
 
@@ -39,6 +42,8 @@ weakening the others:
 4. Human inspection
    - The viewer makes the current session, latest screenshot, action timeline, and
      artifacts easy to inspect locally.
+   - Disk-backed evidence can be inspected without rerunning the app, while
+     mutation commands still require a live session.
    - Empty, offline, failed, and stale-session states are explicit.
    - UI surfaces are operational and dense enough for repeated debugging work.
 

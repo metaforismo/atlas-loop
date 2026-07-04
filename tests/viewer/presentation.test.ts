@@ -9,11 +9,14 @@ import {
   healthTone,
   latestArtifactOfType,
   latestSessionEmptyState,
+  sessionSignal,
   sessionTone,
+  sessionUpdatedAt,
+  sortSessionList,
   summarizeArtifacts,
   timelineFilterOptions
 } from "../../apps/viewer/src/viewerPresentation.js";
-import type { ArtifactRef } from "../../apps/viewer/src/types.js";
+import type { ArtifactRef, SessionListItem } from "../../apps/viewer/src/types.js";
 import type { TimelineItem } from "../../apps/viewer/src/timeline.js";
 
 describe("viewer presentation helpers", () => {
@@ -45,6 +48,26 @@ describe("viewer presentation helpers", () => {
       { type: "metadata", count: 1 },
       { type: "screenshot", count: 1 }
     ]);
+  });
+
+  it("sorts and labels session browser rows with missing fields", () => {
+    const sessions: SessionListItem[] = [
+      { id: "older", createdAt: "2026-07-04T08:00:00.000Z" },
+      {
+        id: "newer",
+        status: "running",
+        updatedAt: "2026-07-04T09:00:00.000Z",
+        simulator: { name: "iPhone 16 Pro" },
+        app: { bundleId: "com.example.demo" }
+      },
+      { id: "middle", updatedAt: "2026-07-04T08:30:00.000Z", app: { scheme: "Demo" } }
+    ];
+
+    expect(sortSessionList(sessions).map((session) => session.id)).toEqual(["newer", "middle", "older"]);
+    expect(sessionSignal(sessions[1])).toBe("iPhone 16 Pro / com.example.demo");
+    expect(sessionSignal(sessions[2])).toBe("Demo");
+    expect(sessionSignal(sessions[0])).toBe("No simulator or app metadata");
+    expect(sessionUpdatedAt(sessions[0])).toBe("2026-07-04T08:00:00.000Z");
   });
 
   it("finds the newest artifact of a type from the sorted artifact list", () => {

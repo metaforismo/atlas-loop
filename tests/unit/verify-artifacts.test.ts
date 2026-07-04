@@ -84,6 +84,29 @@ async function writeValidSession(root: string): Promise<string> {
   return sessionDir;
 }
 
+async function writeMinimalPersistedSession(root: string): Promise<string> {
+  const sessionDir = join(root, "session_legacy");
+  await mkdir(sessionDir, { recursive: true });
+  await writeFile(
+    join(sessionDir, "session.json"),
+    JSON.stringify(
+      {
+        id: "session_legacy",
+        schemaVersion: "atlas-loop.session.v1",
+        platform: "ios-simulator",
+        status: "ended",
+        createdAt: "2026-07-04T00:00:00.000Z",
+        updatedAt: "2026-07-04T00:00:01.000Z",
+        simulator: { name: "iPhone 16" },
+        artifactDir: "."
+      },
+      null,
+      2
+    )
+  );
+  return sessionDir;
+}
+
 describe("artifact validator", () => {
   it("accepts a complete session tree with contained artifacts", async () => {
     const root = await makeTempRoot();
@@ -94,6 +117,26 @@ describe("artifact validator", () => {
     expect(report.ok).toBe(true);
     expect(report.sessionCount).toBe(1);
     expect(report.issues).toEqual([]);
+  });
+
+  it("keeps legacy or minimal persisted sessions warning-only when metadata is incomplete", async () => {
+    const root = await makeTempRoot();
+    await writeMinimalPersistedSession(root);
+
+    const report = await validateArtifactTarget(root);
+
+    expect(report.ok).toBe(true);
+    expect(report.sessionCount).toBe(1);
+    expect(report.issues.every((issue) => issue.severity === "warning")).toBe(true);
+    expect(report.issues.map((issue) => issue.message).join("\n")).toContain("warning-only for legacy or minimal persisted sessions");
+    expect(report.issues.map((issue) => issue.path)).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("screenshots"),
+        expect.stringContaining("logs"),
+        expect.stringContaining("metadata"),
+        expect.stringContaining("actions.jsonl")
+      ])
+    );
   });
 
   it("rejects session metadata and action artifacts that escape the session directory", async () => {

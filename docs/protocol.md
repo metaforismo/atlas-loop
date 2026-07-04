@@ -91,8 +91,10 @@ ergonomic read model for CLIs, MCP tools, and local agents that need a quick
 status check.
 
 For daemon read routes, clients may use the session id `latest` to follow the
-newest local run. The daemon prefers active sessions and falls back to the most
-recent ended or failed session when no active run exists.
+newest local run. The daemon prefers active in-memory sessions while a daemon
+process is running. After restart, persisted sessions are read-only evidence, so
+`latest` resolves by the most recent persisted `updatedAt` timestamp rather than
+by saved status alone.
 
 The summary includes:
 

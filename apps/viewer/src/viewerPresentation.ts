@@ -1,5 +1,5 @@
 import type { TimelineItem } from "./timeline.js";
-import type { ArtifactRef, HealthState, SessionStatus } from "./types.js";
+import type { ArtifactRef, HealthState, SessionListItem, SessionStatus } from "./types.js";
 
 export type UiTone = "neutral" | "good" | "warn" | "bad";
 export type TimelineFilter = "all" | "actions" | "artifacts" | "sessions" | "errors";
@@ -84,6 +84,30 @@ export function sessionTone(status: SessionStatus | undefined): UiTone {
     default:
       return "neutral";
   }
+}
+
+export function sessionSignal(session: SessionListItem | undefined): string {
+  if (!session) return "No simulator or app metadata";
+
+  const simulator = session.simulator?.name ?? session.simulator?.udid;
+  const app = session.app?.bundleId ?? session.app?.scheme ?? session.app?.appPath;
+
+  if (simulator && app) return `${simulator} / ${app}`;
+  if (simulator) return simulator;
+  if (app) return app;
+  return "No simulator or app metadata";
+}
+
+export function sessionUpdatedAt(session: SessionListItem | undefined): string | undefined {
+  return session?.updatedAt ?? session?.createdAt;
+}
+
+export function sortSessionList(sessions: SessionListItem[]): SessionListItem[] {
+  return [...sessions].sort((a, b) => {
+    const byTime = sessionSortTime(b) - sessionSortTime(a);
+    if (byTime !== 0) return byTime;
+    return a.id.localeCompare(b.id);
+  });
 }
 
 export function eventModeTone(mode: "connecting" | "sse" | "polling"): UiTone {
@@ -229,6 +253,13 @@ function artifactSearchText(artifact: ArtifactRef): string {
 
 function normalizeSearch(value: string): string {
   return value.trim().toLowerCase();
+}
+
+function sessionSortTime(session: SessionListItem): number {
+  const date = sessionUpdatedAt(session);
+  if (!date) return 0;
+  const timestamp = new Date(date).getTime();
+  return Number.isNaN(timestamp) ? 0 : timestamp;
 }
 
 function stringifyMetadata(metadata: ArtifactRef["metadata"]): string | undefined {

@@ -26,6 +26,9 @@ export interface SessionSummary {
     total: number;
     byType: Partial<Record<ArtifactType, number>>;
     latestScreenshot?: ArtifactRef;
+    latestScreenshotId?: string;
+    latestScreenshotPath?: string;
+    latestScreenshotCreatedAt?: string;
   };
   events: {
     total: number;

@@ -4,10 +4,11 @@ import {
   fetchEvents,
   fetchHealth,
   fetchLatestScreenshot,
-  fetchSession
+  fetchSession,
+  fetchSessions
 } from "./api.js";
 import { buildTimelineItems, mergeTraceEvents, sortArtifacts } from "./timeline.js";
-import type { ArtifactRef, HealthState, ScreenshotState, Session, TraceEvent, ViewerParams } from "./types.js";
+import type { ArtifactRef, HealthState, ScreenshotState, Session, SessionListItem, TraceEvent, ViewerParams } from "./types.js";
 import {
   artifactDetailRows,
   artifactDisplayName,
@@ -20,12 +21,15 @@ import {
   healthTone,
   latestArtifactOfType,
   latestSessionEmptyState,
+  sessionSignal,
   sessionTone,
+  sessionUpdatedAt,
+  sortSessionList,
   timelineFilterOptions,
   type TimelineFilter,
   type UiTone
 } from "./viewerPresentation.js";
-import { buildSessionUrl, readViewerParams, writeViewerSearch } from "./viewerParams.js";
+import { DEFAULT_SESSION_ID, buildSessionUrl, readViewerParams, writeViewerSearch } from "./viewerParams.js";
 
 const TRACE_EVENT_TYPES = [
   "session.created",
@@ -50,6 +54,9 @@ function useViewerParams(): ViewerParams {
 
 function useAtlasLoopData(params: ViewerParams) {
   const [health, setHealth] = useState<HealthState>("checking");
+  const [sessions, setSessions] = useState<SessionListItem[]>([]);
+  const [sessionListStatus, setSessionListStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [sessionListError, setSessionListError] = useState<string | undefined>();
   const [session, setSession] = useState<Session | undefined>();
   const [artifacts, setArtifacts] = useState<ArtifactRef[]>([]);
   const [events, setEvents] = useState<TraceEvent[]>([]);
@@ -60,6 +67,12 @@ function useAtlasLoopData(params: ViewerParams) {
 
   useEffect(() => {
     setHealth("checking");
+    setSessions([]);
+    setSessionListStatus("loading");
+    setSessionListError(undefined);
+  }, [params.daemonUrl]);
+
+  useEffect(() => {
     setSession(undefined);
     setArtifacts([]);
     setEvents([]);
@@ -75,7 +88,24 @@ function useAtlasLoopData(params: ViewerParams) {
       const online = await fetchHealth(params.daemonUrl, controller.signal);
       if (controller.signal.aborted) return;
       setHealth(online ? "online" : "offline");
-      if (!online) setLastError("Daemon is offline or not reachable.");
+      if (!online) {
+        setSessionListStatus("error");
+        setSessionListError("Daemon is offline or not reachable.");
+        setLastError("Daemon is offline or not reachable.");
+        return;
+      }
+
+      try {
+        const nextSessions = await fetchSessions(params.daemonUrl, controller.signal);
+        if (controller.signal.aborted) return;
+        setSessions(sortSessionList(nextSessions));
+        setSessionListStatus("ready");
+        setSessionListError(undefined);
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        setSessionListStatus("error");
+        setSessionListError(error instanceof Error ? error.message : "Failed to load sessions.");
+      }
     };
 
     void load();
@@ -212,6 +242,9 @@ function useAtlasLoopData(params: ViewerParams) {
 
   return {
     health,
+    sessions,
+    sessionListStatus,
+    sessionListError,
     session,
     artifacts,
     events,
@@ -234,7 +267,8 @@ function parseEventMessage(data: string, type?: string): TraceEvent | undefined 
 
 export function App() {
   const params = useViewerParams();
-  const { health, session, artifacts, screenshot, eventMode, lastError, timeline } = useAtlasLoopData(params);
+  const { health, sessions, sessionListStatus, sessionListError, session, artifacts, screenshot, eventMode, lastError, timeline } =
+    useAtlasLoopData(params);
   const [draft, setDraft] = useState(params);
   const [artifactTypeFilter, setArtifactTypeFilter] = useState("all");
   const [artifactQuery, setArtifactQuery] = useState("");
@@ -267,9 +301,24 @@ export function App() {
     [timeline, timelineFilter, timelineQuery]
   );
   const selectedSessionId = session?.id ?? params.sessionId;
+  const isFollowingLatest = params.sessionId === DEFAULT_SESSION_ID;
   const hasDraftChanges = draft.daemonUrl !== params.daemonUrl || draft.sessionId !== params.sessionId;
-  const isLatestFirstRun = params.sessionId === "latest" && !session && artifacts.length === 0 && timeline.length === 0;
+  const isLatestFirstRun = isFollowingLatest && !session && artifacts.length === 0 && timeline.length === 0;
   const firstRunState = latestSessionEmptyState(health);
+  const sessionListLabel =
+    sessionListStatus === "ready"
+      ? `${sessions.length} session${sessions.length === 1 ? "" : "s"}`
+      : sessionListStatus === "loading"
+        ? "loading"
+        : "unavailable";
+  const sessionListStatusMessage =
+    health === "offline"
+      ? "Daemon offline. Sessions cannot be refreshed."
+      : sessionListStatus === "ready"
+        ? `${sessions.length} session${sessions.length === 1 ? "" : "s"} available.`
+        : sessionListStatus === "loading"
+          ? "Loading sessions."
+          : `Session list unavailable. ${sessionListError ?? ""}`.trim();
   const selectedArtifact = useMemo(
     () => filteredArtifacts.find((artifact) => artifact.id === selectedArtifactId) ?? filteredArtifacts[0],
     [filteredArtifacts, selectedArtifactId]
@@ -287,8 +336,18 @@ export function App() {
 
   const submit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
-    window.history.pushState(null, "", writeViewerSearch(draft));
+    applyViewerParams(draft);
+  };
+
+  const applyViewerParams = (nextParams: ViewerParams): void => {
+    window.history.pushState(null, "", writeViewerSearch(nextParams));
     window.dispatchEvent(new PopStateEvent("popstate"));
+  };
+
+  const selectSession = (sessionId: string): void => {
+    const nextParams = { daemonUrl: params.daemonUrl, sessionId };
+    setDraft(nextParams);
+    applyViewerParams(nextParams);
   };
 
   return (
@@ -324,23 +383,40 @@ export function App() {
           <button type="submit">{hasDraftChanges ? "Apply connection" : "Reconnect"}</button>
         </form>
 
-        <section className="session-list" aria-label="Sessions">
+        <section className="session-list" aria-label="Sessions" aria-busy={sessionListStatus === "loading"}>
           <div className="panel-title-row">
-            <h2>Session focus</h2>
-            <span>{eventMode}</span>
+            <h2>Sessions</h2>
+            <span>{sessionListLabel}</span>
           </div>
-          <article className={`session-row tone-${sessionTone(session?.status)}`} aria-current="true">
+          <p className="sr-only" role="status" aria-live="polite">
+            {sessionListStatusMessage}
+          </p>
+          <button
+            type="button"
+            className={`session-row session-choice ${isFollowingLatest ? "selected" : ""} tone-${sessionTone(isFollowingLatest ? session?.status : undefined)}`}
+            aria-current={isFollowingLatest ? "true" : undefined}
+            onClick={() => selectSession(DEFAULT_SESSION_ID)}
+          >
             <div>
-              <strong>{selectedSessionId}</strong>
-              <span>{session?.simulator?.name ?? (isLatestFirstRun ? firstRunState.title : "Waiting for simulator metadata")}</span>
+              <strong>{DEFAULT_SESSION_ID}</strong>
+              <span>{isFollowingLatest && session ? `Following ${session.id}` : "Follow newest session"}</span>
             </div>
-            <small>{session?.status ?? "pending"}</small>
-          </article>
-          {isLatestFirstRun ? (
-            <FirstRunNotice title={firstRunState.title} detail={firstRunState.detail} tone={healthTone(health)} />
-          ) : (
-            <p className="hint-text">Point this panel at a session ID or keep `latest` to follow the newest local run.</p>
-          )}
+            <span className="session-row-meta">
+              <small>{isFollowingLatest ? (session?.status ?? "auto") : "auto"}</small>
+              <time>{isFollowingLatest && session ? formatDateTime(sessionUpdatedAt(session)) : "--"}</time>
+            </span>
+          </button>
+
+          <div className="session-browser-list" role="list">
+            <SessionBrowserContent
+              health={health}
+              sessions={sessions}
+              status={sessionListStatus}
+              error={sessionListError}
+              selectedSessionId={isFollowingLatest ? undefined : params.sessionId}
+              onSelect={selectSession}
+            />
+          </div>
         </section>
 
         <section className="status-stack" aria-label="Runtime status">
@@ -522,6 +598,73 @@ export function App() {
   );
 }
 
+function SessionBrowserContent({
+  health,
+  sessions,
+  status,
+  error,
+  selectedSessionId,
+  onSelect
+}: {
+  health: HealthState;
+  sessions: SessionListItem[];
+  status: "loading" | "ready" | "error";
+  error?: string;
+  selectedSessionId?: string;
+  onSelect: (sessionId: string) => void;
+}) {
+  if (health === "offline") {
+    return <EmptyState title="Daemon offline" detail="Start the daemon or paste a reachable daemon URL to browse saved sessions." compact />;
+  }
+
+  if (status === "loading") {
+    return <EmptyState title="Loading sessions" detail="The viewer is asking the daemon for live and saved sessions." compact />;
+  }
+
+  if (status === "error") {
+    return <EmptyState title="Session list unavailable" detail={error ?? "The daemon did not return a readable session list."} compact />;
+  }
+
+  if (sessions.length === 0) {
+    return <EmptyState title="No sessions found" detail="Start an atlas-loop run or keep latest selected until the daemon reports one." compact />;
+  }
+
+  return (
+    <>
+      {sessions.map((listedSession) => (
+        <SessionBrowserRow
+          key={listedSession.id}
+          session={listedSession}
+          selected={listedSession.id === selectedSessionId}
+          onSelect={() => onSelect(listedSession.id)}
+        />
+      ))}
+    </>
+  );
+}
+
+function SessionBrowserRow({ session, selected, onSelect }: { session: SessionListItem; selected: boolean; onSelect: () => void }) {
+  return (
+    <div role="listitem">
+      <button
+        type="button"
+        className={`session-row session-choice ${selected ? "selected" : ""} tone-${sessionTone(session.status)}`}
+        aria-current={selected ? "true" : undefined}
+        onClick={onSelect}
+      >
+        <div>
+          <strong>{session.id}</strong>
+          <span>{sessionSignal(session)}</span>
+        </div>
+        <span className="session-row-meta">
+          <small>{session.status ?? "unknown"}</small>
+          <time>{formatDateTime(sessionUpdatedAt(session))}</time>
+        </span>
+      </button>
+    </div>
+  );
+}
+
 function ScreenshotView({ screenshot, emptyMessage }: { screenshot: ScreenshotState; emptyMessage?: string }) {
   if (screenshot.status === "ready") {
     return <img className="screenshot-image" src={screenshot.src} alt="Latest iOS Simulator screenshot" />;
@@ -645,18 +788,9 @@ function ArtifactDetails({ artifact }: { artifact: ArtifactRef | undefined }) {
   );
 }
 
-function FirstRunNotice({ title, detail, tone }: { title: string; detail: string; tone: UiTone }) {
+function EmptyState({ title, detail, horizontal = false, compact = false }: { title: string; detail: string; horizontal?: boolean; compact?: boolean }) {
   return (
-    <div className={`first-run-notice tone-${tone}`}>
-      <strong>{title}</strong>
-      <p>{detail}</p>
-    </div>
-  );
-}
-
-function EmptyState({ title, detail, horizontal = false }: { title: string; detail: string; horizontal?: boolean }) {
-  return (
-    <div className={`empty-state ${horizontal ? "horizontal" : ""}`}>
+    <div className={`empty-state ${horizontal ? "horizontal" : ""} ${compact ? "compact" : ""}`}>
       <span className="empty-glyph" aria-hidden="true" />
       <div>
         <strong>{title}</strong>

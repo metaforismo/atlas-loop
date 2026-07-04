@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { appendFile, copyFile, lstat, mkdir, readFile, readdir, realpath, writeFile } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
 import type { Action, ActionResult, ArtifactRef, Session, TraceEvent } from "@atlas-loop/protocol";
 import { makeId, nowIso } from "@atlas-loop/protocol";
 import { appendTrace } from "@atlas-loop/traces";
@@ -29,6 +29,12 @@ export interface PersistedSessionRecord {
   layout: SessionArtifacts;
   artifacts: ArtifactRef[];
   warnings: PersistedSessionWarning[];
+}
+
+interface ArtifactCandidate {
+  artifact: unknown;
+  sourcePath: string;
+  metadata?: Record<string, unknown>;
 }
 
 const sessionStatuses = new Set<Session["status"]>([
@@ -128,23 +134,38 @@ export async function recordTrace(layout: SessionArtifacts, event: TraceEvent): 
   await appendTrace(layout.tracePath, event);
 }
 
-export async function writeLog(layout: SessionArtifacts, name: string, text: string): Promise<ArtifactRef> {
+export async function writeLog(
+  layout: SessionArtifacts,
+  name: string,
+  text: string,
+  metadata?: Record<string, unknown>
+): Promise<ArtifactRef> {
   const path = join(layout.logsDir, name);
   await appendFile(path, text, "utf8");
-  return artifactFromPath(layout, "log", path);
+  return artifactFromPath(layout, "log", path, metadata);
 }
 
-export async function writeMetadata(layout: SessionArtifacts, name: string, data: unknown): Promise<ArtifactRef> {
+export async function writeMetadata(
+  layout: SessionArtifacts,
+  name: string,
+  data: unknown,
+  metadata?: Record<string, unknown>
+): Promise<ArtifactRef> {
   const path = join(layout.metadataDir, name);
   await writeJson(path, data);
-  return artifactFromPath(layout, "metadata", path);
+  return artifactFromPath(layout, "metadata", path, metadata);
 }
 
-export async function copyScreenshot(layout: SessionArtifacts, sourcePath: string, name: string): Promise<ArtifactRef> {
+export async function copyScreenshot(
+  layout: SessionArtifacts,
+  sourcePath: string,
+  name: string,
+  metadata?: Record<string, unknown>
+): Promise<ArtifactRef> {
   const path = join(layout.screenshotsDir, name.endsWith(".png") ? name : `${name}.png`);
   await copyFile(sourcePath, path);
   await copyFile(path, join(layout.screenshotsDir, "latest.png"));
-  return artifactFromPath(layout, "screenshot", path);
+  return artifactFromPath(layout, "screenshot", path, metadata);
 }
 
 export async function artifactFromPath(
@@ -153,6 +174,7 @@ export async function artifactFromPath(
   path: string,
   metadata?: Record<string, unknown>
 ): Promise<ArtifactRef> {
+  const artifactMetadata = await metadataForArtifact(type, path, metadata);
   return {
     id: makeId(type),
     sessionId: basename(layout.sessionPath),
@@ -160,7 +182,7 @@ export async function artifactFromPath(
     path: resolve(path),
     createdAt: nowIso(),
     sha256: await sha256File(path),
-    metadata
+    metadata: artifactMetadata
   };
 }
 
@@ -269,7 +291,7 @@ async function readPersistedArtifacts(
   sessionId: string,
   warnings: PersistedSessionWarning[]
 ): Promise<ArtifactRef[]> {
-  const candidates: Array<{ artifact: unknown; sourcePath: string }> = [];
+  const candidates: ArtifactCandidate[] = [];
   const manifest = await readContainedJson<{ artifacts?: unknown }>(layout.manifestPath, warnings, { required: false });
   if (manifest) {
     if (Array.isArray(manifest.artifacts)) {
@@ -286,20 +308,28 @@ async function readPersistedArtifacts(
 
   const artifacts = new Map<string, ArtifactRef>();
   for (const candidate of candidates) {
-    const artifact = await normalizeArtifactRef(layout, sessionId, candidate.artifact, candidate.sourcePath, warnings);
+    const artifact = await normalizeArtifactRef(
+      layout,
+      sessionId,
+      candidate.artifact,
+      candidate.sourcePath,
+      warnings,
+      candidate.metadata
+    );
     if (!artifact) continue;
 
     const key = `${artifact.id}\0${artifact.path}`;
-    if (!artifacts.has(key)) artifacts.set(key, artifact);
+    const existing = artifacts.get(key);
+    artifacts.set(key, existing ? mergeArtifactRefs(existing, artifact) : artifact);
   }
 
-  return [...artifacts.values()].sort((left, right) => timestamp(left.createdAt) - timestamp(right.createdAt));
+  return markLatestScreenshot([...artifacts.values()].sort((left, right) => timestamp(left.createdAt) - timestamp(right.createdAt)));
 }
 
 async function readActionArtifacts(
   layout: SessionArtifacts,
   warnings: PersistedSessionWarning[]
-): Promise<Array<{ artifact: unknown; sourcePath: string }>> {
+): Promise<ArtifactCandidate[]> {
   const actionsStat = await tryLstat(layout.actionsPath);
   if (!actionsStat) return [];
   if (!actionsStat.isFile() || actionsStat.isSymbolicLink()) {
@@ -307,7 +337,7 @@ async function readActionArtifacts(
     return [];
   }
 
-  const artifacts: Array<{ artifact: unknown; sourcePath: string }> = [];
+  const artifacts: ArtifactCandidate[] = [];
   const lines = (await readFile(layout.actionsPath, "utf8")).split(/\r?\n/);
   for (const [index, line] of lines.entries()) {
     if (!line.trim()) continue;
@@ -321,8 +351,9 @@ async function readActionArtifacts(
     }
 
     if (!isRecord(record) || !isRecord(record.result) || !Array.isArray(record.result.artifacts)) continue;
+    const actionMetadata = actionMetadataFromRecord(record.action);
     for (const [artifactIndex, artifact] of record.result.artifacts.entries()) {
-      artifacts.push({ artifact, sourcePath: `${sourcePath}#artifacts[${artifactIndex}]` });
+      artifacts.push({ artifact, sourcePath: `${sourcePath}#artifacts[${artifactIndex}]`, metadata: actionMetadata });
     }
   }
   return artifacts;
@@ -333,7 +364,8 @@ async function normalizeArtifactRef(
   sessionId: string,
   artifact: unknown,
   sourcePath: string,
-  warnings: PersistedSessionWarning[]
+  warnings: PersistedSessionWarning[],
+  metadata?: Record<string, unknown>
 ): Promise<ArtifactRef | undefined> {
   if (!isRecord(artifact)) {
     warnings.push({ path: sourcePath, message: "artifact entry must be an object" });
@@ -378,8 +410,90 @@ async function normalizeArtifactRef(
     path: containedPath,
     createdAt: artifact.createdAt,
     sha256: typeof artifact.sha256 === "string" ? artifact.sha256 : undefined,
-    metadata: isRecord(artifact.metadata) ? artifact.metadata : undefined
+    metadata: await metadataForArtifact(
+      artifact.type,
+      containedPath,
+      mergeMetadata(isRecord(artifact.metadata) ? artifact.metadata : undefined, metadata)
+    )
   };
+}
+
+function actionMetadataFromRecord(action: unknown): Record<string, unknown> | undefined {
+  if (!isRecord(action)) return undefined;
+  return compactMetadata({
+    actionId: typeof action.id === "string" ? action.id : undefined,
+    actionSequence: typeof action.sequence === "number" ? action.sequence : undefined,
+    actionKind: typeof action.kind === "string" ? action.kind : undefined
+  });
+}
+
+async function metadataForArtifact(
+  type: ArtifactRef["type"],
+  path: string,
+  metadata?: Record<string, unknown>
+): Promise<Record<string, unknown> | undefined> {
+  const fileStat = await tryLstat(path);
+  return compactMetadata({
+    ...metadata,
+    sizeBytes: fileStat?.isFile() ? fileStat.size : metadata?.sizeBytes,
+    mediaType: inferMediaType(type, path) ?? metadata?.mediaType
+  });
+}
+
+function inferMediaType(type: ArtifactRef["type"], path: string): string | undefined {
+  const extension = extname(path).toLowerCase();
+  if (type === "screenshot") {
+    if (extension === ".jpg" || extension === ".jpeg") return "image/jpeg";
+    return "image/png";
+  }
+  if (type === "video") {
+    if (extension === ".mov") return "video/quicktime";
+    if (extension === ".mp4") return "video/mp4";
+    return "video/mp4";
+  }
+  if (type === "log") return "text/plain";
+  if (type === "trace") return "application/x-ndjson";
+  if (type === "metadata" || type === "action") return "application/json";
+  if (type === "app-bundle") return "application/vnd.apple.application-bundle";
+  return undefined;
+}
+
+function mergeArtifactRefs(existing: ArtifactRef, next: ArtifactRef): ArtifactRef {
+  return {
+    ...existing,
+    sha256: existing.sha256 ?? next.sha256,
+    metadata: mergeMetadata(existing.metadata, next.metadata)
+  };
+}
+
+function mergeMetadata(
+  existing?: Record<string, unknown>,
+  next?: Record<string, unknown>
+): Record<string, unknown> | undefined {
+  if (!existing && !next) return undefined;
+  return compactMetadata({ ...next, ...existing });
+}
+
+export function markLatestScreenshot(artifacts: ArtifactRef[]): ArtifactRef[] {
+  let latestScreenshotIndex = -1;
+  for (let index = artifacts.length - 1; index >= 0; index -= 1) {
+    if (artifacts[index].type === "screenshot") {
+      latestScreenshotIndex = index;
+      break;
+    }
+  }
+
+  return artifacts.map((artifact, index) => {
+    if (artifact.type !== "screenshot") return artifact;
+    return {
+      ...artifact,
+      metadata: compactMetadata({
+        ...artifact.metadata,
+        latest: index === latestScreenshotIndex,
+        latestScreenshot: index === latestScreenshotIndex
+      })
+    };
+  });
 }
 
 async function readContainedJson<T>(
@@ -470,6 +584,11 @@ function isSafeSessionId(sessionId: string): boolean {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function compactMetadata(metadata: Record<string, unknown>): Record<string, unknown> | undefined {
+  const entries = Object.entries(metadata).filter(([, value]) => value !== undefined);
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
 
 function isPathInsideOrEqual(root: string, candidate: string): boolean {
