@@ -135,6 +135,7 @@ export interface EvidenceReportData extends CompactEvidenceSummary {
   updatedAt?: string;
   artifactTotal: number;
   artifactCounts: Partial<Record<ArtifactType, number>>;
+  artifactHighlights?: ArtifactRef[];
   eventTotal: number;
   latestAction?: SessionSummary["events"]["latestAction"];
   latestError?: AtlasLoopError;
@@ -201,12 +202,14 @@ export function evidenceReportDataFromSessionSummary(
     viewerBaseUrl: string;
     viewerUrl: string;
     latestScreenshot?: ArtifactRef | null;
+    artifactHighlights?: ArtifactRef[];
   }
 ): EvidenceReportData {
   const artifacts = summary.artifacts ?? { total: 0, byType: {} };
   const events = summary.events ?? { total: 0 };
   const storage: SessionSummary["storage"] = summary.storage ?? { source: "memory", artifactBacked: false, warnings: [] };
   const latestScreenshot = params.latestScreenshot ?? artifacts.latestScreenshot ?? null;
+  const artifactHighlights = normalizeArtifactHighlights(params.artifactHighlights, latestScreenshot);
   return {
     sessionId: summary.session.id,
     requestedSessionId: params.requestedSessionId,
@@ -221,6 +224,7 @@ export function evidenceReportDataFromSessionSummary(
     updatedAt: summary.session.updatedAt,
     artifactTotal: artifacts.total ?? 0,
     artifactCounts: artifacts.byType ?? {},
+    ...(artifactHighlights.length > 0 ? { artifactHighlights } : {}),
     eventTotal: events.total ?? 0,
     latestAction: events.latestAction,
     latestError: events.latestError,
@@ -250,6 +254,14 @@ export function buildEvidenceMarkdownReport(evidence: EvidenceReportData): strin
     `- Artifacts: ${evidence.artifactTotal}${formatArtifactCounts(evidence.artifactCounts)}`,
     `- Events: ${evidence.eventTotal}`
   ];
+
+  const artifactHighlights = evidence.artifactHighlights ?? [];
+  if (artifactHighlights.length > 0) {
+    lines.push("", "## Artifact Highlights");
+    for (const artifact of artifactHighlights) {
+      lines.push(formatArtifactHighlight(artifact));
+    }
+  }
 
   if (evidence.latestAction) {
     lines.push(
@@ -555,6 +567,47 @@ function formatArtifactCounts(counts: Partial<Record<ArtifactType, number>>): st
     .sort(([left], [right]) => left.localeCompare(right));
   if (entries.length === 0) return "";
   return ` (${entries.map(([type, count]) => `${type}: ${count}`).join(", ")})`;
+}
+
+const MAX_ARTIFACT_HIGHLIGHTS = 8;
+
+function normalizeArtifactHighlights(artifacts: ArtifactRef[] | undefined, latestScreenshot: ArtifactRef | null): ArtifactRef[] {
+  const byId = new Map<string, ArtifactRef>();
+  for (const artifact of artifacts ?? []) {
+    if (!artifact?.id || !artifact.path) continue;
+    byId.set(artifact.id, artifact);
+  }
+  if (latestScreenshot?.id && !byId.has(latestScreenshot.id)) byId.set(latestScreenshot.id, latestScreenshot);
+
+  return [...byId.values()]
+    .sort((left, right) => toTimestamp(right.createdAt) - toTimestamp(left.createdAt) || left.id.localeCompare(right.id))
+    .slice(0, MAX_ARTIFACT_HIGHLIGHTS);
+}
+
+function formatArtifactHighlight(artifact: ArtifactRef): string {
+  const metadata = artifact.metadata ?? {};
+  const details = [
+    firstString(metadata.actionId) ? `action ${code(firstString(metadata.actionId) as string)}` : undefined,
+    firstString(metadata.operation) ? `operation ${code(firstString(metadata.operation) as string)}` : undefined,
+    typeof metadata.sizeBytes === "number" ? formatByteCount(metadata.sizeBytes) : undefined
+  ].filter(Boolean);
+  const suffix = details.length > 0 ? ` (${details.join(", ")})` : "";
+  return `- ${code(artifact.type)} ${code(artifact.id)}${suffix}: ${code(artifact.path)}`;
+}
+
+function formatByteCount(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes < 0) return "0 B";
+  if (bytes < 1024) return `${bytes} B`;
+  const kib = bytes / 1024;
+  if (kib < 1024) return `${kib.toFixed(kib < 10 ? 1 : 0)} KiB`;
+  const mib = kib / 1024;
+  return `${mib.toFixed(mib < 10 ? 1 : 0)} MiB`;
+}
+
+function toTimestamp(value: string | undefined): number {
+  if (!value) return 0;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
 function code(value: string): string {

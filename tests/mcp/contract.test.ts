@@ -716,40 +716,68 @@ describe("MCP contract documentation", () => {
       sessionId: "sess_report",
       type: "screenshot",
       path: "/tmp/atlas-loop/sess-report/screenshots/latest.png",
-      createdAt: "2026-07-04T12:00:00.000Z"
+      createdAt: "2026-07-04T12:00:00.000Z",
+      metadata: { actionId: "act_report", operation: "screenshot", sizeBytes: 1024 }
     };
+    const logArtifact = {
+      id: "log_report",
+      sessionId: "sess_report",
+      type: "log",
+      path: "/tmp/atlas-loop/sess-report/logs/install.log",
+      createdAt: "2026-07-04T12:00:01.000Z",
+      metadata: { actionId: "act_install", operation: "install", sizeBytes: 384 }
+    };
+    const calls: string[] = [];
 
     const result = await callToolWithEnvelope("atlas.getEvidenceReport", { sessionId: "latest" }, {
       client: {
-        getSessionSummary: async () => ({
-          session: {
-            id: "sess_report",
-            status: "ended",
-            createdAt: "2026-07-04T12:00:00.000Z",
-            updatedAt: "2026-07-04T12:00:01.000Z"
-          },
-          paths: { artifactDir: "/tmp/atlas-loop/sess-report" },
-          artifacts: { total: 1, byType: { screenshot: 1 }, latestScreenshot: artifact },
-          events: { total: 3 },
-          storage: { source: "disk", artifactBacked: true, warnings: [] }
-        })
+        getSessionSummary: async (sessionId: string) => {
+          calls.push(`summary:${sessionId}`);
+          return {
+            session: {
+              id: "sess_report",
+              status: "ended",
+              createdAt: "2026-07-04T12:00:00.000Z",
+              updatedAt: "2026-07-04T12:00:01.000Z"
+            },
+            paths: { artifactDir: "/tmp/atlas-loop/sess-report" },
+            artifacts: { total: 2, byType: { screenshot: 1, log: 1 }, latestScreenshot: artifact },
+            events: { total: 3 },
+            storage: { source: "disk", artifactBacked: true, warnings: [] }
+          };
+        },
+        listArtifacts: async (sessionId: string) => {
+          calls.push(`artifacts:${sessionId}`);
+          return [artifact, { id: "", type: "log", path: "" }, logArtifact];
+        }
       } as never,
       loadConfig: async () => ({ daemonUrl: "http://127.0.0.1:4317" }),
       viewerBaseUrl: "http://127.0.0.1:5173/"
     });
 
+    expect(calls).toEqual(["summary:latest", "artifacts:sess_report"]);
     expect(result).toMatchObject({
       ok: true,
       data: {
         evidence: {
           sessionId: "sess_report",
           requestedSessionId: "latest",
-          artifactTotal: 1,
+          artifactTotal: 2,
+          artifactCounts: { screenshot: 1, log: 1 },
+          artifactHighlights: [
+            expect.objectContaining({ id: "log_report" }),
+            expect.objectContaining({ id: "artifact_report" })
+          ],
           eventTotal: 3
         },
         report: expect.stringContaining("# Atlas Loop Evidence Report")
       }
     });
+    if (!result.ok) throw new Error(result.error.message);
+    const reportResult = result.data as { report: string };
+    expect(reportResult.report).toContain("Artifact Highlights");
+    expect(reportResult.report).toContain("log_report");
+    expect(reportResult.report).toContain("act_report");
   });
 
   it("keeps evidence available when the session has no screenshots yet", async () => {

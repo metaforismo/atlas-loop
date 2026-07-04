@@ -327,16 +327,43 @@ describe("CLI agent workflow helpers", () => {
     const originalCwd = process.cwd();
     const originalLog = console.log;
     const logged: string[] = [];
-    const server = await startFakeDaemon(() => sessionSummary("sess_report", {
-      artifactDir: "/tmp/atlas-loop/sess-report",
-      latestScreenshot: {
-        id: "artifact_report",
-        sessionId: "sess_report",
-        type: "screenshot",
-        path: "/tmp/atlas-loop/sess-report/screenshots/latest.png",
-        createdAt: "2026-07-04T12:00:00.000Z"
+    const requestedPaths: string[] = [];
+    const latestScreenshot: ArtifactRef = {
+      id: "artifact_report",
+      sessionId: "sess_report",
+      type: "screenshot",
+      path: "/tmp/atlas-loop/sess-report/screenshots/latest.png",
+      createdAt: "2026-07-04T12:00:04.000Z",
+      metadata: { actionId: "act_report", operation: "screenshot", sizeBytes: 1204 }
+    };
+    const logArtifact: ArtifactRef = {
+      id: "log_report",
+      sessionId: "sess_report",
+      type: "log",
+      path: "/tmp/atlas-loop/sess-report/logs/install.log",
+      createdAt: "2026-07-04T12:00:03.000Z",
+      metadata: { actionId: "act_install", operation: "install", sizeBytes: 481 }
+    };
+    const server = await startSessionHandoffDaemon((requestPath) => {
+      requestedPaths.push(requestPath);
+      if (requestPath === "/sessions/latest/summary") {
+        return {
+          ok: true,
+          data: sessionSummary("sess_report", {
+            artifactDir: "/tmp/atlas-loop/sess-report",
+            latestScreenshot
+          })
+        };
       }
-    }));
+      if (requestPath === "/sessions/sess_report/artifacts") {
+        return { ok: true, data: [logArtifact, latestScreenshot] };
+      }
+      return {
+        ok: false,
+        status: 404,
+        error: { code: "NOT_FOUND", message: `unexpected route ${requestPath}` }
+      };
+    });
     const daemonUrl = `http://127.0.0.1:${server.port}`;
     const reportPath = join(tempDir, "reports", "evidence.md");
     let reportText = "";
@@ -360,9 +387,18 @@ describe("CLI agent workflow helpers", () => {
 
     expect(logged[0]).toContain("# Atlas Loop Evidence Report");
     expect(logged[0]).toContain("sess_report");
+    expect(logged[0]).toContain("Artifact Highlights");
+    expect(logged[0]).toContain("act_report");
     const writeResult = JSON.parse(logged[1]);
     expect(writeResult).toMatchObject({ ok: true, reportPath, sessionId: "sess_report" });
     expect(reportText).toContain("Latest screenshot");
+    expect(reportText).toContain("log_report");
+    expect(requestedPaths).toEqual([
+      "/sessions/latest/summary",
+      "/sessions/sess_report/artifacts",
+      "/sessions/latest/summary",
+      "/sessions/sess_report/artifacts"
+    ]);
   });
 
   it("exports local evidence bundles from summary artifact paths without artifact downloads", async () => {

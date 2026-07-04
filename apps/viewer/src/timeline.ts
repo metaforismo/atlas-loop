@@ -1,4 +1,4 @@
-import type { ActionLike, ArtifactRef, TraceEvent } from "./types.js";
+import type { ActionLike, ActionResultLike, ArtifactRef, TraceEvent } from "./types.js";
 
 export type TimelineTone = "neutral" | "good" | "warn" | "bad" | "accent";
 
@@ -10,6 +10,11 @@ export interface TimelineItem {
   detail: string;
   tone: TimelineTone;
   sortKey: number;
+  actionId?: string | undefined;
+  artifactId?: string | undefined;
+  artifactType?: ArtifactRef["type"] | undefined;
+  artifactPath?: string | undefined;
+  relatedArtifactIds?: string[] | undefined;
 }
 
 export function mergeTraceEvents(existing: TraceEvent[], incoming: TraceEvent[]): TraceEvent[] {
@@ -31,13 +36,13 @@ export function buildTimelineItems(events: TraceEvent[], artifacts: ArtifactRef[
 
   for (const event of events) {
     for (const item of eventToItems(event)) {
-      items.set(item.id, item);
+      upsertTimelineItem(items, item);
     }
   }
 
   for (const artifact of artifacts) {
     const item = artifactToItem(artifact);
-    if (!items.has(item.id)) items.set(item.id, item);
+    upsertTimelineItem(items, item);
   }
 
   return [...items.values()].sort((a, b) => a.sortKey - b.sortKey || a.id.localeCompare(b.id));
@@ -80,7 +85,8 @@ function eventToItems(event: TraceEvent): TimelineItem[] {
           at: event.action.createdAt ?? at,
           title: actionTitle(event.action),
           detail: actionDetail(event.action),
-          tone: "accent"
+          tone: "accent",
+          actionId: event.action.id
         })
       ];
     case "action.completed":
@@ -90,10 +96,12 @@ function eventToItems(event: TraceEvent): TimelineItem[] {
           id: `event:action.completed:${event.result.actionId}`,
           at: event.result.endedAt ?? at,
           title: event.result.ok ? "Action completed" : "Action failed",
-          detail: event.result.error?.message ?? `${event.result.artifacts?.length ?? 0} artifact(s)`,
-          tone: event.result.ok ? "good" : "bad"
+          detail: actionCompletionDetail(event.result),
+          tone: event.result.ok ? "good" : "bad",
+          actionId: event.result.actionId,
+          relatedArtifactIds: relatedArtifactIds(event.result.artifacts)
         }),
-        ...(event.result.artifacts ?? []).map((artifact) => artifactToItem(artifact))
+        ...(event.result.artifacts ?? []).map((artifact) => artifactToItem(artifact, undefined, event.result?.actionId))
       ];
     case "artifact.created":
       if (!event.artifact) return [genericEventItem(event, at)];
@@ -132,14 +140,21 @@ function genericEventItem(event: TraceEvent, at: string): TimelineItem {
   });
 }
 
-function artifactToItem(artifact: ArtifactRef, fallbackAt?: string): TimelineItem {
+function artifactToItem(artifact: ArtifactRef, fallbackAt?: string, fallbackActionId?: string): TimelineItem {
+  const actionId = artifactActionId(artifact) ?? fallbackActionId;
+
   return makeItem({
     id: `artifact:${artifact.id}`,
     at: artifact.createdAt ?? fallbackAt ?? new Date(0).toISOString(),
     sourceType: "artifact",
     title: `${artifact.type} artifact`,
-    detail: artifact.path,
-    tone: artifact.type === "screenshot" ? "good" : "neutral"
+    detail: artifactDetail(artifact.path, actionId),
+    tone: artifact.type === "screenshot" ? "good" : "neutral",
+    actionId,
+    artifactId: artifact.id,
+    artifactType: artifact.type,
+    artifactPath: artifact.path,
+    relatedArtifactIds: undefined
   });
 }
 
@@ -149,6 +164,66 @@ function makeItem(input: Omit<TimelineItem, "sourceType" | "sortKey"> & { source
     sortKey: toTimestamp(input.at),
     ...input
   };
+}
+
+function upsertTimelineItem(items: Map<string, TimelineItem>, item: TimelineItem): void {
+  const existing = items.get(item.id);
+  items.set(item.id, existing ? mergeTimelineItems(existing, item) : item);
+}
+
+function mergeTimelineItems(first: TimelineItem, second: TimelineItem): TimelineItem {
+  const display = richerTimelineItem(first, second);
+  const actionId = first.actionId ?? second.actionId;
+  const artifactPath = first.artifactPath ?? second.artifactPath;
+  const relatedArtifactIds = mergeIds(first.relatedArtifactIds, second.relatedArtifactIds);
+  const merged: TimelineItem = {
+    ...display,
+    sortKey: mergedSortKey(first.sortKey, second.sortKey),
+    actionId,
+    artifactId: first.artifactId ?? second.artifactId,
+    artifactType: first.artifactType ?? second.artifactType,
+    artifactPath,
+    relatedArtifactIds
+  };
+
+  if (merged.sourceType === "artifact" && artifactPath) {
+    merged.detail = artifactDetail(artifactPath, actionId);
+  }
+
+  return merged;
+}
+
+function richerTimelineItem(first: TimelineItem, second: TimelineItem): TimelineItem {
+  const firstScore = timelineItemRichness(first);
+  const secondScore = timelineItemRichness(second);
+  if (firstScore !== secondScore) return firstScore > secondScore ? first : second;
+
+  const firstDisplayKey = `${first.title}\u0000${first.detail}`;
+  const secondDisplayKey = `${second.title}\u0000${second.detail}`;
+  if (firstDisplayKey !== secondDisplayKey) return firstDisplayKey.localeCompare(secondDisplayKey) <= 0 ? first : second;
+
+  return first.sortKey <= second.sortKey ? first : second;
+}
+
+function timelineItemRichness(item: TimelineItem): number {
+  return [
+    item.actionId,
+    item.artifactId,
+    item.artifactType,
+    item.artifactPath,
+    ...(item.relatedArtifactIds ?? [])
+  ].filter(Boolean).length;
+}
+
+function mergedSortKey(first: number, second: number): number {
+  if (first === 0) return second;
+  if (second === 0) return first;
+  return Math.min(first, second);
+}
+
+function mergeIds(first: string[] | undefined, second: string[] | undefined): string[] | undefined {
+  const ids = new Set([...(first ?? []), ...(second ?? [])].filter((id): id is string => typeof id === "string" && id.length > 0));
+  return ids.size === 0 ? undefined : [...ids].sort();
 }
 
 function sortEvents(events: TraceEvent[]): TraceEvent[] {
@@ -218,6 +293,55 @@ function actionDetail(action: ActionLike): string {
     default:
       return action.sequence === undefined ? "Action" : `#${action.sequence}`;
   }
+}
+
+function actionCompletionDetail(result: ActionResultLike): string {
+  const status = result.ok ? "Passed" : "Failed";
+  const duration = formatDuration(result.startedAt, result.endedAt);
+  const statusDetail = duration ? `${status} in ${duration}` : status;
+  const artifactSummary = formatArtifactSummary(result.artifacts);
+  const base = result.error?.message ? `${statusDetail}: ${result.error.message}` : statusDetail;
+  return `${base} · ${artifactSummary}`;
+}
+
+function formatArtifactSummary(artifacts: ArtifactRef[] | undefined): string {
+  if (!artifacts || artifacts.length === 0) return "no artifacts";
+
+  const counts = new Map<string, number>();
+  for (const artifact of artifacts) {
+    counts.set(artifact.type, (counts.get(artifact.type) ?? 0) + 1);
+  }
+
+  const parts = [...counts.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([type, count]) => count === 1 ? type : `${type} x${count}`);
+  const noun = artifacts.length === 1 ? "artifact" : "artifacts";
+  return `${artifacts.length} ${noun}: ${parts.join(", ")}`;
+}
+
+function formatDuration(startedAt: string | undefined, endedAt: string | undefined): string | undefined {
+  const started = toTimestamp(startedAt);
+  const ended = toTimestamp(endedAt);
+  if (started === 0 || ended === 0 || ended < started) return undefined;
+
+  const durationMs = ended - started;
+  if (durationMs < 1000) return `${durationMs}ms`;
+  if (durationMs % 1000 === 0) return `${durationMs / 1000}s`;
+  return `${(durationMs / 1000).toFixed(1)}s`;
+}
+
+function relatedArtifactIds(artifacts: ArtifactRef[] | undefined): string[] | undefined {
+  const ids = new Set((artifacts ?? []).map((artifact) => artifact.id).filter((id) => id.length > 0));
+  return ids.size === 0 ? undefined : [...ids].sort();
+}
+
+function artifactActionId(artifact: ArtifactRef): string | undefined {
+  const actionId = artifact.metadata?.actionId;
+  return typeof actionId === "string" && actionId.length > 0 ? actionId : undefined;
+}
+
+function artifactDetail(path: string, actionId: string | undefined): string {
+  return actionId ? `${path} · action ${actionId}` : path;
 }
 
 function formatPoint(x: unknown, y: unknown): string {

@@ -483,6 +483,7 @@ async function getEvidenceReportData(
   if (!artifactDir) throw new Error("session summary did not include paths.artifactDir");
   const latestScreenshot = await evidenceLatestScreenshot(client, sessionId, summary);
   if (latestScreenshot) requireArtifactPath(latestScreenshot);
+  const artifactHighlights = await evidenceArtifactHighlights(client, sessionId);
   const viewer = await getViewerUrl({ ...args, sessionId }, runtime);
 
   return evidenceReportDataFromSessionSummary({
@@ -493,7 +494,8 @@ async function getEvidenceReportData(
     daemonUrl: viewer.daemonUrl,
     viewerBaseUrl: viewer.viewerBaseUrl,
     viewerUrl: viewer.url,
-    latestScreenshot: latestScreenshot as ArtifactRef | null
+    latestScreenshot: latestScreenshot as ArtifactRef | null,
+    artifactHighlights
   });
 }
 
@@ -551,6 +553,17 @@ async function evidenceLatestScreenshot(
     return artifactPath(latestScreenshot) ? latestScreenshot : null;
   } catch (error) {
     if (isNotFoundError(error)) return null;
+    throw error;
+  }
+}
+
+async function evidenceArtifactHighlights(client: McpDaemonClient, sessionId: string): Promise<ArtifactRef[]> {
+  if (typeof client.listArtifacts !== "function") return [];
+  try {
+    const artifacts = await client.listArtifacts(sessionId);
+    return Array.isArray(artifacts) ? artifacts.filter(isArtifactRef) : [];
+  } catch (error) {
+    if (isNotFoundError(error)) return [];
     throw error;
   }
 }
@@ -624,6 +637,16 @@ function firstString(value: unknown): string | undefined {
 function artifactPath(artifact: unknown): string | undefined {
   if (!artifact || typeof artifact !== "object") return undefined;
   return firstString((artifact as { path?: unknown }).path);
+}
+
+function isArtifactRef(artifact: unknown): artifact is ArtifactRef {
+  return Boolean(
+    artifact &&
+    typeof artifact === "object" &&
+    firstString((artifact as { id?: unknown }).id) &&
+    firstString((artifact as { type?: unknown }).type) &&
+    firstString((artifact as { path?: unknown }).path)
+  );
 }
 
 function requireArtifactPath(artifact: unknown): string {

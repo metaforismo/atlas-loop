@@ -78,6 +78,12 @@ npm run cli -- viewer url --session latest
 npm run cli -- viewer open --session latest --launch
 ```
 
+Use the viewer to inspect the latest screenshot, action timeline, and artifact
+list together. Timeline entries are correlated with trace events and recovered
+artifact references, so the operator can move from an action to the screenshot,
+log, or metadata file that proves what happened. The viewer stays local; the
+durable source of truth remains `artifacts/sessions/<session-id>/`.
+
 Export local evidence for review or manual archival:
 
 ```sh
@@ -126,6 +132,8 @@ A useful handoff note should include:
 - Latest screenshot path, if present.
 - Artifact health result, including any warnings or errors.
 - Evidence report path or export bundle path, if generated.
+- Timeline or artifact correlation notes when a specific action, screenshot,
+  log, or metadata file is the important proof.
 - Any host-gated limitations, especially Accessibility permission, visible
   Simulator window requirements, or smoke paths that prove launch state rather
   than primitive HID success.
