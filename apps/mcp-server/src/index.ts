@@ -47,6 +47,29 @@ interface ToolRuntime {
   viewerBaseUrl?: string;
 }
 
+interface SessionReadiness {
+  sessionId: string;
+  requestedSessionId: string;
+  status: string;
+  storage: {
+    source: string;
+    artifactBacked: boolean;
+    warningCount: number;
+  };
+  artifactDir: string;
+  latestScreenshotPath: string | null;
+  latestAction?: {
+    id: string;
+    ok: boolean;
+  };
+  latestError?: SessionSummary["events"]["latestError"];
+  viewerUrl: string;
+  daemonUrl: string;
+  viewerBaseUrl: string;
+  canMutate: boolean;
+  hasScreenshot: boolean;
+}
+
 interface LocalEvidenceExportMetadata {
   schemaVersion: "atlas-loop.evidence-export.v1";
   sessionId: string;
@@ -73,6 +96,15 @@ export const tools = [
   { name: "atlas.createSession", description: "Create a local iOS Simulator session.", inputSchema: createSessionSchema() },
   { name: "atlas.getSession", description: "Get a session by id.", inputSchema: sessionIdSchema() },
   { name: "atlas.getSessionSummary", description: "Get session status, artifact paths, counts, latest action, and latest screenshot metadata.", inputSchema: sessionIdSchema() },
+  {
+    name: "atlas.sessionReady",
+    description: "Return compact readiness for one session: resolved id, status, storage, evidence signals, viewer URL, and mutation safety.",
+    inputSchema: objectSchema(["sessionId"], {
+      ...sessionIdProperty(),
+      daemonUrl: { type: "string", description: "Optional daemon URL override." },
+      viewerBaseUrl: { type: "string", description: "Optional viewer app base URL override." }
+    })
+  },
   { name: "atlas.performAction", description: "Perform tap/type/swipe/wait/screenshot action.", inputSchema: performActionSchema() },
   { name: "atlas.takeScreenshot", description: "Capture a screenshot artifact.", inputSchema: objectSchema(["sessionId"], { ...sessionIdProperty(), reason: { type: "string" } }) },
   { name: "atlas.listArtifacts", description: "List local evidence artifacts.", inputSchema: sessionIdSchema() },
@@ -187,6 +219,8 @@ async function callTool(name: string, args: Record<string, unknown>, runtime: To
       return client.getSession(requireString(args, "sessionId"));
     case "atlas.getSessionSummary":
       return client.getSessionSummary(requireString(args, "sessionId"));
+    case "atlas.sessionReady":
+      return getSessionReady(client, args, runtime);
     case "atlas.performAction":
       return client.performAction(requireString(args, "sessionId"), { action: requireActionInput(args.action) });
     case "atlas.takeScreenshot":
@@ -228,6 +262,47 @@ async function getArtifactPath(client: McpDaemonClient, args: Record<string, unk
   const path = summary.paths?.artifactDir;
   if (typeof path !== "string" || !path) throw new Error("session summary did not include paths.artifactDir");
   return { path };
+}
+
+async function getSessionReady(
+  client: McpDaemonClient,
+  args: Record<string, unknown>,
+  runtime: ToolRuntime
+): Promise<SessionReadiness> {
+  const requestedSessionId = requireString(args, "sessionId");
+  const summary = await client.getSessionSummary(requestedSessionId);
+  const sessionId = firstString(summary.session?.id) ?? requestedSessionId;
+  const status = firstString(summary.session?.status) ?? "unknown";
+  const artifactDir = firstString(summary.paths?.artifactDir);
+  if (!artifactDir) throw new Error("session summary did not include paths.artifactDir");
+
+  const storageSource = firstString(summary.storage?.source) ?? "unknown";
+  const storageWarnings = Array.isArray(summary.storage?.warnings) ? summary.storage.warnings : [];
+  const latestScreenshotPath = firstString(summary.artifacts?.latestScreenshot?.path)
+    ?? firstString(summary.artifacts?.latestScreenshotPath)
+    ?? null;
+  const latestAction = latestActionSummary(summary.events?.latestAction);
+  const viewer = await getViewerUrl({ ...args, sessionId }, runtime);
+
+  return {
+    sessionId,
+    requestedSessionId,
+    status,
+    storage: {
+      source: storageSource,
+      artifactBacked: Boolean(summary.storage?.artifactBacked),
+      warningCount: storageWarnings.length
+    },
+    artifactDir,
+    latestScreenshotPath,
+    ...(latestAction ? { latestAction } : {}),
+    ...(summary.events?.latestError ? { latestError: summary.events.latestError } : {}),
+    viewerUrl: viewer.url,
+    daemonUrl: viewer.daemonUrl,
+    viewerBaseUrl: viewer.viewerBaseUrl,
+    canMutate: storageSource === "memory" && isLiveSessionStatus(status),
+    hasScreenshot: latestScreenshotPath !== null
+  };
 }
 
 async function getLatestScreenshotPath(client: McpDaemonClient, args: Record<string, unknown>): Promise<{ path: string; artifact: unknown }> {
@@ -434,6 +509,15 @@ function requireArtifactPath(artifact: unknown): string {
   const path = artifactPath(artifact);
   if (!path) throw new Error("latest screenshot did not include a path");
   return path;
+}
+
+function latestActionSummary(action: SessionSummary["events"]["latestAction"] | undefined): SessionReadiness["latestAction"] | undefined {
+  if (!action?.actionId) return undefined;
+  return { id: action.actionId, ok: action.ok };
+}
+
+function isLiveSessionStatus(status: string): boolean {
+  return status !== "ended" && status !== "failed" && status !== "unknown";
 }
 
 function resolveLocalPath(path: string, label: string): string {

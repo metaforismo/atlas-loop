@@ -171,6 +171,10 @@ not include `export.json` itself. Symlinks are checked with realpaths during
 export; a symlink that escapes the source session fails the export instead of
 being followed.
 
+CLI and MCP evidence exports may also include `atlas-evidence-export.json`.
+That file records local-only provenance for the exported bundle, including the
+session id, bundle directory, sidecar path, and `export.json` path.
+
 ## Validator
 
 Run:
@@ -192,3 +196,9 @@ inspectable while still calling out incomplete evidence such as missing
 `actions.jsonl`, `screenshots/`, `logs/`, or `metadata/`. Errors fail the
 validator and should be fixed before using the artifact tree as proof. Integrity
 checks are local-only: the validator never requires cloud or network access.
+When `export.json` is present, the validator also checks its schema version,
+session id, ISO export timestamp, copied-file counts, relative contained file
+paths, regular-file status, byte sizes, and SHA-256 checksums. If
+`atlas-evidence-export.json` is present, the validator checks that it describes
+a local-only, non-uploaded bundle for the same session and that its bundle and
+metadata paths point at the local export files.

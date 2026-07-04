@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { FormEvent, KeyboardEvent as ReactKeyboardEvent } from "react";
+import type { CSSProperties, FormEvent, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
 import {
   fetchArtifacts,
   fetchEvents,
@@ -88,6 +88,26 @@ type ViewerActionSubmitState =
   | { status: "pending"; label: string }
   | { status: "success"; label: string; message: string }
   | { status: "error"; label: string; message: string };
+
+interface ScreenshotTapTarget {
+  x: number;
+  y: number;
+  markerLeftPercent: number;
+  markerTopPercent: number;
+  label: string;
+}
+
+type ScreenshotTargetStyle = CSSProperties & {
+  "--target-left": string;
+  "--target-top": string;
+};
+
+interface RenderedImageBox {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
 
 const DEFAULT_ACTION_FORM: ViewerActionFormState = {
   screenshotReason: "",
@@ -362,6 +382,55 @@ function parseEventMessage(data: string, type?: string): TraceEvent | undefined 
   }
 }
 
+function screenshotTapTargetFromClientPoint(image: HTMLImageElement, clientX: number, clientY: number): ScreenshotTapTarget | undefined {
+  const rect = image.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) return undefined;
+
+  const box = containedImageBox(rect, image.naturalWidth, image.naturalHeight);
+  const xInImage = clientX - rect.left - box.left;
+  const yInImage = clientY - rect.top - box.top;
+
+  if (xInImage < 0 || yInImage < 0 || xInImage > box.width || yInImage > box.height) return undefined;
+
+  const x = clampNormalizedCoordinate(xInImage / box.width);
+  const y = clampNormalizedCoordinate(yInImage / box.height);
+  const markerLeftPercent = ((box.left + x * box.width) / rect.width) * 100;
+  const markerTopPercent = ((box.top + y * box.height) / rect.height) * 100;
+
+  return {
+    x,
+    y,
+    markerLeftPercent,
+    markerTopPercent,
+    label: `x ${formatTapCoordinate(x)} y ${formatTapCoordinate(y)}`
+  };
+}
+
+function containedImageBox(rect: DOMRect, naturalWidth: number, naturalHeight: number): RenderedImageBox {
+  if (rect.width <= 0 || rect.height <= 0 || naturalWidth <= 0 || naturalHeight <= 0) {
+    return { left: 0, top: 0, width: Math.max(1, rect.width), height: Math.max(1, rect.height) };
+  }
+
+  const scale = Math.min(rect.width / naturalWidth, rect.height / naturalHeight);
+  const width = naturalWidth * scale;
+  const height = naturalHeight * scale;
+
+  return {
+    left: (rect.width - width) / 2,
+    top: (rect.height - height) / 2,
+    width,
+    height
+  };
+}
+
+function clampNormalizedCoordinate(value: number): number {
+  return Math.min(1, Math.max(0, value));
+}
+
+function formatTapCoordinate(value: number): string {
+  return clampNormalizedCoordinate(value).toFixed(3);
+}
+
 export function App() {
   const params = useViewerParams();
   const { health, sessions, sessionListStatus, sessionListError, session, sessionSummary, artifacts, screenshot, eventMode, lastError, timeline } =
@@ -372,6 +441,8 @@ export function App() {
   const [selectedArtifactId, setSelectedArtifactId] = useState<string | undefined>();
   const [timelineFilter, setTimelineFilter] = useState<TimelineFilter>("all");
   const [timelineQuery, setTimelineQuery] = useState("");
+  const [actionForm, setActionForm] = useState<ViewerActionFormState>(DEFAULT_ACTION_FORM);
+  const [tapTarget, setTapTarget] = useState<ScreenshotTapTarget | undefined>();
 
   useEffect(() => {
     setDraft(params);
@@ -424,6 +495,7 @@ export function App() {
   const showLastError = Boolean(lastError && !(isLatestFirstRun && (health !== "online" || /^404\b/.test(lastError))));
   const screenshotIsDisplayable = isDisplayableScreenshot(screenshot);
   const screenshotTone: UiTone = screenshot.status === "error" ? "bad" : screenshot.status === "stale" ? "warn" : screenshot.status === "ready" ? "good" : "neutral";
+  const screenshotTargetKey = screenshotIsDisplayable ? `${screenshot.src}|${screenshot.updatedAt}` : undefined;
 
   useEffect(() => {
     if (!selectedArtifact) {
@@ -433,6 +505,20 @@ export function App() {
 
     if (selectedArtifact.id !== selectedArtifactId) setSelectedArtifactId(selectedArtifact.id);
   }, [selectedArtifact, selectedArtifactId]);
+
+  useEffect(() => {
+    setTapTarget(undefined);
+  }, [params.daemonUrl, params.sessionId, screenshotTargetKey]);
+
+  const updateActionFormField = (field: ViewerActionFormField, value: string): void => {
+    setActionForm((current) => ({ ...current, [field]: value }));
+    if (field === "tapX" || field === "tapY") setTapTarget(undefined);
+  };
+
+  const selectScreenshotTapTarget = (target: ScreenshotTapTarget): void => {
+    setTapTarget(target);
+    setActionForm((current) => ({ ...current, tapX: formatTapCoordinate(target.x), tapY: formatTapCoordinate(target.y) }));
+  };
 
   const submit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
@@ -595,7 +681,12 @@ export function App() {
           <div className="phone-stand">
             <div className="phone-frame">
               <div className="phone-speaker" />
-              <ScreenshotView screenshot={screenshot} emptyMessage={isLatestFirstRun ? firstRunState.detail : undefined} />
+              <ScreenshotView
+                screenshot={screenshot}
+                emptyMessage={isLatestFirstRun ? firstRunState.detail : undefined}
+                tapTarget={tapTarget}
+                onTapTarget={selectScreenshotTapTarget}
+              />
             </div>
           </div>
 
@@ -621,7 +712,7 @@ export function App() {
           {session?.error ? <ErrorNotice message={session.error.message} compact /> : null}
         </section>
 
-        <ActionPanel params={params} selectedSessionId={selectedSessionId} />
+        <ActionPanel params={params} selectedSessionId={selectedSessionId} form={actionForm} onFieldChange={updateActionFormField} />
 
         <section className="inspector-section artifact-section">
           <div className="panel-title-row">
@@ -818,8 +909,17 @@ function SessionBrowserRow({ session, selected, onSelect }: { session: SessionLi
   );
 }
 
-function ActionPanel({ params, selectedSessionId }: { params: ViewerParams; selectedSessionId: string }) {
-  const [form, setForm] = useState<ViewerActionFormState>(DEFAULT_ACTION_FORM);
+function ActionPanel({
+  params,
+  selectedSessionId,
+  form,
+  onFieldChange
+}: {
+  params: ViewerParams;
+  selectedSessionId: string;
+  form: ViewerActionFormState;
+  onFieldChange: (field: ViewerActionFormField, value: string) => void;
+}) {
   const [submitState, setSubmitState] = useState<ViewerActionSubmitState>({ status: "idle" });
   const actionParams: ViewerParams = { ...params, sessionId: selectedSessionId };
   const isPending = submitState.status === "pending";
@@ -828,10 +928,6 @@ function ActionPanel({ params, selectedSessionId }: { params: ViewerParams; sele
   useEffect(() => {
     setSubmitState({ status: "idle" });
   }, [params.daemonUrl, selectedSessionId]);
-
-  const updateField = (field: ViewerActionFormField, value: string): void => {
-    setForm((current) => ({ ...current, [field]: value }));
-  };
 
   const submitAction = async (draft: ViewerActionDraft, label: string): Promise<void> => {
     setSubmitState({ status: "pending", label });
@@ -867,7 +963,7 @@ function ActionPanel({ params, selectedSessionId }: { params: ViewerParams; sele
             label="Reason"
             value={form.screenshotReason}
             placeholder="manual"
-            onChange={(value) => updateField("screenshotReason", value)}
+            onChange={(value) => onFieldChange("screenshotReason", value)}
           />
           <ActionSubmitButton label={VIEWER_ACTION_LABELS.screenshot} pending={isPending} />
         </form>
@@ -879,7 +975,7 @@ function ActionPanel({ params, selectedSessionId }: { params: ViewerParams; sele
             value={form.waitDurationMs}
             min={0}
             step={100}
-            onChange={(value) => updateField("waitDurationMs", value)}
+            onChange={(value) => onFieldChange("waitDurationMs", value)}
           />
           <ActionSubmitButton label={VIEWER_ACTION_LABELS.wait} pending={isPending} />
         </form>
@@ -893,7 +989,7 @@ function ActionPanel({ params, selectedSessionId }: { params: ViewerParams; sele
               min={0}
               max={1}
               step={0.01}
-              onChange={(value) => updateField("tapX", value)}
+              onChange={(value) => onFieldChange("tapX", value)}
             />
             <ActionNumberInput
               id="action-tap-y"
@@ -902,7 +998,7 @@ function ActionPanel({ params, selectedSessionId }: { params: ViewerParams; sele
               min={0}
               max={1}
               step={0.01}
-              onChange={(value) => updateField("tapY", value)}
+              onChange={(value) => onFieldChange("tapY", value)}
             />
           </div>
           <ActionSubmitButton label={VIEWER_ACTION_LABELS.tap} pending={isPending} />
@@ -914,7 +1010,7 @@ function ActionPanel({ params, selectedSessionId }: { params: ViewerParams; sele
             label="Text"
             value={form.typeText}
             placeholder="Hello"
-            onChange={(value) => updateField("typeText", value)}
+            onChange={(value) => onFieldChange("typeText", value)}
           />
           <ActionSubmitButton label={VIEWER_ACTION_LABELS.typeText} pending={isPending} />
         </form>
@@ -939,7 +1035,7 @@ function ActionPanel({ params, selectedSessionId }: { params: ViewerParams; sele
               min={0}
               max={1}
               step={0.01}
-              onChange={(value) => updateField("swipeFromX", value)}
+              onChange={(value) => onFieldChange("swipeFromX", value)}
             />
             <ActionNumberInput
               id="action-swipe-from-y"
@@ -948,7 +1044,7 @@ function ActionPanel({ params, selectedSessionId }: { params: ViewerParams; sele
               min={0}
               max={1}
               step={0.01}
-              onChange={(value) => updateField("swipeFromY", value)}
+              onChange={(value) => onFieldChange("swipeFromY", value)}
             />
             <ActionNumberInput
               id="action-swipe-to-x"
@@ -957,7 +1053,7 @@ function ActionPanel({ params, selectedSessionId }: { params: ViewerParams; sele
               min={0}
               max={1}
               step={0.01}
-              onChange={(value) => updateField("swipeToX", value)}
+              onChange={(value) => onFieldChange("swipeToX", value)}
             />
             <ActionNumberInput
               id="action-swipe-to-y"
@@ -966,7 +1062,7 @@ function ActionPanel({ params, selectedSessionId }: { params: ViewerParams; sele
               min={0}
               max={1}
               step={0.01}
-              onChange={(value) => updateField("swipeToY", value)}
+              onChange={(value) => onFieldChange("swipeToY", value)}
             />
             <ActionNumberInput
               id="action-swipe-duration"
@@ -974,7 +1070,7 @@ function ActionPanel({ params, selectedSessionId }: { params: ViewerParams; sele
               value={form.swipeDurationMs}
               min={0}
               step={50}
-              onChange={(value) => updateField("swipeDurationMs", value)}
+              onChange={(value) => onFieldChange("swipeDurationMs", value)}
             />
           </div>
           <ActionSubmitButton label={VIEWER_ACTION_LABELS.swipe} pending={isPending} />
@@ -1054,22 +1150,67 @@ function ActionSubmitButton({ label, pending }: { label: string; pending: boolea
   );
 }
 
-function ScreenshotView({ screenshot, emptyMessage }: { screenshot: ScreenshotState; emptyMessage?: string }) {
+function ScreenshotView({
+  screenshot,
+  emptyMessage,
+  tapTarget,
+  onTapTarget
+}: {
+  screenshot: ScreenshotState;
+  emptyMessage?: string;
+  tapTarget?: ScreenshotTapTarget;
+  onTapTarget: (target: ScreenshotTapTarget) => void;
+}) {
+  const imageRef = useRef<HTMLImageElement | null>(null);
+
+  const handlePointerDown = (event: ReactPointerEvent<HTMLButtonElement>): void => {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    const image = imageRef.current;
+    if (!image) return;
+
+    const target = screenshotTapTargetFromClientPoint(image, event.clientX, event.clientY);
+    if (!target) return;
+    event.preventDefault();
+    onTapTarget(target);
+  };
+
   if (isDisplayableScreenshot(screenshot)) {
+    const targetStyle = tapTarget
+      ? ({
+          "--target-left": `${tapTarget.markerLeftPercent}%`,
+          "--target-top": `${tapTarget.markerTopPercent}%`
+        } as ScreenshotTargetStyle)
+      : undefined;
+
     return (
-      <div className={`screenshot-image-wrap ${screenshot.status}`}>
+      <button
+        type="button"
+        className={`screenshot-image-wrap ${screenshot.status}`}
+        aria-label="Select normalized tap target from screenshot"
+        onPointerDown={handlePointerDown}
+      >
         <img
+          ref={imageRef}
           className="screenshot-image"
           src={screenshot.src}
           alt={screenshot.status === "stale" ? "Stale iOS Simulator screenshot" : "Latest iOS Simulator screenshot"}
+          draggable={false}
         />
+        {tapTarget ? (
+          <>
+            <span className="screenshot-target-readout" role="status" aria-live="polite" aria-atomic="true">
+              {tapTarget.label}
+            </span>
+            <span className="screenshot-target-marker" style={targetStyle} aria-hidden="true" />
+          </>
+        ) : null}
         {screenshot.status === "stale" ? (
-          <div className="screenshot-stale-banner" role="status" aria-live="polite" aria-atomic="true">
+          <span className="screenshot-stale-banner" role="status" aria-live="polite" aria-atomic="true">
             <strong>Stale image</strong>
             <span>{`Refresh failed: ${screenshot.message}`}</span>
-          </div>
+          </span>
         ) : null}
-      </div>
+      </button>
     );
   }
 

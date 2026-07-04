@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -370,8 +370,209 @@ describe("artifact validator", () => {
     expect(messages).toContain("artifact.sha256 does not match file contents");
     expect(messages).toContain("artifact metadata reportPath does not exist");
   });
+
+  it("accepts export metadata sidecars that match the copied bundle", async () => {
+    const root = await makeTempRoot();
+    const sessionDir = await writeValidSession(root);
+    const exportMetadata = await writeValidExportMetadata(sessionDir);
+    await writeValidEvidenceExportMetadata(sessionDir, exportMetadata);
+
+    const report = await validateArtifactTarget(sessionDir);
+
+    expect(report.ok).toBe(true);
+    expect(report.issues).toEqual([]);
+  });
+
+  it("rejects export metadata that misstates copied files", async () => {
+    const root = await makeTempRoot();
+    const sessionDir = await writeValidSession(root);
+    const metadataPath = join(sessionDir, "export.json");
+    await writeFile(
+      metadataPath,
+      JSON.stringify(
+        {
+          schemaVersion: "atlas-loop.export.v0",
+          sessionId: "other_session",
+          sourceSessionDir: 42,
+          exportedAt: "2026-07-04",
+          fileCount: 99,
+          byteCount: 1,
+          files: [
+            {
+              path: "export.json",
+              sizeBytes: 0,
+              sha256: sha256Text("")
+            },
+            {
+              path: "../outside.txt",
+              sizeBytes: 10,
+              sha256: "0".repeat(64)
+            },
+            {
+              path: join(sessionDir, "screenshots", "first.png"),
+              sizeBytes: 3,
+              sha256: sha256Text("png")
+            },
+            {
+              path: "screenshots/first.png",
+              sizeBytes: 999,
+              sha256: "0".repeat(64)
+            },
+            {
+              path: "logs",
+              sizeBytes: 0,
+              sha256: "0".repeat(64)
+            }
+          ]
+        },
+        null,
+        2
+      )
+    );
+
+    const report = await validateArtifactTarget(sessionDir);
+    const messages = report.issues.map((issue) => issue.message).join("\n");
+
+    expect(report.ok).toBe(false);
+    expect(messages).toContain("export.json schemaVersion must be atlas-loop.export.v1");
+    expect(messages).toContain("export.json sessionId must match session id session_ok");
+    expect(messages).toContain("export.json sourceSessionDir must be a non-empty string");
+    expect(messages).toContain("export.json exportedAt must be an ISO timestamp");
+    expect(messages).toContain("export.json fileCount must match files length");
+    expect(messages).toContain("export.json byteCount must match the sum of file sizeBytes values");
+    expect(messages).toContain("export.json must not list itself");
+    expect(messages).toContain("export file path must be relative");
+    expect(messages).toContain("export file path must stay inside the bundle directory");
+    expect(messages).toContain("export file sizeBytes does not match file size");
+    expect(messages).toContain("export file sha256 does not match file contents");
+    expect(messages).toContain("export file must reference a regular file");
+  });
+
+  it("rejects evidence export sidecars that do not point at the local bundle metadata", async () => {
+    const root = await makeTempRoot();
+    const sessionDir = await writeValidSession(root);
+    await writeValidExportMetadata(sessionDir);
+    await writeFile(
+      join(sessionDir, "atlas-evidence-export.json"),
+      JSON.stringify(
+        {
+          schemaVersion: "atlas-loop.evidence-export.v0",
+          sessionId: "other_session",
+          exportedAt: "bad-date",
+          bundleDir: join(sessionDir, "other-bundle"),
+          metadataPath: join(sessionDir, "other-metadata.json"),
+          artifactExportMetadataPath: join(sessionDir, "other-export.json"),
+          localOnly: false,
+          uploaded: true
+        },
+        null,
+        2
+      )
+    );
+
+    const report = await validateArtifactTarget(sessionDir);
+    const messages = report.issues.map((issue) => issue.message).join("\n");
+
+    expect(report.ok).toBe(false);
+    expect(messages).toContain("atlas-evidence-export.json schemaVersion must be atlas-loop.evidence-export.v1");
+    expect(messages).toContain("atlas-evidence-export.json sessionId must match session id session_ok");
+    expect(messages).toContain("atlas-evidence-export.json exportedAt must be an ISO timestamp");
+    expect(messages).toContain("atlas-evidence-export.json localOnly must be true");
+    expect(messages).toContain("atlas-evidence-export.json uploaded must be false");
+    expect(messages).toContain("atlas-evidence-export.json bundleDir must reference the bundle directory");
+    expect(messages).toContain("atlas-evidence-export.json metadataPath must reference atlas-evidence-export.json");
+    expect(messages).toContain("atlas-evidence-export.json artifactExportMetadataPath must reference export.json");
+  });
+
+  it("rejects evidence export sidecars when export.json is missing", async () => {
+    const root = await makeTempRoot();
+    const sessionDir = await writeValidSession(root);
+    await writeValidEvidenceExportMetadata(sessionDir, { fileCount: 0, byteCount: 0 });
+
+    const report = await validateArtifactTarget(sessionDir);
+
+    expect(report.ok).toBe(false);
+    expect(report.issues.map((issue) => issue.message)).toContain(
+      "atlas-evidence-export.json artifactExportMetadataPath must reference existing export.json"
+    );
+  });
 });
 
 function sha256Text(text: string): string {
   return createHash("sha256").update(text).digest("hex");
+}
+
+interface TestExportFile {
+  path: string;
+  sizeBytes: number;
+  sha256: string;
+}
+
+interface TestExportMetadata {
+  fileCount: number;
+  byteCount: number;
+}
+
+async function writeValidExportMetadata(sessionDir: string): Promise<TestExportMetadata> {
+  const files: TestExportFile[] = [];
+  for (const relativePath of [
+    "actions.jsonl",
+    "logs/daemon.log",
+    "logs/evidence.md",
+    "manifest.json",
+    "metadata/env.json",
+    "metadata/summary.json",
+    "screenshots/first.png",
+    "session.json"
+  ]) {
+    files.push(await exportFileMetadata(sessionDir, relativePath));
+  }
+  const metadata = {
+    schemaVersion: "atlas-loop.export.v1",
+    sessionId: "session_ok",
+    sourceSessionDir: resolve(sessionDir, "..", "source", "session_ok"),
+    exportedAt: "2026-07-04T00:00:02.000Z",
+    fileCount: files.length,
+    byteCount: files.reduce((total, file) => total + file.sizeBytes, 0),
+    files
+  };
+  await writeFile(join(sessionDir, "export.json"), JSON.stringify(metadata, null, 2));
+  return metadata;
+}
+
+async function writeValidEvidenceExportMetadata(sessionDir: string, exportMetadata: TestExportMetadata): Promise<void> {
+  await writeFile(
+    join(sessionDir, "atlas-evidence-export.json"),
+    JSON.stringify(
+      {
+        schemaVersion: "atlas-loop.evidence-export.v1",
+        sessionId: "session_ok",
+        requestedSessionId: "latest",
+        exportedAt: "2026-07-04T00:00:02.000Z",
+        bundleDir: sessionDir,
+        metadataPath: join(sessionDir, "atlas-evidence-export.json"),
+        artifactExportMetadataPath: join(sessionDir, "export.json"),
+        sourceArtifactDir: resolve(sessionDir, "..", "source", "session_ok"),
+        localOnly: true,
+        uploaded: false,
+        artifactTotal: 3,
+        fileCount: exportMetadata.fileCount,
+        byteCount: exportMetadata.byteCount,
+        latestScreenshotPath: null,
+        exportedLatestScreenshotPath: null,
+        storage: { source: "disk", artifactBacked: true, warnings: [] }
+      },
+      null,
+      2
+    )
+  );
+}
+
+async function exportFileMetadata(sessionDir: string, relativePath: string): Promise<TestExportFile> {
+  const filePath = join(sessionDir, relativePath);
+  return {
+    path: relativePath,
+    sizeBytes: (await stat(filePath)).size,
+    sha256: createHash("sha256").update(await readFile(filePath)).digest("hex")
+  };
 }

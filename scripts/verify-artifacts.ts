@@ -1,7 +1,7 @@
 #!/usr/bin/env tsx
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
-import { access, opendir, readFile, realpath, stat } from "node:fs/promises";
+import { access, lstat, opendir, readFile, realpath, stat } from "node:fs/promises";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { Action, ArtifactRef, Session } from "@atlas-loop/protocol";
@@ -149,6 +149,8 @@ async function validateSessionDir(sessionDir: string, issues: ValidationIssue[])
 
   await validateActions(sessionDir, sessionId, issues);
   await validateManifest(sessionDir, sessionId, issues);
+  await validateExportMetadata(sessionDir, sessionId, issues);
+  await validateEvidenceExportMetadata(sessionDir, sessionId, issues);
 }
 
 async function validateActions(sessionDir: string, sessionId: string, issues: ValidationIssue[]): Promise<void> {
@@ -273,6 +275,181 @@ async function validateManifest(sessionDir: string, sessionId: string, issues: V
 
   for (const [artifactIndex, artifact] of manifest.artifacts.entries()) {
     await validateArtifactRef(`${manifestPath}#artifact[${artifactIndex}]`, artifact, sessionId, sessionDir, issues);
+  }
+}
+
+async function validateExportMetadata(sessionDir: string, sessionId: string, issues: ValidationIssue[]): Promise<void> {
+  const exportPath = join(sessionDir, "export.json");
+  if (!(await exists(exportPath))) return;
+
+  const metadata = await readJsonFile<unknown>(exportPath, issues);
+  if (metadata === undefined) return;
+  if (!isRecord(metadata)) {
+    issues.push(error(exportPath, "export.json must be an object"));
+    return;
+  }
+
+  if (metadata.schemaVersion !== "atlas-loop.export.v1") {
+    issues.push(error(exportPath, "export.json schemaVersion must be atlas-loop.export.v1"));
+  }
+  if (metadata.sessionId !== sessionId) {
+    issues.push(error(exportPath, `export.json sessionId must match session id ${sessionId}`));
+  }
+  if (typeof metadata.sourceSessionDir !== "string" || !metadata.sourceSessionDir) {
+    issues.push(error(exportPath, "export.json sourceSessionDir must be a non-empty string"));
+  }
+  if (!isIsoTimestamp(metadata.exportedAt)) {
+    issues.push(error(exportPath, "export.json exportedAt must be an ISO timestamp"));
+  }
+
+  const files = metadata.files;
+  const fileCountIsValid = isNonNegativeInteger(metadata.fileCount);
+  if (!fileCountIsValid) {
+    issues.push(error(exportPath, "export.json fileCount must be a non-negative integer"));
+  }
+  const byteCountIsValid = isNonNegativeInteger(metadata.byteCount);
+  if (!byteCountIsValid) {
+    issues.push(error(exportPath, "export.json byteCount must be a non-negative integer"));
+  }
+  if (!Array.isArray(files)) {
+    issues.push(error(exportPath, "export.json files must be an array"));
+    return;
+  }
+
+  if (fileCountIsValid && metadata.fileCount !== files.length) {
+    issues.push(error(exportPath, "export.json fileCount must match files length"));
+  }
+  if (byteCountIsValid && files.every(hasValidExportFileSize)) {
+    const byteCount = files.reduce((total, file) => total + file.sizeBytes, 0);
+    if (metadata.byteCount !== byteCount) {
+      issues.push(error(exportPath, "export.json byteCount must match the sum of file sizeBytes values"));
+    }
+  }
+
+  for (const [fileIndex, file] of files.entries()) {
+    await validateExportFileEntry(exportPath, sessionDir, file, fileIndex, issues);
+  }
+}
+
+async function validateExportFileEntry(
+  exportPath: string,
+  sessionDir: string,
+  file: unknown,
+  fileIndex: number,
+  issues: ValidationIssue[]
+): Promise<void> {
+  const entryPath = `${exportPath}#files[${fileIndex}]`;
+  if (!isRecord(file)) {
+    issues.push(error(entryPath, "export file entry must be an object"));
+    return;
+  }
+
+  const listedPath = file.path;
+  if (typeof listedPath !== "string" || !listedPath) {
+    issues.push(error(entryPath, "export file path must be a non-empty string"));
+    return;
+  }
+  if (isAbsolute(listedPath)) {
+    issues.push(error(listedPath, "export file path must be relative"));
+    return;
+  }
+
+  const absoluteSessionDir = resolve(sessionDir);
+  const absoluteFilePath = resolve(sessionDir, listedPath);
+  if (!isPathInsideOrEqual(absoluteSessionDir, absoluteFilePath)) {
+    issues.push(error(listedPath, "export file path must stay inside the bundle directory"));
+    return;
+  }
+  if (absoluteFilePath === resolve(exportPath)) {
+    issues.push(error(listedPath, "export.json must not list itself"));
+    return;
+  }
+
+  let fileStat: Awaited<ReturnType<typeof lstat>>;
+  try {
+    fileStat = await lstat(absoluteFilePath);
+  } catch (statError) {
+    issues.push(error(listedPath, `export file does not exist: ${(statError as Error).message}`));
+    return;
+  }
+  if (!fileStat.isFile()) {
+    issues.push(error(listedPath, "export file must reference a regular file"));
+    return;
+  }
+
+  if (!isNonNegativeInteger(file.sizeBytes)) {
+    issues.push(error(entryPath, "export file sizeBytes must be a non-negative integer"));
+  } else if (file.sizeBytes !== fileStat.size) {
+    issues.push(error(listedPath, "export file sizeBytes does not match file size"));
+  }
+
+  if (typeof file.sha256 !== "string" || !sha256Pattern.test(file.sha256)) {
+    issues.push(error(entryPath, "export file sha256 must be a 64-character hex SHA-256 string"));
+    return;
+  }
+
+  const actual = createHash("sha256").update(await readFile(absoluteFilePath)).digest("hex");
+  if (actual !== file.sha256.toLowerCase()) {
+    issues.push(error(listedPath, "export file sha256 does not match file contents"));
+  }
+}
+
+async function validateEvidenceExportMetadata(sessionDir: string, sessionId: string, issues: ValidationIssue[]): Promise<void> {
+  const metadataPath = join(sessionDir, "atlas-evidence-export.json");
+  if (!(await exists(metadataPath))) return;
+
+  const metadata = await readJsonFile<unknown>(metadataPath, issues);
+  if (metadata === undefined) return;
+  if (!isRecord(metadata)) {
+    issues.push(error(metadataPath, "atlas-evidence-export.json must be an object"));
+    return;
+  }
+
+  if (metadata.schemaVersion !== "atlas-loop.evidence-export.v1") {
+    issues.push(error(metadataPath, "atlas-evidence-export.json schemaVersion must be atlas-loop.evidence-export.v1"));
+  }
+  if (metadata.sessionId !== sessionId) {
+    issues.push(error(metadataPath, `atlas-evidence-export.json sessionId must match session id ${sessionId}`));
+  }
+  if (!isIsoTimestamp(metadata.exportedAt)) {
+    issues.push(error(metadataPath, "atlas-evidence-export.json exportedAt must be an ISO timestamp"));
+  }
+  if (metadata.localOnly !== true) {
+    issues.push(error(metadataPath, "atlas-evidence-export.json localOnly must be true"));
+  }
+  if (metadata.uploaded !== false) {
+    issues.push(error(metadataPath, "atlas-evidence-export.json uploaded must be false"));
+  }
+
+  validatePathReference(
+    metadataPath,
+    sessionDir,
+    metadata.bundleDir,
+    sessionDir,
+    "atlas-evidence-export.json bundleDir",
+    "must reference the bundle directory",
+    issues
+  );
+  validatePathReference(
+    metadataPath,
+    sessionDir,
+    metadata.metadataPath,
+    metadataPath,
+    "atlas-evidence-export.json metadataPath",
+    "must reference atlas-evidence-export.json",
+    issues
+  );
+  const exportMetadataPathIsValid = validatePathReference(
+    metadataPath,
+    sessionDir,
+    metadata.artifactExportMetadataPath,
+    join(sessionDir, "export.json"),
+    "atlas-evidence-export.json artifactExportMetadataPath",
+    "must reference export.json",
+    issues
+  );
+  if (exportMetadataPathIsValid && !(await exists(join(sessionDir, "export.json")))) {
+    issues.push(error(metadataPath, "atlas-evidence-export.json artifactExportMetadataPath must reference existing export.json"));
   }
 }
 
@@ -501,6 +678,35 @@ function isSessionStatus(value: unknown): value is Session["status"] {
 
 function isIsoTimestamp(value: unknown): value is string {
   return typeof value === "string" && isoUtcPattern.test(value) && !Number.isNaN(Date.parse(value));
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return Number.isSafeInteger(value) && (value as number) >= 0;
+}
+
+function hasValidExportFileSize(file: unknown): file is Record<string, unknown> & { sizeBytes: number } {
+  return isRecord(file) && isNonNegativeInteger(file.sizeBytes);
+}
+
+function validatePathReference(
+  sourcePath: string,
+  baseDir: string,
+  value: unknown,
+  expectedPath: string,
+  label: string,
+  mismatchMessage: string,
+  issues: ValidationIssue[]
+): boolean {
+  if (typeof value !== "string" || !value) {
+    issues.push(error(sourcePath, `${label} must be a non-empty string`));
+    return false;
+  }
+  const resolvedValue = isAbsolute(value) ? resolve(value) : resolve(baseDir, value);
+  if (resolvedValue !== resolve(expectedPath)) {
+    issues.push(error(sourcePath, `${label} ${mismatchMessage}`));
+    return false;
+  }
+  return true;
 }
 
 function resolveCandidatePath(sessionDir: string, candidatePath: string): string {

@@ -24,6 +24,7 @@ describe("MCP contract documentation", () => {
   it("publishes agent-friendly artifact and viewer helper tools", () => {
     expect(tools.map((tool) => tool.name)).toEqual(expect.arrayContaining([
       "atlas.getLatestSession",
+      "atlas.sessionReady",
       "atlas.getArtifactPath",
       "atlas.getLatestScreenshotPath",
       "atlas.getViewerUrl",
@@ -38,6 +39,7 @@ describe("MCP contract documentation", () => {
     const createSession = schemaFor("atlas.createSession");
     const build = schemaFor("atlas.build");
     const action = schemaFor("atlas.performAction");
+    const ready = schemaFor("atlas.sessionReady");
 
     expect(createSession.properties).toMatchObject({
       simulator: {
@@ -57,6 +59,14 @@ describe("MCP contract documentation", () => {
         sessionId: { type: "string", description: "Session id or latest." },
         scheme: { type: "string" },
         configuration: { type: "string", enum: ["Debug", "Release"] }
+      }
+    });
+    expect(ready).toMatchObject({
+      required: ["sessionId"],
+      properties: {
+        sessionId: { type: "string", description: "Session id or latest." },
+        daemonUrl: { type: "string" },
+        viewerBaseUrl: { type: "string" }
       }
     });
     expect(action).toMatchObject({
@@ -88,6 +98,70 @@ describe("MCP contract documentation", () => {
     expect(result).toEqual({
       ok: true,
       data: { id: "sess_latest", requested: "latest" }
+    });
+  });
+
+  it("returns compact readiness without treating persisted sessions as mutable", async () => {
+    const latestError = { code: "HID_FAILED" as const, message: "tap failed" };
+
+    const result = await callToolWithEnvelope("atlas.sessionReady", { sessionId: "latest" }, {
+      client: {
+        getSessionSummary: async (sessionId: string) => {
+          expect(sessionId).toBe("latest");
+          return {
+            session: {
+              id: "sess_ready",
+              status: "running",
+              error: latestError
+            },
+            paths: { artifactDir: "/tmp/atlas-loop/sess-ready" },
+            artifacts: { latestScreenshotPath: "/tmp/atlas-loop/sess-ready/screenshots/latest.png" },
+            events: {
+              latestAction: {
+                actionId: "act_ready",
+                ok: true,
+                startedAt: "2026-07-04T12:00:00.000Z",
+                endedAt: "2026-07-04T12:00:00.100Z",
+                artifactCount: 1
+              },
+              latestError
+            },
+            storage: {
+              source: "disk",
+              artifactBacked: true,
+              warnings: [
+                { path: "/tmp/atlas-loop/sess-ready/manifest.json", message: "legacy warning" },
+                { path: "/tmp/atlas-loop/sess-ready/actions.jsonl", message: "missing actions" }
+              ]
+            }
+          };
+        }
+      } as never,
+      loadConfig: async () => ({ daemonUrl: "http://127.0.0.1:4317" }),
+      viewerBaseUrl: "http://127.0.0.1:5173/"
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        sessionId: "sess_ready",
+        requestedSessionId: "latest",
+        status: "running",
+        storage: {
+          source: "disk",
+          artifactBacked: true,
+          warningCount: 2
+        },
+        artifactDir: "/tmp/atlas-loop/sess-ready",
+        latestScreenshotPath: "/tmp/atlas-loop/sess-ready/screenshots/latest.png",
+        latestAction: { id: "act_ready", ok: true },
+        latestError,
+        viewerUrl: "http://127.0.0.1:5173?daemonUrl=http%3A%2F%2F127.0.0.1%3A4317&sessionId=sess_ready",
+        daemonUrl: "http://127.0.0.1:4317",
+        viewerBaseUrl: "http://127.0.0.1:5173",
+        canMutate: false,
+        hasScreenshot: true
+      }
     });
   });
 

@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { buildEvidenceSummary, buildViewerUrl, main } from "../../apps/cli/src/index.ts";
+import { buildEvidenceSummary, buildSessionReadiness, buildViewerUrl, main } from "../../apps/cli/src/index.ts";
 import type { SessionSummary } from "@atlas-loop/daemon-client";
 import type { ArtifactRef, Session } from "@atlas-loop/protocol";
 
@@ -72,6 +72,86 @@ describe("CLI agent workflow helpers", () => {
     });
   });
 
+  it("builds compact readiness from one resolved session summary", async () => {
+    const latestScreenshot: ArtifactRef = {
+      id: "artifact_ready",
+      sessionId: "sess/ready",
+      type: "screenshot",
+      path: "/tmp/atlas-loop/sess-ready/screenshots/latest.png",
+      createdAt: "2026-07-04T12:00:00.000Z"
+    };
+    const latestError = { code: "HID_FAILED" as const, message: "tap failed" };
+
+    const result = await buildSessionReadiness({
+      getSessionSummary: async (sessionId: string) => {
+        expect(sessionId).toBe("latest");
+        return sessionSummary("sess/ready", {
+          artifactDir: "/tmp/atlas-loop/sess-ready",
+          latestScreenshot,
+          storage: {
+            source: "memory",
+            artifactBacked: true,
+            warnings: [{ path: "/tmp/atlas-loop/sess-ready/manifest.json", message: "legacy warning" }]
+          },
+          latestAction: {
+            actionId: "act_ready",
+            ok: false,
+            startedAt: "2026-07-04T12:00:01.000Z",
+            endedAt: "2026-07-04T12:00:01.100Z",
+            artifactCount: 1,
+            error: latestError
+          },
+          latestError
+        });
+      }
+    }, {
+      sessionId: "latest",
+      daemonUrl: "http://127.0.0.1:4317",
+      viewerBaseUrl: "http://127.0.0.1:5173/"
+    });
+
+    expect(result).toEqual({
+      sessionId: "sess/ready",
+      requestedSessionId: "latest",
+      status: "running",
+      storage: {
+        source: "memory",
+        artifactBacked: true,
+        warningCount: 1
+      },
+      artifactDir: "/tmp/atlas-loop/sess-ready",
+      latestScreenshotPath: "/tmp/atlas-loop/sess-ready/screenshots/latest.png",
+      latestAction: { id: "act_ready", ok: false },
+      latestError,
+      viewerUrl: "http://127.0.0.1:5173?daemonUrl=http%3A%2F%2F127.0.0.1%3A4317&sessionId=sess%2Fready",
+      daemonUrl: "http://127.0.0.1:4317",
+      viewerBaseUrl: "http://127.0.0.1:5173",
+      canMutate: true,
+      hasScreenshot: true
+    });
+  });
+
+  it("marks disk-backed readiness as non-mutable even for running sessions", async () => {
+    const result = await buildSessionReadiness({
+      getSessionSummary: async () => sessionSummary("sess_disk_ready", {
+        artifactDir: "/tmp/atlas-loop/sess-disk-ready",
+        status: "running",
+        storage: { source: "disk", artifactBacked: true, warnings: [] }
+      })
+    }, {
+      sessionId: "sess_disk_ready",
+      daemonUrl: "http://127.0.0.1:4317"
+    });
+
+    expect(result).toMatchObject({
+      sessionId: "sess_disk_ready",
+      status: "running",
+      storage: { source: "disk", artifactBacked: true, warningCount: 0 },
+      canMutate: false,
+      hasScreenshot: false
+    });
+  });
+
   it("builds viewer URLs with trimmed bases and encoded session ids", () => {
     expect(buildViewerUrl({
       daemonUrl: "http://127.0.0.1:4317",
@@ -122,6 +202,49 @@ describe("CLI agent workflow helpers", () => {
       requestedSessionId: "latest",
       daemonUrl,
       viewerUrl: `http://127.0.0.1:5176?daemonUrl=${encodeURIComponent(daemonUrl)}&sessionId=sess_configured`
+    });
+  });
+
+  it("prints readiness using the configured daemon URL and summary route", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "atlas-loop-cli-ready-"));
+    const originalCwd = process.cwd();
+    const originalLog = console.log;
+    const logged: string[] = [];
+    const requestedPaths: string[] = [];
+    const server = await startFakeDaemon((requestPath) => {
+      requestedPaths.push(requestPath);
+      return sessionSummary("sess_ready_cli", {
+        artifactDir: "/tmp/atlas-loop/sess-ready-cli",
+        storage: { source: "memory", artifactBacked: true, warnings: [] }
+      });
+    });
+    const daemonUrl = `http://127.0.0.1:${server.port}`;
+
+    await writeFile(join(tempDir, "atlas-loop.config.json"), JSON.stringify({ daemonUrl }, null, 2));
+    console.log = (value?: unknown) => {
+      logged.push(String(value));
+    };
+
+    try {
+      process.chdir(tempDir);
+      await expect(main(["session", "ready", "--session", "latest", "--viewer-base-url", "http://127.0.0.1:5176/"])).resolves.toBe(0);
+    } finally {
+      process.chdir(originalCwd);
+      console.log = originalLog;
+      await server.close();
+      await rm(tempDir, { recursive: true, force: true });
+    }
+
+    expect(requestedPaths).toEqual(["/sessions/latest/summary"]);
+    expect(JSON.parse(logged[0])).toMatchObject({
+      sessionId: "sess_ready_cli",
+      requestedSessionId: "latest",
+      status: "running",
+      storage: { source: "memory", warningCount: 0 },
+      canMutate: true,
+      hasScreenshot: false,
+      daemonUrl,
+      viewerUrl: `http://127.0.0.1:5176?daemonUrl=${encodeURIComponent(daemonUrl)}&sessionId=sess_ready_cli`
     });
   });
 
@@ -436,10 +559,17 @@ function closeServer(server: Server): Promise<void> {
 
 function sessionSummary(
   sessionId: string,
-  options: { artifactDir: string; latestScreenshot?: ArtifactRef }
+  options: {
+    artifactDir: string;
+    latestScreenshot?: ArtifactRef;
+    status?: Session["status"];
+    storage?: SessionSummary["storage"];
+    latestAction?: SessionSummary["events"]["latestAction"];
+    latestError?: SessionSummary["events"]["latestError"];
+  }
 ): SessionSummary {
   return {
-    session: sessionRecord(sessionId, options.artifactDir),
+    session: { ...sessionRecord(sessionId, options.artifactDir), status: options.status ?? "running" },
     paths: {
       artifactDir: options.artifactDir,
       manifest: `${options.artifactDir}/manifest.json`,
@@ -451,8 +581,12 @@ function sessionSummary(
       byType: options.latestScreenshot ? { screenshot: 1 } : {},
       latestScreenshot: options.latestScreenshot
     },
-    events: { total: 0 },
-    storage: { source: "disk", artifactBacked: true, warnings: [] }
+    events: {
+      total: options.latestAction || options.latestError ? 1 : 0,
+      latestAction: options.latestAction,
+      latestError: options.latestError
+    },
+    storage: options.storage ?? { source: "disk", artifactBacked: true, warnings: [] }
   };
 }
 
