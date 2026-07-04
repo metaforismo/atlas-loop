@@ -90,6 +90,7 @@ events through the daemon route, CLI wrapper, or MCP tool:
 ```sh
 curl -s "http://127.0.0.1:4317/v1/sessions/latest/events"
 atlas-loop events list --session latest --type action.completed --limit 20
+atlas-loop events export --session latest --type action.completed --limit 20 --out artifacts/events/latest-actions.json
 ```
 
 Use the viewer timeline for human "what happened?" inspection, especially when
@@ -98,7 +99,8 @@ health warnings together. Use raw events for agent or script inspection,
 especially when the proof depends on exact event ordering, event counts,
 action ids, or payload fields from `trace.jsonl`. MCP clients can call
 `atlas.listEvents` with the same `sessionId`, optional exact `type`, and
-optional newest-event `limit`.
+optional newest-event `limit`, or `atlas.exportEvents` with `outPath` when the
+handoff should include a durable local JSON event file.
 
 Export local evidence for review or manual archival:
 
@@ -133,8 +135,9 @@ It aligns with the same local-first contract as the multi-command flow:
 
 For MCP callers, the matching shortcut is `atlas.getSessionHandoff`. Compose
 the same response from `atlas.sessionReady`, `atlas.getArtifactHealth`,
-`atlas.getViewerUrl`, `atlas.getEvidenceReport`, and `atlas.exportEvidence`
-when an agent needs those individual pieces instead of the aggregate handoff.
+`atlas.getViewerUrl`, `atlas.listEvents`, `atlas.exportEvents`,
+`atlas.getEvidenceReport`, and `atlas.exportEvidence` when an agent needs those
+individual pieces instead of the aggregate handoff.
 
 ## Handoff Note Checklist
 
@@ -147,7 +150,7 @@ A useful handoff note should include:
 - App build, install, and launch status, if those steps were run.
 - Latest screenshot path, if present.
 - Artifact health result, including any warnings or errors.
-- Evidence report path or export bundle path, if generated.
+- Evidence report path, event export path, or export bundle path, if generated.
 - Timeline or artifact correlation notes when a specific action, screenshot,
   log, or metadata file is the important proof.
 - Any host-gated limitations, especially Accessibility permission, visible

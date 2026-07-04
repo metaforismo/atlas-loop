@@ -1394,6 +1394,107 @@ h2 {
   line-height: 1.35;
 }
 
+.action-shortcuts {
+  display: grid;
+  grid-template-columns: minmax(0, 1.12fr) minmax(0, 0.88fr);
+  gap: 8px;
+  min-width: 0;
+  border: 1px solid rgba(91, 111, 128, 0.42);
+  border-radius: 8px;
+  padding: 8px;
+  background:
+    linear-gradient(90deg, rgba(74, 179, 216, 0.075), transparent 62%),
+    rgba(12, 17, 23, 0.72);
+}
+
+.action-shortcut-group {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.action-shortcut-label {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 760;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.action-shortcut-buttons {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+  min-width: 0;
+}
+
+.action-shortcut-button {
+  display: grid;
+  align-content: center;
+  gap: 2px;
+  min-width: 0;
+  height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 4px 5px;
+  background: rgba(8, 12, 16, 0.68);
+  color: var(--soft);
+  cursor: pointer;
+  transition:
+    transform 160ms ease,
+    border-color 180ms ease,
+    background 180ms ease,
+    color 180ms ease;
+}
+
+.action-shortcut-button strong,
+.action-shortcut-button span {
+  min-width: 0;
+  overflow: hidden;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.action-shortcut-button strong {
+  color: inherit;
+  font-size: 11px;
+  font-weight: 780;
+  line-height: 1.05;
+}
+
+.action-shortcut-button span {
+  color: var(--muted);
+  font-family: "SF Mono", SFMono-Regular, ui-monospace, Menlo, Consolas, monospace;
+  font-size: 9px;
+  line-height: 1.05;
+}
+
+.action-shortcut-button:hover {
+  border-color: rgba(143, 216, 242, 0.64);
+  background: rgba(74, 179, 216, 0.13);
+  color: #d7f6ff;
+}
+
+.action-shortcut-button:active {
+  transform: translateY(1px) scale(0.99);
+}
+
+.action-shortcut-button.selected {
+  border-color: rgba(143, 216, 242, 0.76);
+  background:
+    linear-gradient(180deg, rgba(143, 216, 242, 0.14), rgba(74, 179, 216, 0.1)),
+    #0b1118;
+  color: #d7f6ff;
+}
+
+.action-shortcut-button.selected span {
+  color: #9bdff4;
+}
+
 .action-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(86px, auto);
@@ -2301,6 +2402,7 @@ h2 {
     grid-template-columns: 1fr;
   }
 
+  .action-shortcuts,
   .action-row,
   .action-availability,
   .action-status {

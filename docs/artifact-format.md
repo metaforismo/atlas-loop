@@ -174,6 +174,37 @@ or incomplete evidence without requiring a cloud service. Timeline items are a
 navigation aid over local evidence; the artifact directory remains the durable
 source of truth.
 
+## Local Event Exports
+
+`atlas-loop events export` and MCP `atlas.exportEvents` write a filtered view of
+one session's `trace.jsonl` to a caller-chosen local JSON file. This is a
+handoff aid for agents and scripts, not a replacement for the session artifact
+directory.
+
+```json
+{
+  "schemaVersion": "atlas-loop.events-export.v1",
+  "requestedSessionId": "latest",
+  "filters": {
+    "type": "action.completed",
+    "limit": 20
+  },
+  "total": 128,
+  "matched": 42,
+  "count": 20,
+  "events": [],
+  "exportedAt": "2026-07-04T00:00:00.000Z",
+  "outPath": "/absolute/path/to/artifacts/events/latest-actions.json",
+  "localOnly": true,
+  "uploaded": false
+}
+```
+
+Filtering matches `events list`: `type` is an exact trace event type, and
+`limit` keeps the newest matching events while preserving their trace order.
+The export command creates parent directories for `outPath`, writes one JSON
+file, and does not copy screenshots, logs, metadata, or bundles.
+
 ## Local Export Bundles
 
 The artifacts package can export one persisted session into a local bundle

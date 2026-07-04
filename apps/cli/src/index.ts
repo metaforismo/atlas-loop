@@ -123,6 +123,10 @@ export interface EventListOptions {
   limit?: number;
 }
 
+export interface EventExportOptions extends EventListOptions {
+  outPath: string;
+}
+
 export interface EventListResult {
   requestedSessionId: string;
   filters: {
@@ -133,6 +137,14 @@ export interface EventListResult {
   matched: number;
   count: number;
   events: TraceEvent[];
+}
+
+export interface EventExportResult extends EventListResult {
+  schemaVersion: "atlas-loop.events-export.v1";
+  exportedAt: string;
+  outPath: string;
+  localOnly: true;
+  uploaded: false;
 }
 
 export async function main(args: Args): Promise<number> {
@@ -312,6 +324,16 @@ export async function main(args: Args): Promise<number> {
     return 0;
   }
 
+  if (command === "events" && subcommand === "export") {
+    printJson(await exportSessionEvents(client, {
+      sessionId: requireFlag(flags, "session"),
+      type: stringFlag(flags, "type"),
+      limit: integerFlag(flags, "limit"),
+      outPath: requireFlag(flags, "out")
+    }));
+    return 0;
+  }
+
   if (command === "evidence") {
     const viewerBaseUrl = stringFlag(flags, "viewer-base-url") ?? DEFAULT_VIEWER_BASE_URL;
     if (subcommand === "export" || stringFlag(flags, "_0") === "export") {
@@ -378,6 +400,23 @@ export async function listSessionEvents(client: EventClient, params: EventListOp
     count: selectedEvents.length,
     events: selectedEvents
   };
+}
+
+export async function exportSessionEvents(client: EventClient, params: EventExportOptions): Promise<EventExportResult> {
+  const outPath = resolveLocalPath(params.outPath, "event export out path");
+  const result = await listSessionEvents(client, params);
+  const payload: EventExportResult = {
+    schemaVersion: "atlas-loop.events-export.v1",
+    ...result,
+    exportedAt: new Date().toISOString(),
+    outPath,
+    localOnly: true,
+    uploaded: false
+  };
+
+  await mkdir(dirname(outPath), { recursive: true });
+  await writeFile(outPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+  return payload;
 }
 
 export async function buildEvidenceSummary(
@@ -779,6 +818,7 @@ Usage:
   atlas-loop artifacts health --session <id|latest>
   atlas-loop artifacts open --session <id|latest> [--latest-screenshot]
   atlas-loop events list --session <id|latest> [--type action.completed] [--limit 20]
+  atlas-loop events export --session <id|latest> --out events.json [--type action.completed] [--limit 20]
   atlas-loop evidence --session <id|latest>
   atlas-loop evidence report --session <id|latest> [--out report.md]
   atlas-loop evidence export --session <id|latest> --out <dir>

@@ -233,6 +233,36 @@ describe("viewer app interactions", () => {
       return true;
     }, "keyboard-selected center target");
   });
+
+  it("applies action presets to the primitive action fields", async () => {
+    await act(async () => root?.render(<App />));
+
+    const centerPreset = await waitFor(() => getButtonByAriaLabel("Set tap target to center: x 0.500, y 0.500"), "action preset controls");
+    expect(centerPreset.getAttribute("aria-pressed")).toBe("true");
+
+    await setInputValue(getInputById("action-tap-x"), "0.123");
+    await setInputValue(getInputById("action-tap-y"), "0.456");
+    await setInputValue(getInputById("action-wait-duration"), "333");
+
+    const primaryPreset = getButtonByAriaLabel("Set tap target to bottom primary action: x 0.500, y 0.910");
+    await click(primaryPreset);
+
+    await waitFor(() => {
+      expect(getInputById("action-tap-x").value).toBe("0.500");
+      expect(getInputById("action-tap-y").value).toBe("0.910");
+      expect(primaryPreset.getAttribute("aria-pressed")).toBe("true");
+      return true;
+    }, "primary tap preset applied");
+
+    const waitPreset = getButtonByAriaLabel("Set wait duration to 1000 milliseconds");
+    await click(waitPreset);
+
+    await waitFor(() => {
+      expect(getInputById("action-wait-duration").value).toBe("1000");
+      expect(waitPreset.getAttribute("aria-pressed")).toBe("true");
+      return true;
+    }, "wait preset applied");
+  });
 });
 
 async function fetchResponse(input: RequestInfo | URL): Promise<Response> {
