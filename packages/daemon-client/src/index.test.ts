@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { buildEvidenceMarkdownReport, DaemonClient, evidenceReportDataFromSessionSummary, type SessionSummary } from "./index.ts";
+import {
+  buildEvidenceMarkdownReport,
+  buildSessionHandoff,
+  DaemonClient,
+  evidenceReportDataFromSessionSummary,
+  type SessionSummary
+} from "./index.ts";
 
 describe("DaemonClient", () => {
   it("sends typed JSON requests and unwraps ApiEnvelope data", async () => {
@@ -220,6 +226,173 @@ describe("DaemonClient", () => {
     });
     expect(calls[0].url).toBe("http://127.0.0.1:4317/sessions/latest/artifacts/health");
     expect(calls[0].init.method).toBe("GET");
+  });
+
+  it("builds agent-readable handoffs with artifact health and local next commands", async () => {
+    const summary: SessionSummary = {
+      session: {
+        id: "sess_handoff",
+        schemaVersion: "atlas-loop.session.v1",
+        platform: "ios-simulator",
+        status: "running",
+        createdAt: "2026-07-04T12:00:00.000Z",
+        updatedAt: "2026-07-04T12:00:10.000Z",
+        simulator: { name: "iPhone 16" },
+        artifactDir: "/tmp/atlas-loop/sess-handoff"
+      },
+      paths: {
+        artifactDir: "/tmp/atlas-loop/sess-handoff",
+        manifest: "/tmp/atlas-loop/sess-handoff/manifest.json",
+        trace: "/tmp/atlas-loop/sess-handoff/trace.jsonl",
+        screenshots: "/tmp/atlas-loop/sess-handoff/screenshots"
+      },
+      artifacts: {
+        total: 1,
+        byType: { screenshot: 1 },
+        latestScreenshot: {
+          id: "shot_1",
+          sessionId: "sess_handoff",
+          type: "screenshot",
+          path: "/tmp/atlas-loop/sess-handoff/screenshots/latest.png",
+          createdAt: "2026-07-04T12:00:09.000Z"
+        }
+      },
+      events: {
+        total: 1,
+        latestAction: {
+          actionId: "act_1",
+          ok: true,
+          startedAt: "2026-07-04T12:00:08.000Z",
+          endedAt: "2026-07-04T12:00:09.000Z",
+          artifactCount: 1
+        }
+      },
+      storage: {
+        source: "disk",
+        artifactBacked: true,
+        warnings: []
+      }
+    };
+
+    const handoff = await buildSessionHandoff({
+      getSessionSummary: async (sessionId: string) => {
+        expect(sessionId).toBe("latest");
+        return summary;
+      },
+      getSessionArtifactHealth: async (sessionId: string) => {
+        expect(sessionId).toBe("sess_handoff");
+        return {
+          ok: true,
+          target: "/tmp/atlas-loop/sess-handoff",
+          sessionId: "sess_handoff",
+          requestedSessionId: "sess_handoff",
+          source: "disk",
+          artifactDir: "/tmp/atlas-loop/sess-handoff",
+          report: {
+            target: "/tmp/atlas-loop/sess-handoff",
+            sessionCount: 1,
+            ok: true,
+            issues: []
+          },
+          summary: {
+            sessionCount: 1,
+            errorCount: 0,
+            warningCount: 0,
+            issueCount: 0
+          }
+        };
+      }
+    }, {
+      sessionId: "latest",
+      daemonUrl: "http://127.0.0.1:4317",
+      viewerBaseUrl: "http://127.0.0.1:5173/"
+    });
+
+    expect(handoff).toEqual({
+      sessionId: "sess_handoff",
+      requestedSessionId: "latest",
+      status: "running",
+      daemonUrl: "http://127.0.0.1:4317",
+      viewerBaseUrl: "http://127.0.0.1:5173",
+      viewerUrl: "http://127.0.0.1:5173?daemonUrl=http%3A%2F%2F127.0.0.1%3A4317&sessionId=sess_handoff",
+      artifactDir: "/tmp/atlas-loop/sess-handoff",
+      storage: {
+        source: "disk",
+        artifactBacked: true,
+        warningCount: 0
+      },
+      latestScreenshotPath: "/tmp/atlas-loop/sess-handoff/screenshots/latest.png",
+      latestAction: {
+        actionId: "act_1",
+        ok: true,
+        startedAt: "2026-07-04T12:00:08.000Z",
+        endedAt: "2026-07-04T12:00:09.000Z",
+        artifactCount: 1
+      },
+      artifactHealth: {
+        ok: true,
+        target: "/tmp/atlas-loop/sess-handoff",
+        source: "disk",
+        summary: {
+          sessionCount: 1,
+          errorCount: 0,
+          warningCount: 0,
+          issueCount: 0
+        }
+      },
+      canMutate: false,
+      hasScreenshot: true,
+      ready: true,
+      blockingReasons: [],
+      nextCommands: [
+        "atlas-loop artifacts health --session sess_handoff --daemon-url http://127.0.0.1:4317",
+        "atlas-loop evidence report --session sess_handoff --daemon-url http://127.0.0.1:4317",
+        "atlas-loop evidence export --session sess_handoff --out ./atlas-loop-evidence/sess_handoff --daemon-url http://127.0.0.1:4317",
+        "atlas-loop viewer url --session sess_handoff --viewer-base-url http://127.0.0.1:5173 --daemon-url http://127.0.0.1:4317"
+      ]
+    });
+  });
+
+  it("keeps handoffs structured when artifact health is unavailable", async () => {
+    const handoff = await buildSessionHandoff({
+      getSessionSummary: async () => ({
+        session: {
+          id: "sess_no_health",
+          schemaVersion: "atlas-loop.session.v1",
+          platform: "ios-simulator",
+          status: "running",
+          createdAt: "2026-07-04T12:00:00.000Z",
+          updatedAt: "2026-07-04T12:00:10.000Z",
+          simulator: { name: "iPhone 16" },
+          artifactDir: "/tmp/atlas-loop/sess-no-health"
+        },
+        paths: {
+          artifactDir: "/tmp/atlas-loop/sess-no-health",
+          manifest: "/tmp/atlas-loop/sess-no-health/manifest.json",
+          trace: "/tmp/atlas-loop/sess-no-health/trace.jsonl",
+          screenshots: "/tmp/atlas-loop/sess-no-health/screenshots"
+        },
+        artifacts: { total: 0, byType: {} },
+        events: { total: 0 },
+        storage: { source: "memory", artifactBacked: false, warnings: [] }
+      }),
+      getSessionArtifactHealth: async () => {
+        throw new Error("health endpoint unavailable");
+      }
+    }, {
+      sessionId: "latest",
+      daemonUrl: "http://127.0.0.1:4317"
+    });
+
+    expect(handoff).toMatchObject({
+      sessionId: "sess_no_health",
+      requestedSessionId: "latest",
+      artifactHealth: null,
+      canMutate: true,
+      hasScreenshot: false,
+      ready: false,
+      blockingReasons: ["artifact health unavailable: health endpoint unavailable"]
+    });
   });
 
   it("builds paste-ready Markdown evidence reports from session summaries", () => {

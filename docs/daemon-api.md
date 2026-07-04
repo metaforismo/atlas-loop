@@ -99,6 +99,7 @@ Recommended additional tool names:
 - `atlas.listSessions`
 - `atlas.getLatestSession`
 - `atlas.sessionReady`
+- `atlas.getSessionHandoff`
 - `atlas.build`
 - `atlas.install`
 - `atlas.launch`
@@ -314,6 +315,42 @@ verification for direct local validation, especially CI checks and explicit
 filesystem targets. Both use local filesystem validation and neither implies
 cloud storage, hosted auth, Android support, Revyl compatibility, serve-sim, or
 XcodeBuildMCP runtime dependencies.
+
+## Agent Handoff Semantics
+
+Agent/operator handoff is built from local daemon reads and local filesystem
+artifacts. The current available command sequence is:
+
+```sh
+atlas-loop session ready --session latest
+atlas-loop artifacts health --session latest
+atlas-loop viewer url --session latest
+atlas-loop viewer open --session latest --launch
+atlas-loop evidence report --session latest --out artifacts/reports/<session-id>.md
+atlas-loop evidence export --session latest --out artifacts/exports/<session-id>
+```
+
+`session ready` is the authoritative pre-handoff read because it resolves
+`latest`, reports whether the session came from live memory or disk, and
+returns `canMutate`. `artifacts health` validates the resolved artifact
+directory through the daemon without mutating it. Viewer URLs point at the
+local Vite viewer and local daemon only. Evidence reports and exports are
+filesystem artifacts for local review or manual archival; they are not uploads.
+
+The single-command form is:
+
+```sh
+atlas-loop session handoff --session latest
+```
+
+The shortcut aggregates the same readiness, health, viewer URL, blockers, and
+copy-paste next commands rather than creating a new cloud, team sharing,
+Android, or hosted-dashboard contract.
+
+For MCP runtimes, the matching helper is `atlas.getSessionHandoff`. Agents can
+still call `atlas.sessionReady`, `atlas.getArtifactHealth`,
+`atlas.getViewerUrl`, `atlas.getEvidenceReport`, and `atlas.exportEvidence` as
+separate local tools when they need individual pieces.
 
 ## Local Safety
 

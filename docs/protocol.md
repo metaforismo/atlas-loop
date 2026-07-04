@@ -108,3 +108,22 @@ The summary includes:
 
 Consumers should treat the summary as derived state. If a field is absent, use
 the underlying session, artifacts, and trace endpoints for more detail.
+
+## Handoff Read Model
+
+The agent/operator handoff workflow is derived from the session summary rather
+than a separate persisted object. A handoff helper should preserve the
+summary's concrete `session.id`, original requested id, artifact paths, latest
+action and error state, and storage source.
+
+The `canMutate` decision used by CLI and MCP readiness helpers is intentionally
+stricter than the saved session status. It is true only when the resolved
+summary came from live daemon memory and the session status is not terminal.
+Persisted disk sessions remain read-only evidence for viewer inspection,
+artifact health, reports, and local exports.
+
+The CLI shortcut is `atlas-loop session handoff --session latest`. Clients can
+also compose handoff state from `session ready`, `artifacts health`, the viewer
+URL, and optional evidence report or export commands. No handoff field should
+imply cloud sharing, hosted authentication, Android support, or a remote viewer
+in v1.

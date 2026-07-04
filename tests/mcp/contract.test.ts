@@ -25,6 +25,7 @@ describe("MCP contract documentation", () => {
     expect(tools.map((tool) => tool.name)).toEqual(expect.arrayContaining([
       "atlas.getLatestSession",
       "atlas.sessionReady",
+      "atlas.getSessionHandoff",
       "atlas.getArtifactPath",
       "atlas.getLatestScreenshotPath",
       "atlas.verifyArtifacts",
@@ -42,6 +43,7 @@ describe("MCP contract documentation", () => {
     const build = schemaFor("atlas.build");
     const action = schemaFor("atlas.performAction");
     const ready = schemaFor("atlas.sessionReady");
+    const handoff = schemaFor("atlas.getSessionHandoff");
     const verifyArtifacts = schemaFor("atlas.verifyArtifacts");
     const artifactHealth = schemaFor("atlas.getArtifactHealth");
 
@@ -66,6 +68,14 @@ describe("MCP contract documentation", () => {
       }
     });
     expect(ready).toMatchObject({
+      required: ["sessionId"],
+      properties: {
+        sessionId: { type: "string", description: "Session id or latest." },
+        daemonUrl: { type: "string" },
+        viewerBaseUrl: { type: "string" }
+      }
+    });
+    expect(handoff).toMatchObject({
       required: ["sessionId"],
       properties: {
         sessionId: { type: "string", description: "Session id or latest." },
@@ -183,6 +193,104 @@ describe("MCP contract documentation", () => {
         viewerBaseUrl: "http://127.0.0.1:5173",
         canMutate: false,
         hasScreenshot: true
+      }
+    });
+  });
+
+  it("returns structured session handoff data for agent runtimes", async () => {
+    const result = await callToolWithEnvelope("atlas.getSessionHandoff", { sessionId: "latest" }, {
+      client: {
+        getSessionSummary: async (sessionId: string) => {
+          expect(sessionId).toBe("latest");
+          return {
+            session: { id: "sess_handoff", status: "running" },
+            paths: { artifactDir: "/tmp/atlas-loop/sess-handoff" },
+            artifacts: {
+              latestScreenshotPath: "/tmp/atlas-loop/sess-handoff/screenshots/latest.png"
+            },
+            events: {
+              latestAction: {
+                actionId: "act_handoff",
+                ok: true,
+                startedAt: "2026-07-04T12:00:00.000Z",
+                endedAt: "2026-07-04T12:00:00.100Z",
+                artifactCount: 1
+              }
+            },
+            storage: {
+              source: "disk",
+              artifactBacked: true,
+              warnings: []
+            }
+          };
+        },
+        getArtifactHealth: async (sessionId: string) => {
+          expect(sessionId).toBe("sess_handoff");
+          return {
+            ok: true,
+            target: "/tmp/atlas-loop/sess-handoff",
+            source: "disk",
+            artifactDir: "/tmp/atlas-loop/sess-handoff",
+            requestedSessionId: "sess_handoff",
+            sessionId: "sess_handoff",
+            report: { ok: true, issues: [] },
+            summary: {
+              sessionCount: 1,
+              errorCount: 0,
+              warningCount: 0,
+              issueCount: 0
+            }
+          };
+        }
+      } as never,
+      loadConfig: async () => ({ daemonUrl: "http://127.0.0.1:4317" }),
+      viewerBaseUrl: "http://127.0.0.1:5173/"
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        sessionId: "sess_handoff",
+        requestedSessionId: "latest",
+        status: "running",
+        daemonUrl: "http://127.0.0.1:4317",
+        viewerBaseUrl: "http://127.0.0.1:5173",
+        viewerUrl: "http://127.0.0.1:5173?daemonUrl=http%3A%2F%2F127.0.0.1%3A4317&sessionId=sess_handoff",
+        artifactDir: "/tmp/atlas-loop/sess-handoff",
+        storage: {
+          source: "disk",
+          artifactBacked: true,
+          warningCount: 0
+        },
+        latestScreenshotPath: "/tmp/atlas-loop/sess-handoff/screenshots/latest.png",
+        latestAction: {
+          actionId: "act_handoff",
+          ok: true,
+          startedAt: "2026-07-04T12:00:00.000Z",
+          endedAt: "2026-07-04T12:00:00.100Z",
+          artifactCount: 1
+        },
+        artifactHealth: {
+          ok: true,
+          target: "/tmp/atlas-loop/sess-handoff",
+          source: "disk",
+          summary: {
+            sessionCount: 1,
+            errorCount: 0,
+            warningCount: 0,
+            issueCount: 0
+          }
+        },
+        canMutate: false,
+        hasScreenshot: true,
+        ready: true,
+        blockingReasons: [],
+        nextCommands: [
+          "atlas-loop artifacts health --session sess_handoff --daemon-url http://127.0.0.1:4317",
+          "atlas-loop evidence report --session sess_handoff --daemon-url http://127.0.0.1:4317",
+          "atlas-loop evidence export --session sess_handoff --out ./atlas-loop-evidence/sess_handoff --daemon-url http://127.0.0.1:4317",
+          "atlas-loop viewer url --session sess_handoff --viewer-base-url http://127.0.0.1:5173 --daemon-url http://127.0.0.1:4317"
+        ]
       }
     });
   });

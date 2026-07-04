@@ -1,9 +1,23 @@
 import type { TimelineItem } from "./timeline.js";
-import type { ArtifactHealth, ArtifactHealthIssue, ArtifactRef, HealthState, SessionListItem, SessionStatus } from "./types.js";
+import type {
+  ActionResultLike,
+  ArtifactHealth,
+  ArtifactHealthIssue,
+  ArtifactRef,
+  HealthState,
+  ScreenshotState,
+  Session,
+  SessionListItem,
+  SessionStatus,
+  SessionSummary,
+  TraceEvent,
+  ViewerParams
+} from "./types.js";
 
 export type UiTone = "neutral" | "good" | "warn" | "bad";
 export type TimelineFilter = "all" | "actions" | "artifacts" | "sessions" | "errors";
 export type ArtifactHealthStatus = "loading" | "ready" | "error" | "offline";
+export type AgentHandoffReadiness = "ready" | "waiting" | "needs-attention" | "blocked";
 
 export interface ArtifactSummary {
   type: string;
@@ -56,6 +70,59 @@ export interface ArtifactHealthPresentation {
   statusText: string;
   tone: UiTone;
   issuePreview: ArtifactHealthIssuePreview[];
+}
+
+export interface AgentHandoffNotice {
+  title: string;
+  detail: string;
+  tone: UiTone;
+  path?: string;
+}
+
+export interface AgentHandoffIdentifier {
+  label: string;
+  value: string;
+  mono?: boolean;
+}
+
+export interface AgentHandoffSnapshot {
+  path: string;
+  source: string;
+  detail: string;
+  tone: UiTone;
+}
+
+export interface AgentHandoffActionSummary {
+  label: string;
+  detail: string;
+  tone: UiTone;
+  error?: string;
+}
+
+export interface AgentHandoffBrief {
+  readiness: AgentHandoffReadiness;
+  title: string;
+  detail: string;
+  statusText: string;
+  tone: UiTone;
+  identifiers: AgentHandoffIdentifier[];
+  latestScreenshot: AgentHandoffSnapshot;
+  latestAction: AgentHandoffActionSummary;
+  notices: AgentHandoffNotice[];
+  nextSteps: string[];
+}
+
+export interface AgentHandoffInput {
+  health: HealthState;
+  params: ViewerParams;
+  session?: Session;
+  sessionSummary?: SessionSummary;
+  artifactHealth?: ArtifactHealth;
+  artifactHealthStatus: ArtifactHealthStatus;
+  artifactHealthError?: string;
+  screenshot: ScreenshotState;
+  artifacts: ArtifactRef[];
+  events: TraceEvent[];
 }
 
 export function formatTime(value: string | undefined): string {
@@ -170,6 +237,229 @@ export function artifactHealthIssuePreview(health: ArtifactHealth | undefined, l
     message: issue.message,
     path: issue.path
   }));
+}
+
+export function buildAgentHandoffBrief(input: AgentHandoffInput): AgentHandoffBrief {
+  const resolvedSession = input.session ?? input.sessionSummary?.session;
+  const resolvedSessionId = resolvedSession?.id;
+  const storage = input.sessionSummary?.storage;
+  const latestScreenshot = agentHandoffScreenshot(input);
+  const latestAction = agentHandoffLatestAction(input.sessionSummary, input.events);
+  const latestError = latestTraceError(input.events) ?? input.sessionSummary?.events.latestError;
+  const notices: AgentHandoffNotice[] = [];
+  const sessionIsRunning = resolvedSession?.status === "running";
+
+  const addNotice = (notice: AgentHandoffNotice): void => {
+    if (notices.some((existing) => existing.title === notice.title && existing.detail === notice.detail && existing.path === notice.path)) return;
+    notices.push(notice);
+  };
+
+  if (input.health === "offline") {
+    addNotice({
+      title: "Daemon offline",
+      detail: "The viewer cannot refresh sessions, screenshots, actions, or artifact health.",
+      tone: "bad"
+    });
+  } else if (input.health === "checking") {
+    addNotice({
+      title: "Daemon check pending",
+      detail: "Waiting for /healthz before trusting session evidence.",
+      tone: "warn"
+    });
+  }
+
+  if (!resolvedSession) {
+    addNotice({
+      title: "No session loaded",
+      detail: input.params.sessionId === "latest" ? "Latest has not resolved to a concrete session yet." : `Session ${input.params.sessionId} is not loaded.`,
+      tone: "warn"
+    });
+  } else if (isPendingSessionStatus(resolvedSession.status)) {
+    addNotice({
+      title: "Session still preparing",
+      detail: `Current status is ${resolvedSession.status}. Wait for running evidence before handoff.`,
+      tone: "warn"
+    });
+  } else if (resolvedSession.status === "failed") {
+    addNotice({
+      title: "Session failed",
+      detail: resolvedSession.error?.message ?? "The loaded session is marked failed.",
+      tone: "bad"
+    });
+  } else if (resolvedSession.status === "ended") {
+    addNotice({
+      title: "Read-only session",
+      detail: "This session has ended. Evidence can be inspected, but actions should target a live session.",
+      tone: "warn"
+    });
+  } else if (!sessionIsRunning) {
+    addNotice({
+      title: "Session not running",
+      detail: `Current status is ${resolvedSession.status ?? "unknown"}. Wait for running evidence before handoff.`,
+      tone: "warn"
+    });
+  }
+
+  if (resolvedSession?.error) {
+    addNotice({
+      title: "Session error",
+      detail: resolvedSession.error.message,
+      tone: "bad"
+    });
+  }
+
+  if (latestAction.tone === "bad") {
+    addNotice({
+      title: "Latest action failed",
+      detail: latestAction.error ?? latestAction.detail,
+      tone: "bad"
+    });
+  } else if (latestAction.label === "Action running") {
+    addNotice({
+      title: "Action still running",
+      detail: latestAction.detail,
+      tone: "warn"
+    });
+  } else if (latestAction.label === "No action result") {
+    addNotice({
+      title: "No action result",
+      detail: "No completed action is available in the loaded session evidence.",
+      tone: "warn"
+    });
+  }
+
+  if (latestError) {
+    addNotice({
+      title: latestError.code ?? "Latest error",
+      detail: latestError.message,
+      tone: "bad"
+    });
+  }
+
+  if (input.artifactHealthStatus === "error") {
+    addNotice({
+      title: "Artifact health unavailable",
+      detail: input.artifactHealthError ?? "The daemon did not return artifact health.",
+      tone: "bad"
+    });
+  } else if (input.artifactHealthStatus === "loading") {
+    addNotice({
+      title: "Artifact health loading",
+      detail: "Evidence paths and manifests are still being checked.",
+      tone: "warn"
+    });
+  } else if (input.artifactHealthStatus === "ready") {
+    if (!input.artifactHealth) {
+      addNotice({
+        title: "Artifact health unavailable",
+        detail: "The daemon returned ready state without a readable artifact health summary.",
+        tone: "bad"
+      });
+    } else if (!input.artifactHealth.ok || input.artifactHealth.summary.errorCount > 0) {
+      const summary = input.artifactHealth.summary;
+      addNotice({
+        title: "Artifact health errors",
+        detail: `${summary.errorCount} error${summary.errorCount === 1 ? "" : "s"} and ${summary.warningCount} warning${summary.warningCount === 1 ? "" : "s"} reported.`,
+        tone: "bad"
+      });
+    } else if (input.artifactHealth.summary.warningCount > 0 || input.artifactHealth.summary.issueCount > 0) {
+      const summary = input.artifactHealth.summary;
+      addNotice({
+        title: "Artifact health warnings",
+        detail: `${summary.warningCount} warning${summary.warningCount === 1 ? "" : "s"} across ${summary.issueCount} issue${summary.issueCount === 1 ? "" : "s"}.`,
+        tone: "warn"
+      });
+    }
+  }
+
+  if (storage?.warnings.length) {
+    addNotice({
+      title: "Storage warnings",
+      detail: `${storage.warnings.length} persisted storage warning${storage.warnings.length === 1 ? "" : "s"} reported in the summary.`,
+      tone: "warn"
+    });
+  }
+
+  if (input.screenshot.status === "loading") {
+    addNotice({
+      title: "Screenshot loading",
+      detail: "The viewer has not rendered the latest screenshot yet.",
+      tone: "warn"
+    });
+  } else if (input.screenshot.status === "empty") {
+    addNotice({
+      title: "No screenshot",
+      detail: input.screenshot.message,
+      tone: "warn"
+    });
+  } else if (input.screenshot.status === "error") {
+    addNotice({
+      title: "Screenshot unavailable",
+      detail: input.screenshot.message,
+      tone: "bad"
+    });
+  } else if (input.screenshot.status === "stale") {
+    addNotice({
+      title: "Screenshot stale",
+      detail: `Using the previous image because refresh failed: ${input.screenshot.message}`,
+      tone: "warn"
+    });
+  }
+
+  if (resolvedSession && input.artifacts.length === 0 && (input.sessionSummary?.artifacts.total ?? 0) === 0) {
+    addNotice({
+      title: "No artifacts listed",
+      detail: "The session has no loaded screenshots, logs, traces, or metadata artifacts yet.",
+      tone: "warn"
+    });
+  }
+
+  const hasBlocker = notices.some((notice) => notice.tone === "bad");
+  const hasWaiting = notices.some((notice) =>
+    [
+      "Daemon check pending",
+      "No session loaded",
+      "Session still preparing",
+      "Session not running",
+      "Artifact health loading",
+      "Screenshot loading",
+      "No screenshot",
+      "Action still running",
+      "No action result"
+    ].includes(notice.title)
+  );
+  const hasWarning = notices.some((notice) => notice.tone === "warn");
+  const hasPositiveEvidence =
+    sessionIsRunning &&
+    input.screenshot.status === "ready" &&
+    input.artifactHealthStatus === "ready" &&
+    input.artifactHealth?.ok === true &&
+    input.artifactHealth.summary.errorCount === 0 &&
+    input.artifactHealth.summary.warningCount === 0 &&
+    latestAction.tone === "good";
+  const readiness: AgentHandoffReadiness = hasBlocker
+    ? "blocked"
+    : hasPositiveEvidence && !hasWarning
+      ? "ready"
+      : hasWaiting
+        ? "waiting"
+        : "needs-attention";
+  const tone: UiTone = readiness === "ready" ? "good" : readiness === "blocked" ? "bad" : "warn";
+  const identifiers = agentHandoffIdentifiers(input, resolvedSessionId);
+  const nextSteps = agentHandoffNextSteps(input, readiness, latestAction, notices);
+
+  return {
+    readiness,
+    title: agentHandoffTitle(readiness),
+    detail: agentHandoffDetail(readiness),
+    statusText: readinessLabel(readiness),
+    tone,
+    identifiers,
+    latestScreenshot,
+    latestAction,
+    notices: notices.slice(0, 6),
+    nextSteps
+  };
 }
 
 export function sessionTone(status: SessionStatus | undefined): UiTone {
@@ -376,6 +666,198 @@ function sessionSortTime(session: SessionListItem): number {
   if (!date) return 0;
   const timestamp = new Date(date).getTime();
   return Number.isNaN(timestamp) ? 0 : timestamp;
+}
+
+function agentHandoffIdentifiers(input: AgentHandoffInput, resolvedSessionId: string | undefined): AgentHandoffIdentifier[] {
+  const summary = input.sessionSummary;
+  const storage = summary?.storage;
+  const artifactCount = summary?.artifacts.total ?? input.artifacts.length;
+  const eventCount = summary?.events.total ?? input.events.length;
+  const storageValue = storage ? `${storage.source}${storage.artifactBacked ? ", artifact-backed" : ", not artifact-backed"}` : "--";
+
+  return [
+    { label: "Viewer", value: input.params.sessionId, mono: true },
+    { label: "Session", value: resolvedSessionId ?? "--", mono: true },
+    { label: "Daemon", value: input.params.daemonUrl, mono: true },
+    { label: "Storage", value: storageValue },
+    { label: "Artifacts", value: String(artifactCount), mono: true },
+    { label: "Events", value: String(eventCount), mono: true }
+  ];
+}
+
+function agentHandoffScreenshot(input: AgentHandoffInput): AgentHandoffSnapshot {
+  const latestArtifact = input.sessionSummary?.artifacts.latestScreenshot ?? latestArtifactOfType(input.artifacts, "screenshot");
+  const path = input.sessionSummary?.artifacts.latestScreenshotPath ?? latestArtifact?.path;
+  const fallbackPath = input.screenshot.status === "ready" || input.screenshot.status === "stale" ? input.screenshot.src : "--";
+  const displayPath = path ?? fallbackPath;
+
+  if (input.screenshot.status === "ready") {
+    return {
+      path: displayPath,
+      source: input.screenshot.source,
+      detail: `Updated ${formatDateTime(input.screenshot.updatedAt)}`,
+      tone: "good"
+    };
+  }
+
+  if (input.screenshot.status === "stale") {
+    return {
+      path: displayPath,
+      source: input.screenshot.source,
+      detail: `Stale since ${formatDateTime(input.screenshot.staleAt)}. ${input.screenshot.message}`,
+      tone: "warn"
+    };
+  }
+
+  if (input.screenshot.status === "error") {
+    return {
+      path: displayPath,
+      source: "error",
+      detail: input.screenshot.message,
+      tone: "bad"
+    };
+  }
+
+  if (input.screenshot.status === "empty") {
+    return {
+      path: path ?? "--",
+      source: "empty",
+      detail: input.screenshot.message,
+      tone: "warn"
+    };
+  }
+
+  return {
+    path: path ?? "--",
+    source: "loading",
+    detail: path ? "Artifact reported; image fetch is still loading." : "Waiting for latest screenshot.",
+    tone: "neutral"
+  };
+}
+
+function agentHandoffLatestAction(summary: SessionSummary | undefined, events: TraceEvent[]): AgentHandoffActionSummary {
+  let latestResult: { result: ActionResultLike & { artifactCount?: number }; at?: string } | undefined = summary?.events.latestAction
+    ? { result: summary.events.latestAction, at: summary.events.latestAction.endedAt ?? summary.events.latestAction.startedAt }
+    : undefined;
+  let latestStarted: TraceEvent | undefined;
+
+  for (const event of events) {
+    if (event.type === "action.completed" && event.result) {
+      const candidate = { result: event.result, at: event.result.endedAt ?? event.at };
+      if (!latestResult || timestampMs(candidate.at) > timestampMs(latestResult.at)) latestResult = candidate;
+    } else if (event.type === "action.started" && event.action) {
+      if (!latestStarted || timestampMs(event.action.createdAt ?? event.at) > timestampMs(latestStarted.action?.createdAt ?? latestStarted.at)) {
+        latestStarted = event;
+      }
+    }
+  }
+
+  if (latestStarted?.action && (!latestResult || timestampMs(latestStarted.action.createdAt ?? latestStarted.at) > timestampMs(latestResult.at))) {
+    return {
+      label: "Action running",
+      detail: `${latestStarted.action.kind} ${latestStarted.action.id}`,
+      tone: "warn"
+    };
+  }
+
+  if (latestResult) {
+    const artifactCount = latestResult.result.artifactCount ?? latestResult.result.artifacts?.length ?? 0;
+    const artifactLabel = artifactCount === 1 ? "1 artifact" : `${artifactCount} artifacts`;
+    return {
+      label: latestResult.result.ok ? "Last action passed" : "Last action failed",
+      detail: latestResult.result.ok
+        ? `${latestResult.result.actionId}, ${artifactLabel}, ${formatDateTime(latestResult.at)}`
+        : `${latestResult.result.actionId}, ${formatDateTime(latestResult.at)}`,
+      tone: latestResult.result.ok ? "good" : "bad",
+      error: latestResult.result.error?.message
+    };
+  }
+
+  return {
+    label: "No action result",
+    detail: "No completed viewer action in loaded events.",
+    tone: "neutral"
+  };
+}
+
+function latestTraceError(events: TraceEvent[]): TraceEvent["error"] | undefined {
+  let latestError: TraceEvent | undefined;
+  for (const event of events) {
+    if (event.type !== "error" || !event.error) continue;
+    if (!latestError || timestampMs(event.at) > timestampMs(latestError.at)) latestError = event;
+  }
+  return latestError?.error;
+}
+
+function agentHandoffNextSteps(
+  input: AgentHandoffInput,
+  readiness: AgentHandoffReadiness,
+  latestAction: AgentHandoffActionSummary,
+  notices: AgentHandoffNotice[]
+): string[] {
+  const steps: string[] = [];
+  const addStep = (step: string): void => {
+    if (!steps.includes(step)) steps.push(step);
+  };
+
+  if (input.health === "offline") addStep("Start the local daemon, then reconnect this viewer URL.");
+  if (!input.session && !input.sessionSummary?.session) addStep("Start an atlas-loop run or keep latest selected until a session appears.");
+  if (input.screenshot.status === "empty" || input.screenshot.status === "error") addStep("Capture a screenshot from Actions once the simulator is stable.");
+  if (input.screenshot.status === "stale") addStep("Refresh evidence or capture a new screenshot before handing off visual state.");
+  if (input.artifactHealthStatus === "error" || notices.some((notice) => notice.title === "Artifact health errors")) addStep("Fix artifact health errors before treating the evidence set as complete.");
+  if (input.sessionSummary?.storage.warnings.length) addStep("Review storage warnings and preserve missing paths before archive or handoff.");
+  if (latestAction.tone === "bad") addStep("Inspect the failed action in the timeline, correct the UI state, then retry locally.");
+  if (latestAction.label === "Action running") addStep("Wait for the running action to complete before handing off.");
+  if (latestAction.label === "No action result") addStep("Run one meaningful action or capture a screenshot before another agent takes over.");
+
+  if (readiness === "ready") {
+    addStep("Pass the daemon URL and resolved session id to the next agent.");
+    addStep("Capture one fresh screenshot if the UI changed after the last action.");
+  } else if (steps.length === 0) {
+    addStep("Resolve the listed warnings, then recheck the latest screenshot and artifact health.");
+  }
+
+  return steps.slice(0, 4);
+}
+
+function agentHandoffTitle(readiness: AgentHandoffReadiness): string {
+  switch (readiness) {
+    case "ready":
+      return "Ready for handoff";
+    case "waiting":
+      return "Waiting for evidence";
+    case "needs-attention":
+      return "Evidence needs review";
+    case "blocked":
+      return "Handoff blocked";
+  }
+}
+
+function agentHandoffDetail(readiness: AgentHandoffReadiness): string {
+  switch (readiness) {
+    case "ready":
+      return "Running session, fresh screenshot, successful action, and healthy artifacts are present.";
+    case "waiting":
+      return "The viewer is still waiting on live session or evidence data.";
+    case "needs-attention":
+      return "The session is readable, but warnings should be checked before another agent takes over.";
+    case "blocked":
+      return "Resolve blockers before trusting this session for agent handoff.";
+  }
+}
+
+function readinessLabel(readiness: AgentHandoffReadiness): string {
+  return readiness.replace("-", " ");
+}
+
+function isPendingSessionStatus(status: SessionStatus | undefined): boolean {
+  return status === "created" || status === "booting" || status === "building" || status === "installing" || status === "launching";
+}
+
+function timestampMs(value: string | undefined): number {
+  if (!value) return 0;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
 function stringifyMetadata(metadata: ArtifactRef["metadata"]): string | undefined {

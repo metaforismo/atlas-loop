@@ -201,6 +201,27 @@ CLI and MCP evidence exports may also include `atlas-evidence-export.json`.
 That file records local-only provenance for the exported bundle, including the
 session id, bundle directory, sidecar path, and `export.json` path.
 
+## Handoff Evidence
+
+Agent/operator handoff uses the same session directory and export bundle
+format. A handoff note should point at the local `artifactDir`, latest
+screenshot path when present, `artifacts health` result, optional Markdown
+evidence report, and optional exported bundle. It should also state whether the
+source session was live memory or disk-backed evidence.
+
+The shortcut command is `atlas-loop session handoff --session latest`. The
+same handoff artifact set can also be produced with:
+
+```sh
+atlas-loop session ready --session latest
+atlas-loop artifacts health --session latest
+atlas-loop evidence report --session latest --out artifacts/reports/<session-id>.md
+atlas-loop evidence export --session latest --out artifacts/exports/<session-id>
+```
+
+Reports and exports are local files. They should not be committed by default,
+and they do not upload screenshots, logs, metadata, or app bundles.
+
 ## Validator
 
 Daemon-backed artifact health and direct artifact verification use the same

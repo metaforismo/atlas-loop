@@ -36,6 +36,7 @@ import {
   artifactDetailRows,
   artifactDisplayName,
   artifactTypeOptions,
+  buildAgentHandoffBrief,
   eventModeTone,
   filterArtifacts,
   filterTimelineItems,
@@ -50,6 +51,7 @@ import {
   sortSessionList,
   timelineFilterOptions,
   visibleArtifactHealth,
+  type AgentHandoffBrief,
   type ArtifactHealthStatus,
   type TimelineFilter,
   type UiTone
@@ -519,6 +521,7 @@ export function App() {
     artifactHealthStatus,
     artifactHealthError,
     artifacts,
+    events,
     screenshot,
     eventMode,
     lastError,
@@ -588,6 +591,22 @@ export function App() {
   const actionMutationState = useMemo(
     () => getActionMutationState(health, sessionSummary?.storage.source, session?.status),
     [health, sessionSummary?.storage.source, session?.status]
+  );
+  const handoffBrief = useMemo(
+    () =>
+      buildAgentHandoffBrief({
+        health,
+        params,
+        session,
+        sessionSummary,
+        artifactHealth,
+        artifactHealthStatus,
+        artifactHealthError,
+        screenshot,
+        artifacts,
+        events
+      }),
+    [health, params, session, sessionSummary, artifactHealth, artifactHealthStatus, artifactHealthError, screenshot, artifacts, events]
   );
 
   useEffect(() => {
@@ -795,13 +814,14 @@ export function App() {
       </section>
 
       <aside className="inspector panel" aria-label="Session metadata and artifacts">
-        <section className="inspector-section">
+        <section className="inspector-section session-overview">
           <div className="panel-title-row">
             <h2>Evidence inspector</h2>
             <span>{session?.updatedAt ? formatTime(session.updatedAt) : "--"}</span>
           </div>
           {session ? <MetadataGrid session={session} /> : <MetadataSkeleton />}
           {sessionSummary ? <SummaryEvidence summary={sessionSummary} /> : null}
+          <AgentHandoffPanel brief={handoffBrief} />
           <EvidenceHealthPanel health={artifactHealth} status={artifactHealthStatus} error={artifactHealthError} />
           {session?.error ? <ErrorNotice message={session.error.message} compact /> : null}
         </section>
@@ -1416,6 +1436,86 @@ function SummaryEvidence({ summary }: { summary: SessionSummary }) {
         </div>
       ) : null}
     </section>
+  );
+}
+
+function AgentHandoffPanel({ brief }: { brief: AgentHandoffBrief }) {
+  const busy = brief.readiness === "waiting";
+
+  return (
+    <section className={`agent-handoff tone-${brief.tone}`} aria-label="Agent handoff" aria-busy={busy}>
+      <div className="panel-title-row">
+        <h2>Agent handoff</h2>
+        <span>{brief.statusText}</span>
+      </div>
+
+      <div className="handoff-banner" role="status" aria-live="polite" aria-atomic="true">
+        <strong>{brief.title}</strong>
+        <span>{brief.detail}</span>
+      </div>
+
+      <div className="handoff-signal-grid">
+        <HandoffSignal
+          label="Screenshot"
+          value={brief.latestScreenshot.source}
+          detail={brief.latestScreenshot.detail}
+          meta={brief.latestScreenshot.path}
+          tone={brief.latestScreenshot.tone}
+        />
+        <HandoffSignal
+          label="Action"
+          value={brief.latestAction.label}
+          detail={brief.latestAction.error ?? brief.latestAction.detail}
+          tone={brief.latestAction.tone}
+        />
+      </div>
+
+      <dl className="handoff-identifiers" aria-label="Viewer and session identifiers">
+        {brief.identifiers.map((identifier) => (
+          <div key={identifier.label}>
+            <dt>{identifier.label}</dt>
+            <dd className={identifier.mono ? "mono" : ""} title={identifier.value}>{identifier.value}</dd>
+          </div>
+        ))}
+      </dl>
+
+      <div className="handoff-notices">
+        <strong>Blockers and warnings</strong>
+        {brief.notices.length > 0 ? (
+          <ul>
+            {brief.notices.map((notice, index) => (
+              <li key={`${notice.title}:${notice.detail}:${index}`} className={`tone-${notice.tone}`}>
+                <span>{notice.title}</span>
+                <p>{notice.detail}</p>
+                {notice.path ? <code>{notice.path}</code> : null}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p>No blockers detected from loaded viewer data.</p>
+        )}
+      </div>
+
+      <div className="handoff-next">
+        <strong>Next steps</strong>
+        <ul>
+          {brief.nextSteps.map((step) => (
+            <li key={step}>{step}</li>
+          ))}
+        </ul>
+      </div>
+    </section>
+  );
+}
+
+function HandoffSignal({ label, value, detail, meta, tone }: { label: string; value: string; detail: string; meta?: string; tone: UiTone }) {
+  return (
+    <div className={`handoff-signal tone-${tone}`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <small>{detail}</small>
+      {meta ? <code title={meta}>{meta}</code> : null}
+    </div>
   );
 }
 
