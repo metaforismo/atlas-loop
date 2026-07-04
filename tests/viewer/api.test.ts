@@ -1,11 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  buildViewerActionRequest,
   markScreenshotFetchFailed,
   mergeScreenshotFetchResult,
   normalizeArtifactList,
   normalizeEventList,
   normalizeScreenshotPayload,
   normalizeSessionList,
+  performViewerAction,
   screenshotArtifactIdentity,
   screenshotObjectUrl,
   toResourceUrl
@@ -13,6 +15,101 @@ import {
 import type { ArtifactRef, ScreenshotState, SessionSummary } from "../../apps/viewer/src/types.js";
 
 describe("viewer api normalizers", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("serializes viewer primitive action drafts for daemon endpoints", () => {
+    expect(buildViewerActionRequest({ kind: "screenshot", reason: " manual check " })).toEqual({
+      endpoint: "screenshot",
+      body: { reason: "manual check" }
+    });
+    expect(buildViewerActionRequest({ kind: "wait", durationMs: "250" })).toEqual({
+      endpoint: "actions",
+      body: { action: { kind: "wait", durationMs: 250 } }
+    });
+    expect(buildViewerActionRequest({ kind: "tap", x: "0.25", y: "0.75" })).toEqual({
+      endpoint: "actions",
+      body: { action: { kind: "tap", x: 0.25, y: 0.75 } }
+    });
+    expect(buildViewerActionRequest({ kind: "typeText", text: " hello " })).toEqual({
+      endpoint: "actions",
+      body: { action: { kind: "typeText", text: " hello " } }
+    });
+    expect(
+      buildViewerActionRequest({
+        kind: "swipe",
+        from: { x: "0.5", y: "0.8" },
+        to: { x: "0.5", y: "0.2" },
+        durationMs: "300"
+      })
+    ).toEqual({
+      endpoint: "actions",
+      body: {
+        action: {
+          kind: "swipe",
+          from: { x: 0.5, y: 0.8 },
+          to: { x: 0.5, y: 0.2 },
+          durationMs: 300
+        }
+      }
+    });
+  });
+
+  it("rejects invalid local viewer action values before posting", () => {
+    expect(() => buildViewerActionRequest({ kind: "tap", x: "1.2", y: "0.5" })).toThrow("tap x must be between 0 and 1");
+    expect(() => buildViewerActionRequest({ kind: "tap", x: "", y: "0.5" })).toThrow("tap x is required");
+    expect(() => buildViewerActionRequest({ kind: "typeText", text: "" })).toThrow("type text must not be empty");
+    expect(buildViewerActionRequest({ kind: "typeText", text: "   " })).toEqual({
+      endpoint: "actions",
+      body: { action: { kind: "typeText", text: "   " } }
+    });
+    expect(() =>
+      buildViewerActionRequest({
+        kind: "swipe",
+        from: { x: "0.5", y: "0.8" },
+        to: { x: "0.5", y: "-0.1" },
+        durationMs: "300"
+      })
+    ).toThrow("swipe to y must be between 0 and 1");
+  });
+
+  it("posts viewer actions and preserves daemon error messages", async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => (
+      new Response(JSON.stringify({ ok: true, data: { actionId: "act_1", ok: true, artifacts: [] } }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      })
+    ));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await performViewerAction(
+      { daemonUrl: "http://127.0.0.1:4317/", sessionId: "sess 1" },
+      { kind: "tap", x: "0.25", y: "0.75" }
+    );
+
+    expect(result).toEqual({ actionId: "act_1", ok: true, artifacts: [] });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:4317/v1/sessions/sess%201/actions",
+      expect.objectContaining({ method: "POST" })
+    );
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(JSON.parse(String(init.body))).toEqual({ action: { kind: "tap", x: 0.25, y: 0.75 } });
+
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: false, error: { code: "NOT_FOUND", message: "active session not found: sess_old" } }), {
+        status: 404,
+        statusText: "Not Found",
+        headers: { "content-type": "application/json" }
+      })
+    );
+
+    await expect(
+      performViewerAction({ daemonUrl: "http://127.0.0.1:4317", sessionId: "sess_old" }, { kind: "screenshot" })
+    ).rejects.toMatchObject({ message: "active session not found: sess_old", status: 404 });
+  });
+
   it("accepts raw artifact arrays and wrapped artifact collections", () => {
     const artifact = {
       id: "art_1",

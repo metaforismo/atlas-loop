@@ -1,6 +1,7 @@
 import { createServer, type Server } from "node:http";
-import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildViewerUrl, callToolWithEnvelope, tools } from "../../apps/mcp-server/src/index.ts";
 
@@ -27,7 +28,8 @@ describe("MCP contract documentation", () => {
       "atlas.getLatestScreenshotPath",
       "atlas.getViewerUrl",
       "atlas.getEvidence",
-      "atlas.getEvidenceReport"
+      "atlas.getEvidenceReport",
+      "atlas.exportEvidence"
     ]));
     expect(tools.find((tool) => tool.name === "atlas.listSessions")?.description).toContain("active and persisted");
   });
@@ -425,6 +427,100 @@ describe("MCP contract documentation", () => {
         viewerUrl: "http://127.0.0.1:5173?daemonUrl=http%3A%2F%2F127.0.0.1%3A4317&sessionId=sess_empty",
         daemonUrl: "http://127.0.0.1:4317",
         viewerBaseUrl: "http://127.0.0.1:5173"
+      }
+    });
+  });
+
+  it("exports a local evidence bundle through a structured MCP tool response", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "atlas-loop-mcp-export-"));
+    const artifactDir = join(tempDir, "sessions", "sess_export");
+    const screenshotsDir = join(artifactDir, "screenshots");
+    const exportDir = join(tempDir, "export-bundle");
+    const calls: string[] = [];
+    const latestScreenshot = {
+      id: "artifact_export",
+      sessionId: "sess_export",
+      type: "screenshot",
+      path: join(screenshotsDir, "latest.png"),
+      createdAt: "2026-07-04T12:00:00.000Z"
+    };
+
+    await mkdir(screenshotsDir, { recursive: true });
+    await writeFile(join(artifactDir, "session.json"), JSON.stringify({
+      id: "sess_export",
+      schemaVersion: "atlas-loop.session.v1",
+      platform: "ios-simulator",
+      status: "ended",
+      createdAt: "2026-07-04T12:00:00.000Z",
+      updatedAt: "2026-07-04T12:00:01.000Z",
+      simulator: { name: "iPhone 16" },
+      artifactDir
+    }, null, 2));
+    await writeFile(join(artifactDir, "manifest.json"), JSON.stringify({ artifacts: [latestScreenshot] }, null, 2));
+    await writeFile(join(artifactDir, "trace.jsonl"), "");
+    await writeFile(latestScreenshot.path, "png-bytes");
+
+    try {
+      const result = await callToolWithEnvelope("atlas.exportEvidence", {
+        sessionId: "latest",
+        outDir: exportDir
+      }, {
+        client: {
+          getSessionSummary: async (sessionId: string) => {
+            calls.push(sessionId);
+            return {
+              session: { id: "sess_export" },
+              paths: { artifactDir },
+              artifacts: { total: 1, byType: { screenshot: 1 }, latestScreenshot },
+              storage: { source: "disk", artifactBacked: true, warnings: [] }
+            };
+          }
+        } as never
+      });
+
+      expect(calls).toEqual(["latest"]);
+      expect(result).toMatchObject({
+        ok: true,
+        data: {
+          schemaVersion: "atlas-loop.evidence-export.v1",
+          sessionId: "sess_export",
+          requestedSessionId: "latest",
+          bundleDir: exportDir,
+          sourceArtifactDir: artifactDir,
+          localOnly: true,
+          uploaded: false,
+          artifactTotal: 1,
+          latestScreenshotPath: latestScreenshot.path,
+          exportedLatestScreenshotPath: join(exportDir, "screenshots", "latest.png")
+        }
+      });
+      await expect(readFile(join(exportDir, "screenshots", "latest.png"), "utf8")).resolves.toBe("png-bytes");
+      await expect(readFile(join(exportDir, "atlas-evidence-export.json"), "utf8")).resolves.toContain("sess_export");
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects non-local MCP evidence export paths instead of fetching artifacts", async () => {
+    const result = await callToolWithEnvelope("atlas.exportEvidence", {
+      sessionId: "sess_remote",
+      outDir: "/tmp/atlas-loop-remote-export"
+    }, {
+      client: {
+        getSessionSummary: async () => ({
+          session: { id: "sess_remote" },
+          paths: { artifactDir: "https://example.com/artifacts/sess_remote" },
+          artifacts: { total: 0, byType: {} },
+          storage: { source: "disk", artifactBacked: true, warnings: [] }
+        })
+      } as never
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: "INVALID_REQUEST",
+        message: expect.stringContaining("local filesystem path")
       }
     });
   });

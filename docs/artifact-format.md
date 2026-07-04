@@ -126,6 +126,51 @@ The local viewer uses these same read routes. It can follow `latest` or a
 concrete session id, show recovered screenshots and artifacts, and surface stale
 or incomplete evidence without requiring a cloud service.
 
+## Local Export Bundles
+
+The artifacts package can export one persisted session into a local bundle
+outside the session artifact root. By default the bundle path is:
+
+```text
+<destination>/<session-id>/
+```
+
+Callers may also provide an exact output directory. Export is local-only: it
+does not upload, authenticate, or create a zip archive.
+
+Exported bundles preserve the session layout and include `session.json`,
+`actions.jsonl`, `trace.jsonl`, `manifest.json`, and the
+`screenshots/`, `logs/`, `metadata/`, `video/`, and `build/` subtrees when
+present. To keep the bundle portable, `session.json` uses `artifactDir: "."`.
+Artifact references in `manifest.json`, `actions.jsonl`, and `trace.jsonl` are
+rewritten to relative paths inside the bundle, as are install action `appPath`
+values that point at copied build artifacts.
+
+Each bundle also contains an `export.json` file:
+
+```json
+{
+  "schemaVersion": "atlas-loop.export.v1",
+  "sessionId": "session_abc",
+  "sourceSessionDir": "/absolute/path/to/artifacts/sessions/session_abc",
+  "exportedAt": "2026-07-04T00:00:00.000Z",
+  "fileCount": 4,
+  "byteCount": 1234,
+  "files": [
+    {
+      "path": "session.json",
+      "sizeBytes": 512,
+      "sha256": "..."
+    }
+  ]
+}
+```
+
+`fileCount`, `byteCount`, and `files` describe the copied session files and do
+not include `export.json` itself. Symlinks are checked with realpaths during
+export; a symlink that escapes the source session fails the export instead of
+being followed.
+
 ## Validator
 
 Run:

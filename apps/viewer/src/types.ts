@@ -91,6 +91,39 @@ export interface ActionResultLike {
   error?: AtlasLoopError;
 }
 
+export interface NormalizedPoint {
+  x: number;
+  y: number;
+}
+
+export type ViewerActionKind = "screenshot" | "wait" | "tap" | "typeText" | "swipe";
+
+export type ViewerActionInput =
+  | { kind: "screenshot"; reason?: string }
+  | { kind: "wait"; durationMs: number }
+  | { kind: "tap"; x: number; y: number }
+  | { kind: "typeText"; text: string }
+  | { kind: "swipe"; from: NormalizedPoint; to: NormalizedPoint; durationMs: number };
+
+export type ViewerNumericInput = number | string;
+
+export type ViewerActionDraft =
+  | { kind: "screenshot"; reason?: string }
+  | { kind: "wait"; durationMs: ViewerNumericInput }
+  | { kind: "tap"; x: ViewerNumericInput; y: ViewerNumericInput }
+  | { kind: "typeText"; text: string }
+  | {
+      kind: "swipe";
+      from: { x: ViewerNumericInput; y: ViewerNumericInput };
+      to: { x: ViewerNumericInput; y: ViewerNumericInput };
+      durationMs: ViewerNumericInput;
+    };
+
+export interface ViewerActionRequest {
+  endpoint: "actions" | "screenshot";
+  body: { action: Exclude<ViewerActionInput, { kind: "screenshot" }> } | { reason?: string };
+}
+
 export interface SessionSummary {
   session: Session;
   paths: {

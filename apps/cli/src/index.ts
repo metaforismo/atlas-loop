@@ -2,8 +2,9 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { exportSessionArtifacts } from "@atlas-loop/artifacts";
 import { createSimulator } from "@atlas-loop/simulator";
 import { loadConfig } from "@atlas-loop/config";
 import {
@@ -24,6 +25,25 @@ const DEFAULT_VIEWER_BASE_URL = "http://127.0.0.1:5173";
 interface EvidenceClient {
   getSessionSummary(sessionId: string): Promise<SessionSummary>;
   latestScreenshot(sessionId: string): Promise<ArtifactRef>;
+}
+
+interface LocalEvidenceExportMetadata {
+  schemaVersion: "atlas-loop.evidence-export.v1";
+  sessionId: string;
+  requestedSessionId: string;
+  exportedAt: string;
+  bundleDir: string;
+  metadataPath: string;
+  artifactExportMetadataPath: string;
+  sourceArtifactDir: string;
+  localOnly: true;
+  uploaded: false;
+  artifactTotal: number;
+  fileCount: number;
+  byteCount: number;
+  latestScreenshotPath: string | null;
+  exportedLatestScreenshotPath: string | null;
+  storage: SessionSummary["storage"];
 }
 
 export async function main(args: Args): Promise<number> {
@@ -165,6 +185,13 @@ export async function main(args: Args): Promise<number> {
 
   if (command === "evidence") {
     const viewerBaseUrl = stringFlag(flags, "viewer-base-url") ?? DEFAULT_VIEWER_BASE_URL;
+    if (subcommand === "export" || stringFlag(flags, "_0") === "export") {
+      printJson(await exportLocalEvidence(client, {
+        sessionId: requireFlag(flags, "session"),
+        outDir: requireFlag(flags, "out")
+      }));
+      return 0;
+    }
     if (subcommand === "report" || stringFlag(flags, "_0") === "report") {
       const evidence = await buildEvidenceReportData(client, {
         sessionId: requireFlag(flags, "session"),
@@ -257,6 +284,45 @@ async function outputEvidenceReport(evidence: EvidenceReportData, flags: Map<str
     viewerUrl: evidence.viewerUrl,
     latestScreenshotPath: evidence.latestScreenshotPath
   });
+}
+
+export async function exportLocalEvidence(
+  client: Pick<EvidenceClient, "getSessionSummary">,
+  params: { sessionId: string; outDir: string }
+): Promise<LocalEvidenceExportMetadata> {
+  const summary = await client.getSessionSummary(params.sessionId);
+  const sessionId = summary.session.id;
+  const sourceArtifactDir = resolveLocalPath(summary.paths.artifactDir, "session summary paths.artifactDir");
+  const exported = await exportSessionArtifacts(dirname(sourceArtifactDir), basename(sourceArtifactDir), {
+    outputDir: resolve(params.outDir)
+  });
+
+  const artifacts = summary.artifacts ?? { total: 0, byType: {} };
+  const storage: SessionSummary["storage"] = summary.storage ?? { source: "memory", artifactBacked: false, warnings: [] };
+  const latestScreenshotPath = artifacts.latestScreenshot?.path ?? artifacts.latestScreenshotPath ?? null;
+  const metadataPath = join(exported.outputDir, "atlas-evidence-export.json");
+  const metadata: LocalEvidenceExportMetadata = {
+    schemaVersion: "atlas-loop.evidence-export.v1",
+    sessionId,
+    requestedSessionId: params.sessionId,
+    exportedAt: exported.metadata.exportedAt,
+    bundleDir: exported.outputDir,
+    metadataPath,
+    artifactExportMetadataPath: exported.metadataPath,
+    sourceArtifactDir: exported.metadata.sourceSessionDir,
+    localOnly: true,
+    uploaded: false,
+    artifactTotal: artifacts.total ?? 0,
+    fileCount: exported.metadata.fileCount,
+    byteCount: exported.metadata.byteCount,
+    latestScreenshotPath,
+    exportedLatestScreenshotPath: latestScreenshotPath
+      ? mapSourcePathToBundle(sourceArtifactDir, exported.outputDir, latestScreenshotPath)
+      : null,
+    storage
+  };
+  await writeFile(metadataPath, `${JSON.stringify(metadata, null, 2)}\n`, "utf8");
+  return metadata;
 }
 
 async function tryLatestScreenshot(client: EvidenceClient, sessionId: string): Promise<ArtifactRef | null> {
@@ -378,6 +444,18 @@ function openPath(path: string): void {
   spawn("open", [path], { stdio: "ignore", detached: true }).unref();
 }
 
+function resolveLocalPath(path: string, label: string): string {
+  if (!path || path.includes("://")) throw new Error(`${label} must be a local filesystem path`);
+  return resolve(path);
+}
+
+function mapSourcePathToBundle(sourceDir: string, bundleDir: string, sourcePath: string): string | null {
+  const resolvedPath = resolve(sourcePath);
+  const relativePath = relative(sourceDir, resolvedPath);
+  if (relativePath === "" || relativePath.startsWith("..") || isAbsolute(relativePath)) return null;
+  return join(bundleDir, relativePath);
+}
+
 function trimTrailingSlash(value: string): string {
   return value.endsWith("/") ? value.slice(0, -1) : value;
 }
@@ -408,6 +486,7 @@ Usage:
   atlas-loop artifacts open --session <id|latest> [--latest-screenshot]
   atlas-loop evidence --session <id|latest>
   atlas-loop evidence report --session <id|latest> [--out report.md]
+  atlas-loop evidence export --session <id|latest> --out <dir>
   atlas-loop viewer url --session <id|latest>
   atlas-loop viewer open --session <id|latest> [--launch]
 

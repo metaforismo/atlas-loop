@@ -1,4 +1,17 @@
-import type { ApiEnvelope, ArtifactRef, ScreenshotState, Session, SessionListItem, SessionSummary, TraceEvent, ViewerParams } from "./types.js";
+import type {
+  ActionResultLike,
+  ApiEnvelope,
+  ArtifactRef,
+  ScreenshotState,
+  Session,
+  SessionListItem,
+  SessionSummary,
+  TraceEvent,
+  ViewerActionDraft,
+  ViewerActionRequest,
+  ViewerNumericInput,
+  ViewerParams
+} from "./types.js";
 import { buildSessionsUrl, buildSessionUrl, normalizeDaemonUrl } from "./viewerParams.js";
 
 export class ApiError extends Error {
@@ -81,6 +94,88 @@ export async function fetchArtifacts(params: ViewerParams, signal?: AbortSignal)
 export async function fetchEvents(params: ViewerParams, signal?: AbortSignal): Promise<TraceEvent[]> {
   const value = await fetchJson<unknown>(buildSessionUrl(params, "events"), signal);
   return normalizeEventList(value);
+}
+
+export async function performViewerAction(params: ViewerParams, draft: ViewerActionDraft, signal?: AbortSignal): Promise<ActionResultLike> {
+  const request = buildViewerActionRequest(draft);
+  const response = await fetch(buildSessionUrl(params, request.endpoint), {
+    method: "POST",
+    signal,
+    cache: "no-store",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(request.body)
+  });
+  const text = await response.text();
+  const payload = parseActionResponseBody(text, response.status);
+
+  if (!response.ok) {
+    throw apiErrorFromPayload(payload, response);
+  }
+
+  try {
+    const result = unwrapEnvelope<ActionResultLike>(payload);
+    if (!isActionResultLike(result)) throw new ApiError("Daemon returned an invalid action result", response.status);
+    return result;
+  } catch (error) {
+    if (error instanceof ApiError) throw new ApiError(error.message, response.status);
+    throw error;
+  }
+}
+
+export function buildViewerActionRequest(draft: ViewerActionDraft): ViewerActionRequest {
+  switch (draft.kind) {
+    case "screenshot": {
+      const reason = cleanOptionalText(draft.reason);
+      return {
+        endpoint: "screenshot",
+        body: reason ? { reason } : {}
+      };
+    }
+    case "wait":
+      return {
+        endpoint: "actions",
+        body: { action: { kind: "wait", durationMs: parseNonNegativeDuration(draft.durationMs, "wait duration") } }
+      };
+    case "tap":
+      return {
+        endpoint: "actions",
+        body: {
+          action: {
+            kind: "tap",
+            x: parseNormalizedNumber(draft.x, "tap x"),
+            y: parseNormalizedNumber(draft.y, "tap y")
+          }
+        }
+      };
+    case "typeText": {
+      if (draft.text.length === 0) throw new ApiError("type text must not be empty");
+      return {
+        endpoint: "actions",
+        body: { action: { kind: "typeText", text: draft.text } }
+      };
+    }
+    case "swipe":
+      return {
+        endpoint: "actions",
+        body: {
+          action: {
+            kind: "swipe",
+            from: {
+              x: parseNormalizedNumber(draft.from.x, "swipe from x"),
+              y: parseNormalizedNumber(draft.from.y, "swipe from y")
+            },
+            to: {
+              x: parseNormalizedNumber(draft.to.x, "swipe to x"),
+              y: parseNormalizedNumber(draft.to.y, "swipe to y")
+            },
+            durationMs: parseNonNegativeDuration(draft.durationMs, "swipe duration")
+          }
+        }
+      };
+  }
 }
 
 export async function fetchLatestScreenshot(params: ViewerParams, signal?: AbortSignal): Promise<ScreenshotState> {
@@ -275,6 +370,58 @@ export function toResourceUrl(value: string, daemonUrl: string): string {
 
 function firstString(...values: unknown[]): string | undefined {
   return values.find((value): value is string => typeof value === "string" && value.trim().length > 0);
+}
+
+function parseActionResponseBody(text: string, status: number): unknown {
+  if (!text.trim()) return undefined;
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    throw new ApiError("Daemon returned invalid JSON", status);
+  }
+}
+
+function apiErrorFromPayload(payload: unknown, response: Response): ApiError {
+  const statusMessage = `${response.status} ${response.statusText}`.trim();
+  if (payload && typeof payload === "object") {
+    const envelope = payload as ApiEnvelope<unknown>;
+    if (envelope.ok === false && envelope.error?.message) {
+      return new ApiError(envelope.error.message, response.status);
+    }
+  }
+  return new ApiError(statusMessage || "Daemon returned an error", response.status);
+}
+
+function parseNumberInput(value: ViewerNumericInput, label: string): number {
+  if (typeof value === "string" && value.trim().length === 0) {
+    throw new ApiError(`${label} is required`);
+  }
+  const number = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(number)) throw new ApiError(`${label} must be a number`);
+  return number;
+}
+
+function parseNormalizedNumber(value: ViewerNumericInput, label: string): number {
+  const number = parseNumberInput(value, label);
+  if (number < 0 || number > 1) throw new ApiError(`${label} must be between 0 and 1`);
+  return number;
+}
+
+function parseNonNegativeDuration(value: ViewerNumericInput, label: string): number {
+  const number = parseNumberInput(value, label);
+  if (number < 0) throw new ApiError(`${label} must be non-negative`);
+  return number;
+}
+
+function cleanOptionalText(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function isActionResultLike(value: unknown): value is ActionResultLike {
+  if (!value || typeof value !== "object") return false;
+  const record = value as Partial<ActionResultLike>;
+  return typeof record.actionId === "string" && typeof record.ok === "boolean";
 }
 
 function isNonEmptyString(value: unknown): value is string {

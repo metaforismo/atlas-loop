@@ -19,7 +19,8 @@ runtime dependencies.
 - Disk-backed session discovery after daemon restarts.
 - Repo-owned Swift HID helper with a stable NDJSON protocol.
 - Deterministic SwiftUI commerce checkout demo app.
-- Local evidence under `artifacts/sessions/<session-id>/`.
+- Local evidence under `artifacts/sessions/<session-id>/`, with optional local
+  export bundles for inspection.
 
 ## Important Native Input Note
 
@@ -96,6 +97,7 @@ atlas-loop artifacts path --session <id>
 atlas-loop artifacts open --session <id> [--latest-screenshot]
 atlas-loop evidence --session <id>
 atlas-loop evidence report --session <id> [--out report.md]
+atlas-loop evidence export --session <id> --out <dir>
 atlas-loop viewer url --session <id>
 atlas-loop viewer open --session <id> [--launch]
 atlas-loop session stop --session <id>
@@ -118,8 +120,10 @@ calls such as `atlas.createSession`, `atlas.performAction`, `atlas.build`,
 `atlas.install`, `atlas.launch`, `atlas.listArtifacts`,
 `atlas.getArtifactPath`, `atlas.getLatestScreenshotPath`, and
 `atlas.getViewerUrl` forward to the local daemon at `ATLAS_LOOP_DAEMON_URL` or
-`http://127.0.0.1:4317` by default. See [docs/daemon-api.md](docs/daemon-api.md)
-for the JSON-RPC and daemon contract.
+`http://127.0.0.1:4317` by default. `atlas.exportEvidence` reads the session
+summary and copies the referenced local artifact directory into a caller-chosen
+local directory; it does not upload artifacts. See
+[docs/daemon-api.md](docs/daemon-api.md) for the JSON-RPC and daemon contract.
 
 ## Evidence Layout
 
@@ -171,6 +175,7 @@ npm run cli -- artifacts path --session <session-id>
 npm run cli -- artifacts open --session <session-id>
 npm run cli -- viewer url --session <session-id>
 npm run cli -- evidence report --session <session-id> --out artifacts/report.md
+npm run cli -- evidence export --session <session-id> --out artifacts/exports/<session-id>
 ```
 
 The viewer URL can point at a concrete session id or `latest`. Persisted
@@ -178,8 +183,13 @@ sessions are evidence for inspection only: build, install, launch, coordinate
 actions, screenshots, and session stop still require a live in-memory session.
 `evidence report` writes a local Markdown summary that can be pasted into a PR,
 issue, or debugging note without uploading screenshots or logs anywhere.
+`evidence export` creates a local copy of the session artifact directory and
+writes `atlas-evidence-export.json` metadata in the export bundle. The export is
+for local inspection, handoff, or manual archival; it does not commit or upload
+the copied artifacts.
 
-Do not commit `artifacts/`; it may contain screenshots or logs from local apps.
+Do not commit `artifacts/` or exported evidence bundles; they may contain
+screenshots or logs from local apps.
 
 ## Verification
 

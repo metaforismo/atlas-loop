@@ -213,8 +213,14 @@ if [[ -d "$DEMO_APP_PATH" ]]; then
   ARTIFACT_SESSION_ID="$SESSION_ID"
   stop_session "$LOG_DIR/stop.json"
   run_cli evidence report --session "$ARTIFACT_SESSION_ID" --out "$LOG_DIR/evidence.md" >"$LOG_DIR/evidence-report.json"
+  EXPORT_ROOT="$LOG_DIR/evidence-export"
+  EXPORT_DIR="$EXPORT_ROOT/$ARTIFACT_SESSION_ID"
+  rm -rf "$EXPORT_ROOT"
+  run_cli evidence export --session "$ARTIFACT_SESSION_ID" --out "$EXPORT_DIR" >"$LOG_DIR/evidence-export.json"
   npm run --silent verify:artifacts -- --json "artifacts/sessions/$ARTIFACT_SESSION_ID" >"$LOG_DIR/verify-artifacts.json"
   npm run --silent verify:artifacts -- "artifacts/sessions/$ARTIFACT_SESSION_ID"
+  npm run --silent verify:artifacts -- --json "$EXPORT_DIR" >"$LOG_DIR/verify-exported-artifacts.json"
+  npm run --silent verify:artifacts -- "$EXPORT_DIR"
 else
   echo "[smoke-ios] demo app path not found after build; Atlas Loop install/launch/screenshot smoke skipped"
 fi
