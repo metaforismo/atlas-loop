@@ -16,15 +16,16 @@ for arg in "$@"; do
       cat <<'USAGE'
 Usage: bash scripts/verify-local.sh [--smoke-ios|--no-smoke]
 
-Runs the fast local verification path:
+Runs the fast local verification path used by CI:
   1. install dependencies when node_modules is missing
   2. npm run typecheck
   3. npm test
   4. npm run test:viewer when viewer tests are present
   5. npm run verify:artifacts
 
-iOS Simulator smoke is gated off by default for CI and can be enabled with
---smoke-ios or ATLAS_LOOP_RUN_IOS_SMOKE=1.
+iOS Simulator smoke is host-gated and off by default for CI. Enable it with
+--smoke-ios or ATLAS_LOOP_RUN_IOS_SMOKE=1 on a macOS/Xcode host with a booted
+Simulator.
 USAGE
       exit 0
       ;;
@@ -73,5 +74,5 @@ if [[ "$RUN_SMOKE" == "1" ]]; then
   echo "[verify-local] npm run smoke:ios"
   npm run smoke:ios
 else
-  echo "[verify-local] iOS Simulator smoke skipped; pass --smoke-ios or set ATLAS_LOOP_RUN_IOS_SMOKE=1 to enable"
+  echo "[verify-local] iOS Simulator smoke skipped; pass --smoke-ios or set ATLAS_LOOP_RUN_IOS_SMOKE=1 on a macOS/Xcode host with a booted Simulator"
 fi

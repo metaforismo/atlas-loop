@@ -26,6 +26,7 @@ import {
   type ActionResult,
   type ApiEnvelope,
   type ArtifactRef,
+  type ArtifactType,
   type AtlasLoopError,
   type AtlasLoopErrorCode,
   type BuildRequest,
@@ -75,6 +76,28 @@ interface DaemonState {
   simulator: SimulatorApi;
   hidClientFactory: (options: HidClientOptions) => HidClient;
   sessions: Map<string, SessionState>;
+}
+
+interface SessionSummary {
+  session: Session;
+  paths: {
+    artifactDir: string;
+    manifest: string;
+    trace: string;
+    screenshots: string;
+  };
+  artifacts: {
+    total: number;
+    byType: Partial<Record<ArtifactType, number>>;
+    latestScreenshot?: ArtifactRef;
+  };
+  events: {
+    total: number;
+    latestAction?: Pick<ActionResult, "actionId" | "ok" | "startedAt" | "endedAt" | "error"> & {
+      artifactCount: number;
+    };
+    latestError?: AtlasLoopError;
+  };
 }
 
 export async function startDaemonServer(options: DaemonOptions = {}): Promise<StartedDaemon> {
@@ -160,11 +183,15 @@ async function handleRequest(state: DaemonState, request: IncomingMessage, respo
     }
 
     const sessionId = parts[1];
-    const sessionState = state.sessions.get(sessionId);
-    if (!sessionState) throw atlasError("NOT_FOUND", `session not found: ${sessionId}`);
+    const sessionState = resolveSessionState(state, sessionId);
 
     if (request.method === "GET" && parts.length === 2) {
       sendJson(response, 200, { ok: true, data: sessionState.session });
+      return;
+    }
+
+    if (request.method === "GET" && parts.length === 3 && parts[2] === "summary") {
+      sendJson(response, 200, { ok: true, data: await getSessionSummary(sessionState) });
       return;
     }
 
@@ -256,6 +283,34 @@ async function createSession(state: DaemonState, request: CreateSessionRequest):
   await writeManifest(layout, []);
   await recordTrace(layout, { type: "session.created", at, session });
   return session;
+}
+
+function resolveSessionState(state: DaemonState, sessionId: string): SessionState {
+  if (sessionId === "latest") return latestSessionState(state);
+  const sessionState = state.sessions.get(sessionId);
+  if (!sessionState) throw atlasError("NOT_FOUND", `session not found: ${sessionId}`);
+  return sessionState;
+}
+
+function latestSessionState(state: DaemonState): SessionState {
+  const sessions = [...state.sessions.values()];
+  if (sessions.length === 0) {
+    throw atlasError("NOT_FOUND", "no sessions are available for latest alias");
+  }
+
+  const active = sessions.filter((entry) => !["ended", "failed"].includes(entry.session.status));
+  return mostRecentlyUpdated(active.length > 0 ? active : sessions);
+}
+
+function mostRecentlyUpdated(sessions: SessionState[]): SessionState {
+  return sessions.reduce((latest, candidate) => (
+    timestamp(candidate.session.updatedAt) >= timestamp(latest.session.updatedAt) ? candidate : latest
+  ));
+}
+
+function timestamp(value: string): number {
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? 0 : parsed;
 }
 
 async function buildApp(state: DaemonState, sessionState: SessionState, request: BuildRequest): Promise<unknown> {
@@ -439,6 +494,59 @@ async function latestScreenshot(sessionState: SessionState): Promise<ArtifactRef
     throw atlasError("NOT_FOUND", `no screenshot artifact for session ${sessionState.session.id}`);
   }
   return artifactFromPath(sessionState.layout, "screenshot", latestPath, { latest: true });
+}
+
+async function tryLatestScreenshot(sessionState: SessionState): Promise<ArtifactRef | undefined> {
+  try {
+    return await latestScreenshot(sessionState);
+  } catch (error) {
+    const atlasLoopError = normalizeError(error);
+    if (atlasLoopError.code === "NOT_FOUND") return undefined;
+    throw error;
+  }
+}
+
+async function getSessionSummary(sessionState: SessionState): Promise<SessionSummary> {
+  const events = await readEvents(sessionState);
+  const completedActions = events.filter((event): event is Extract<TraceEvent, { type: "action.completed" }> => (
+    event.type === "action.completed"
+  ));
+  const errorEvents = events.filter((event): event is Extract<TraceEvent, { type: "error" }> => event.type === "error");
+  const latestAction = completedActions.at(-1)?.result;
+
+  return {
+    session: sessionState.session,
+    paths: {
+      artifactDir: sessionState.layout.sessionPath,
+      manifest: sessionState.layout.manifestPath,
+      trace: sessionState.layout.tracePath,
+      screenshots: sessionState.layout.screenshotsDir
+    },
+    artifacts: {
+      total: sessionState.artifacts.length,
+      byType: countArtifactsByType(sessionState.artifacts),
+      latestScreenshot: await tryLatestScreenshot(sessionState)
+    },
+    events: {
+      total: events.length,
+      latestAction: latestAction ? {
+        actionId: latestAction.actionId,
+        ok: latestAction.ok,
+        startedAt: latestAction.startedAt,
+        endedAt: latestAction.endedAt,
+        artifactCount: latestAction.artifacts.length,
+        error: latestAction.error
+      } : undefined,
+      latestError: errorEvents.at(-1)?.error
+    }
+  };
+}
+
+function countArtifactsByType(artifacts: ArtifactRef[]): Partial<Record<ArtifactType, number>> {
+  return artifacts.reduce<Partial<Record<ArtifactType, number>>>((counts, artifact) => {
+    counts[artifact.type] = (counts[artifact.type] ?? 0) + 1;
+    return counts;
+  }, {});
 }
 
 async function sendLatestScreenshotImage(response: ServerResponse, sessionState: SessionState): Promise<void> {

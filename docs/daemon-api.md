@@ -10,7 +10,9 @@ Recommended endpoints:
 
 - `GET /healthz`: Returns daemon readiness and version metadata.
 - `POST /v1/sessions`: Creates a session from a `CreateSessionRequest`.
+- `GET /v1/sessions`: Lists active daemon sessions.
 - `GET /v1/sessions/:id`: Returns the current session object.
+- `GET /v1/sessions/:id/summary`: Returns session status, artifact paths, artifact counts, latest action/error, and latest screenshot metadata.
 - `POST /v1/sessions/:id/build`: Builds an app for the target Simulator.
 - `POST /v1/sessions/:id/install`: Installs an app bundle.
 - `POST /v1/sessions/:id/launch`: Launches an installed app.
@@ -18,9 +20,15 @@ Recommended endpoints:
 - `POST /v1/sessions/:id/end`: Ends the session and flushes artifacts.
 - `GET /v1/sessions/:id/artifacts`: Lists known artifact references.
 - `GET /v1/sessions/:id/latest-screenshot`: Returns the latest screenshot image.
+- `GET /v1/sessions/:id/artifacts/latest-screenshot`: Returns the latest screenshot artifact reference as JSON.
 
 The daemon also accepts the same session routes without the `/v1` prefix for
 older local clients.
+
+Session routes accept `latest` anywhere `:id` is shown. The alias resolves to
+the most recently updated non-ended/non-failed session, or to the most recently
+updated session when no active sessions remain. When no sessions exist, the
+daemon returns `NOT_FOUND`.
 
 Responses should use the protocol envelope:
 
@@ -57,17 +65,41 @@ Required tool names:
 
 - `atlas.createSession`
 - `atlas.getSession`
+- `atlas.getSessionSummary`
 - `atlas.performAction`
 - `atlas.endSession`
 
 Recommended additional tool names:
 
+- `atlas.health`
+- `atlas.listSessions`
 - `atlas.build`
 - `atlas.install`
 - `atlas.launch`
 - `atlas.listArtifacts`
+- `atlas.latestScreenshot`
 
-Tool calls should return structured JSON content. Daemon failures should be surfaced as MCP tool errors with the Atlas Loop error code and message preserved.
+Tool calls should return structured JSON content:
+
+```json
+{
+  "ok": true,
+  "data": {}
+}
+```
+
+Daemon and validation failures should return structured tool errors with the
+Atlas Loop error code and message preserved:
+
+```json
+{
+  "ok": false,
+  "error": {
+    "code": "NOT_FOUND",
+    "message": "session not found: sess_missing"
+  }
+}
+```
 
 ## Request Semantics
 

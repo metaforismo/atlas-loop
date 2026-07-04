@@ -86,6 +86,115 @@ describe("HidClient", () => {
     expect(request.data).toEqual({ appName: "Simulator", windowTitleContains: "iPhone 16" });
   });
 
+  it("requests diagnostics through helper metrics", async () => {
+    const child = new FakeChild();
+    const client = new HidClient({
+      helperPath: "/tmp/helper",
+      spawnHelper: () => child as never,
+      defaultTimeoutMs: 500
+    });
+
+    const pending = client.diagnostics();
+    const request = JSON.parse(child.writes[0]);
+    child.stdout.write(`${JSON.stringify({
+      id: request.id,
+      type: request.type,
+      ok: true,
+      data: {
+        backend: "macos-cgevent-simulator-window",
+        diagnostics: { readyForInput: false }
+      }
+    })}\n`);
+
+    await expect(pending).resolves.toEqual({
+      backend: "macos-cgevent-simulator-window",
+      diagnostics: { readyForInput: false }
+    });
+    expect(request.type).toBe("metrics");
+    expect(request.data).toEqual({});
+  });
+
+  it("preserves helper error codes and details on helper failures", async () => {
+    const child = new FakeChild();
+    const client = new HidClient({
+      helperPath: "/tmp/helper",
+      spawnHelper: () => child as never,
+      defaultTimeoutMs: 500
+    });
+
+    const pending = client.attach({ windowTitleContains: "iPhone 16" });
+    const request = JSON.parse(child.writes[0]);
+    child.stderr.write("attach search failed\n");
+    child.stdout.write(`${JSON.stringify({
+      id: request.id,
+      type: request.type,
+      ok: false,
+      error: {
+        code: "windowNotFound",
+        message: "No visible Simulator window matched attach options",
+        retryable: true,
+        details: {
+          category: "windowDiscovery",
+          matchingWindowCount: 0
+        }
+      }
+    })}\n`);
+
+    await expect(pending).rejects.toMatchObject({
+      name: "HidClientError",
+      code: "HID_FAILED",
+      message: "No visible Simulator window matched attach options",
+      retryable: true,
+      details: {
+        stderr: "attach search failed\n",
+        helperCode: "windowNotFound",
+        helperError: {
+          code: "windowNotFound",
+          retryable: true,
+          details: {
+            category: "windowDiscovery",
+            matchingWindowCount: 0
+          }
+        }
+      }
+    });
+  });
+
+  it("maps helper request validation failures to INVALID_REQUEST while retaining helper details", async () => {
+    const child = new FakeChild();
+    const client = new HidClient({
+      helperPath: "/tmp/helper",
+      spawnHelper: () => child as never,
+      defaultTimeoutMs: 500
+    });
+
+    const pending = client.tap({ udid: "booted", x: 1.5, y: 0.5 });
+    const request = JSON.parse(child.writes[0]);
+    child.stdout.write(`${JSON.stringify({
+      id: request.id,
+      type: request.type,
+      ok: false,
+      error: {
+        code: "invalidCoordinates",
+        message: "x must be in the closed range 0...1",
+        retryable: false,
+        details: { category: "validation" }
+      }
+    })}\n`);
+
+    await expect(pending).rejects.toMatchObject({
+      code: "INVALID_REQUEST",
+      retryable: false,
+      details: {
+        helperCode: "invalidCoordinates",
+        helperError: {
+          code: "invalidCoordinates",
+          details: { category: "validation" }
+        }
+      }
+    });
+  });
+
   it("rejects timed out requests with captured stderr", async () => {
     const child = new FakeChild();
     const client = new HidClient({

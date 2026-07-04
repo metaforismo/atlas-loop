@@ -117,6 +117,7 @@ npm run cli -- --help >/dev/null
 
 if [[ -d "$DEMO_APP_PATH" ]]; then
   echo "[smoke-ios] running Atlas Loop install/launch/screenshot smoke"
+  echo "[smoke-ios] note: coordinate input smoke is host-gated by Simulator window focus and Accessibility permission"
   SESSION_JSON="$(ATLAS_LOOP_DAEMON_URL="http://127.0.0.1:$PORT" npm run --silent cli -- session start --udid "$BOOTED_UDID" --viewer)"
   printf '%s\n' "$SESSION_JSON" >"$LOG_DIR/session.json"
   SESSION_ID="$(node -e 'const fs=require("fs"); const s=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(s.id)' "$LOG_DIR/session.json")"

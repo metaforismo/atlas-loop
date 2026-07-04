@@ -42,6 +42,14 @@ async function main(args: Args): Promise<number> {
       printJson(session);
       return 0;
     }
+    if (subcommand === "list" || subcommand === "ls") {
+      printJson(await client.listSessions());
+      return 0;
+    }
+    if (subcommand === "status" || subcommand === "summary") {
+      printJson(await client.getSessionSummary(requireFlag(flags, "session")));
+      return 0;
+    }
     if (subcommand === "stop" || subcommand === "end") {
       printJson(await client.endSession(requireFlag(flags, "session")));
       return 0;
@@ -105,6 +113,27 @@ async function main(args: Args): Promise<number> {
 
   if (command === "artifacts" && subcommand === "list") {
     printJson(await client.listArtifacts(requireFlag(flags, "session")));
+    return 0;
+  }
+
+  if (command === "artifacts" && (subcommand === "latest-screenshot" || subcommand === "latest")) {
+    printJson(await client.latestScreenshot(requireFlag(flags, "session")));
+    return 0;
+  }
+
+  if (command === "artifacts" && subcommand === "path") {
+    const summary = await client.getSessionSummary(requireFlag(flags, "session"));
+    printJson({ path: summary.paths.artifactDir });
+    return 0;
+  }
+
+  if (command === "artifacts" && subcommand === "open") {
+    const sessionId = requireFlag(flags, "session");
+    const path = booleanFlag(flags, "latest-screenshot")
+      ? (await client.latestScreenshot(sessionId)).path
+      : (await client.getSessionSummary(sessionId)).paths.artifactDir;
+    openPath(path);
+    printJson({ ok: true, path });
     return 0;
   }
 
@@ -211,6 +240,10 @@ function printJson(value: unknown): void {
   console.log(JSON.stringify(value, null, 2));
 }
 
+function openPath(path: string): void {
+  spawn("open", [path], { stdio: "ignore", detached: true }).unref();
+}
+
 function printHelp(): void {
   console.log(`Atlas Loop CLI
 
@@ -218,6 +251,8 @@ Usage:
   atlas-loop doctor
   atlas-loop daemon start --port 4317
   atlas-loop session start --simulator "iPhone 16" [--viewer]
+  atlas-loop session list
+  atlas-loop session status --session <id>
   atlas-loop session stop --session <id>
   atlas-loop build --session <id> --project <path> --scheme <scheme>
   atlas-loop install --session <id> --app <path.app>
@@ -226,7 +261,14 @@ Usage:
   atlas-loop type --session <id> --text "Ada Lovelace"
   atlas-loop swipe --session <id> --from 0.5,0.8 --to 0.5,0.2 --duration-ms 350
   atlas-loop screenshot --session <id> [--reason label]
+  atlas-loop artifacts list --session <id>
+  atlas-loop artifacts latest-screenshot --session <id>
+  atlas-loop artifacts path --session <id>
+  atlas-loop artifacts open --session <id> [--latest-screenshot]
   atlas-loop viewer open --session <id> [--launch]
+
+Options:
+  --daemon-url <url>  Local daemon URL (default: ATLAS_LOOP_DAEMON_URL or http://127.0.0.1:4317)
 `);
 }
 

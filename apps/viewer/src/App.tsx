@@ -9,6 +9,16 @@ import {
 } from "./api.js";
 import { buildTimelineItems, mergeTraceEvents, sortArtifacts } from "./timeline.js";
 import type { ArtifactRef, HealthState, ScreenshotState, Session, TraceEvent, ViewerParams } from "./types.js";
+import {
+  eventModeTone,
+  formatDateTime,
+  formatTime,
+  healthTone,
+  latestArtifactOfType,
+  sessionTone,
+  summarizeArtifacts,
+  type UiTone
+} from "./viewerPresentation.js";
 import { buildSessionUrl, readViewerParams, writeViewerSearch } from "./viewerParams.js";
 
 const TRACE_EVENT_TYPES = [
@@ -226,11 +236,10 @@ export function App() {
   }, [params]);
 
   const latestArtifact = artifacts[0];
-  const artifactCounts = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const artifact of artifacts) counts.set(artifact.type, (counts.get(artifact.type) ?? 0) + 1);
-    return [...counts.entries()].sort(([a], [b]) => a.localeCompare(b));
-  }, [artifacts]);
+  const latestScreenshotArtifact = useMemo(() => latestArtifactOfType(artifacts, "screenshot"), [artifacts]);
+  const artifactSummaries = useMemo(() => summarizeArtifacts(artifacts), [artifacts]);
+  const selectedSessionId = session?.id ?? params.sessionId;
+  const hasDraftChanges = draft.daemonUrl !== params.daemonUrl || draft.sessionId !== params.sessionId;
 
   const submit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
@@ -240,93 +249,121 @@ export function App() {
 
   return (
     <main className="viewer-shell">
-      <aside className="rail panel">
+      <aside className="rail panel" aria-label="Viewer connection and session list">
         <div className="brand-block">
           <div>
             <p className="kicker">Atlas Loop</p>
-            <h1>Live Viewer</h1>
+            <h1>Runtime evidence</h1>
           </div>
-          <span className={`health-dot ${health}`} aria-label={`Daemon ${health}`} />
+          <span className={`health-dot ${health}`} aria-label={`Daemon ${health}`} title={`Daemon ${health}`} />
         </div>
 
         <form className="connection-form" onSubmit={submit}>
           <label>
-            Daemon URL
+            <span>Daemon URL</span>
             <input
               value={draft.daemonUrl}
               onChange={(event) => setDraft((current) => ({ ...current, daemonUrl: event.target.value }))}
               spellCheck={false}
+              aria-label="Daemon URL"
             />
           </label>
           <label>
-            Session ID
+            <span>Session ID</span>
             <input
               value={draft.sessionId}
               onChange={(event) => setDraft((current) => ({ ...current, sessionId: event.target.value }))}
               spellCheck={false}
+              aria-label="Session ID"
             />
           </label>
-          <button type="submit">Connect</button>
+          <button type="submit">{hasDraftChanges ? "Apply connection" : "Reconnect"}</button>
         </form>
 
-        <section className="status-stack" aria-label="Session status">
-          <StatusRow label="Daemon" value={health} tone={health === "online" ? "good" : health === "offline" ? "bad" : "warn"} />
-          <StatusRow label="Events" value={eventMode} tone={eventMode === "sse" ? "good" : "warn"} />
-          <StatusRow label="Session" value={session?.status ?? "pending"} tone={session?.status === "failed" ? "bad" : session?.status === "running" ? "good" : "neutral"} />
+        <section className="session-list" aria-label="Sessions">
+          <div className="panel-title-row">
+            <h2>Session focus</h2>
+            <span>{eventMode}</span>
+          </div>
+          <article className={`session-row tone-${sessionTone(session?.status)}`} aria-current="true">
+            <div>
+              <strong>{selectedSessionId}</strong>
+              <span>{session?.simulator?.name ?? "Waiting for simulator metadata"}</span>
+            </div>
+            <small>{session?.status ?? "pending"}</small>
+          </article>
+          <p className="hint-text">Point this panel at a session ID or keep `latest` to follow the newest local run.</p>
+        </section>
+
+        <section className="status-stack" aria-label="Runtime status">
+          <StatusRow label="Daemon" value={health} tone={healthTone(health)} />
+          <StatusRow label="Events" value={eventMode} tone={eventModeTone(eventMode)} />
+          <StatusRow label="Session" value={session?.status ?? "pending"} tone={sessionTone(session?.status)} />
           <StatusRow label="Artifacts" value={String(artifacts.length)} tone="neutral" />
         </section>
 
-        {lastError ? <p className="inline-error">{lastError}</p> : null}
+        {lastError ? <ErrorNotice message={lastError} /> : null}
       </aside>
 
       <section className="stage panel" aria-label="Latest iPhone screenshot">
         <div className="stage-topbar">
           <div>
-            <p className="kicker">Session</p>
-            <h2>{session?.id ?? params.sessionId}</h2>
+            <p className="kicker">Live device viewport</p>
+            <h2>{selectedSessionId}</h2>
+            <span className="stage-subtitle">{session?.app?.bundleId ?? session?.app?.scheme ?? "No app metadata yet"}</span>
           </div>
-          <span className={`session-chip status-${session?.status ?? "pending"}`}>{session?.status ?? "pending"}</span>
+          <div className="stage-actions">
+            <span className={`live-badge tone-${healthTone(health)}`}>{health === "online" ? "live" : health}</span>
+            <span className={`session-chip status-${session?.status ?? "pending"}`}>{session?.status ?? "pending"}</span>
+          </div>
         </div>
 
-        <div className="phone-stand">
-          <div className="phone-frame">
-            <div className="phone-speaker" />
-            <ScreenshotView screenshot={screenshot} />
+        <div className="device-workbench">
+          <div className="viewport-meta" aria-label="Screenshot metadata">
+            <MetricTile label="Screenshot" value={screenshot.status} tone={screenshot.status === "error" ? "bad" : screenshot.status === "ready" ? "good" : "neutral"} />
+            <MetricTile label="Updated" value={screenshot.status === "ready" ? formatTime(screenshot.updatedAt) : "--"} />
+            <MetricTile label="Source" value={screenshot.status === "ready" ? screenshot.source : "--"} />
+          </div>
+
+          <div className="phone-stand">
+            <div className="phone-frame">
+              <div className="phone-speaker" />
+              <ScreenshotView screenshot={screenshot} />
+            </div>
+          </div>
+
+          <div className="viewport-footer">
+            <span>{latestScreenshotArtifact ? `Artifact ${latestScreenshotArtifact.id}` : "No screenshot artifact reported"}</span>
+            {screenshot.status === "ready" ? (
+              <a href={screenshot.src} target="_blank" rel="noreferrer">
+                Open image
+              </a>
+            ) : null}
           </div>
         </div>
       </section>
 
       <aside className="inspector panel" aria-label="Session metadata and artifacts">
-        <section>
+        <section className="inspector-section">
           <div className="panel-title-row">
-            <h2>Metadata</h2>
+            <h2>Evidence inspector</h2>
             <span>{session?.updatedAt ? formatTime(session.updatedAt) : "--"}</span>
           </div>
-          <dl className="meta-grid">
-            <dt>Simulator</dt>
-            <dd>{session?.simulator?.name ?? "--"}</dd>
-            <dt>Runtime</dt>
-            <dd>{session?.simulator?.runtime ?? "--"}</dd>
-            <dt>Backend</dt>
-            <dd>{session?.backend ?? "--"}</dd>
-            <dt>Bundle</dt>
-            <dd>{session?.app?.bundleId ?? "--"}</dd>
-            <dt>Artifact dir</dt>
-            <dd>{session?.artifactDir ?? "--"}</dd>
-          </dl>
+          {session ? <MetadataGrid session={session} /> : <MetadataSkeleton />}
+          {session?.error ? <ErrorNotice message={session.error.message} compact /> : null}
         </section>
 
-        <section>
+        <section className="inspector-section artifact-section">
           <div className="panel-title-row">
             <h2>Artifacts</h2>
-            <span>{latestArtifact ? formatTime(latestArtifact.createdAt) : "--"}</span>
+            <span>{latestArtifact ? formatDateTime(latestArtifact.createdAt) : "--"}</span>
           </div>
 
-          {artifactCounts.length > 0 ? (
+          {artifactSummaries.length > 0 ? (
             <div className="artifact-counts">
-              {artifactCounts.map(([type, count]) => (
-                <span key={type}>
-                  {type} {count}
+              {artifactSummaries.map((summary) => (
+                <span key={summary.type}>
+                  <strong>{summary.count}</strong> {summary.type}
                 </span>
               ))}
             </div>
@@ -334,9 +371,9 @@ export function App() {
 
           <div className="artifact-list">
             {artifacts.length === 0 ? (
-              <p className="muted">No artifacts reported.</p>
+              <EmptyState title="No artifacts yet" detail="Screenshots, logs, traces, and bundles will appear here as the daemon reports them." />
             ) : (
-              artifacts.slice(0, 8).map((artifact) => <ArtifactRow key={artifact.id} artifact={artifact} daemonUrl={params.daemonUrl} />)
+              artifacts.slice(0, 12).map((artifact) => <ArtifactRow key={artifact.id} artifact={artifact} daemonUrl={params.daemonUrl} />)
             )}
           </div>
         </section>
@@ -344,12 +381,12 @@ export function App() {
 
       <section className="timeline-panel panel" aria-label="Action and artifact timeline">
         <div className="panel-title-row">
-          <h2>Timeline</h2>
-          <span>{timeline.length} item(s)</span>
+          <h2>Action timeline</h2>
+          <span>{timeline.length} items</span>
         </div>
         <div className="timeline-strip">
           {timeline.length === 0 ? (
-            <p className="muted">Waiting for actions, events, or artifacts.</p>
+            <EmptyState title="Waiting for events" detail="The bottom rail fills with session state changes, actions, errors, and artifact captures." horizontal />
           ) : (
             timeline.map((item) => (
               <article className={`timeline-card tone-${item.tone}`} key={item.id}>
@@ -379,14 +416,61 @@ function ScreenshotView({ screenshot }: { screenshot: ScreenshotState }) {
 
   return (
     <div className={`screenshot-placeholder ${screenshot.status}`}>
+      {screenshot.status === "loading" ? (
+        <div className="screenshot-skeleton" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+        </div>
+      ) : null}
       <span>{message}</span>
     </div>
   );
 }
 
-function StatusRow({ label, value, tone }: { label: string; value: string; tone: "neutral" | "good" | "warn" | "bad" }) {
+function MetadataGrid({ session }: { session: Session }) {
+  return (
+    <dl className="meta-grid">
+      <dt>Simulator</dt>
+      <dd>{session.simulator?.name ?? "--"}</dd>
+      <dt>Runtime</dt>
+      <dd>{session.simulator?.runtime ?? "--"}</dd>
+      <dt>Backend</dt>
+      <dd>{session.backend ?? "--"}</dd>
+      <dt>Bundle</dt>
+      <dd>{session.app?.bundleId ?? "--"}</dd>
+      <dt>Workspace</dt>
+      <dd>{session.app?.workspacePath ?? session.app?.projectPath ?? "--"}</dd>
+      <dt>Created</dt>
+      <dd>{formatDateTime(session.createdAt)}</dd>
+      <dt>Artifact dir</dt>
+      <dd>{session.artifactDir ?? "--"}</dd>
+    </dl>
+  );
+}
+
+function MetadataSkeleton() {
+  return (
+    <div className="meta-skeleton" aria-label="Loading metadata">
+      {Array.from({ length: 6 }, (_, index) => (
+        <span key={index} />
+      ))}
+    </div>
+  );
+}
+
+function StatusRow({ label, value, tone }: { label: string; value: string; tone: UiTone }) {
   return (
     <div className={`status-row tone-${tone}`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function MetricTile({ label, value, tone = "neutral" }: { label: string; value: string; tone?: UiTone }) {
+  return (
+    <div className={`metric-tile tone-${tone}`}>
       <span>{label}</span>
       <strong>{value}</strong>
     </div>
@@ -399,7 +483,7 @@ function ArtifactRow({ artifact, daemonUrl }: { artifact: ArtifactRef; daemonUrl
     <>
       <span className="artifact-type">{artifact.type}</span>
       <strong>{artifact.path}</strong>
-      <small>{formatTime(artifact.createdAt)}</small>
+      <small>{formatDateTime(artifact.createdAt)}</small>
     </>
   );
 
@@ -412,9 +496,18 @@ function ArtifactRow({ artifact, daemonUrl }: { artifact: ArtifactRef; daemonUrl
   );
 }
 
-function formatTime(value: string | undefined): string {
-  if (!value) return "--";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+function EmptyState({ title, detail, horizontal = false }: { title: string; detail: string; horizontal?: boolean }) {
+  return (
+    <div className={`empty-state ${horizontal ? "horizontal" : ""}`}>
+      <span className="empty-glyph" aria-hidden="true" />
+      <div>
+        <strong>{title}</strong>
+        <p>{detail}</p>
+      </div>
+    </div>
+  );
+}
+
+function ErrorNotice({ message, compact = false }: { message: string; compact?: boolean }) {
+  return <p className={`inline-error ${compact ? "compact" : ""}`}>{message}</p>;
 }

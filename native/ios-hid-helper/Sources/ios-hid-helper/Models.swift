@@ -24,6 +24,11 @@ struct AttachOptions {
     let appName: String
     let windowTitleContains: String?
 
+    init(appName: String, windowTitleContains: String?) {
+        self.appName = appName
+        self.windowTitleContains = windowTitleContains
+    }
+
     init(data: [String: JSONValue]) {
         appName = data.string("appName") ?? "Simulator"
         windowTitleContains = data.string("windowTitleContains")

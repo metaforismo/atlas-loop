@@ -13,7 +13,10 @@ final class CGEventSimulatorWindowBackend: HIDBackend {
 
     func attach(options: AttachOptions) throws -> JSONValue {
         guard let attachment = findBestWindow(options: options) else {
-            throw HelperError.windowNotFound("No visible \(options.appName) window matched attach options")
+            throw HelperError.windowNotFound(
+                "No visible \(options.appName) window matched attach options",
+                details: attachFailureDetails(options: options)
+            )
         }
 
         currentAttachment = attachment
@@ -27,10 +30,16 @@ final class CGEventSimulatorWindowBackend: HIDBackend {
     }
 
     func metrics() -> JSONValue {
+        let trusted = AXIsProcessTrusted()
         var payload: [String: JSONValue] = [
             "backend": .string(name),
             "privateBackendAvailable": .bool(privateBackendAvailable),
-            "accessibilityTrusted": .bool(AXIsProcessTrusted())
+            "accessibilityTrusted": .bool(trusted),
+            "process": .object([
+                "pid": .number(Double(ProcessInfo.processInfo.processIdentifier)),
+                "executable": .string(CommandLine.arguments.first ?? "ios-hid-helper")
+            ]),
+            "diagnostics": diagnostics(accessibilityTrusted: trusted)
         ]
 
         if let currentAttachment {
@@ -118,11 +127,17 @@ final class CGEventSimulatorWindowBackend: HIDBackend {
 
 private extension CGEventSimulatorWindowBackend {
     func findBestWindow(options: AttachOptions) -> WindowAttachment? {
+        return matchingWindows(options: options).max { first, second in
+            (first.bounds.width * first.bounds.height) < (second.bounds.width * second.bounds.height)
+        }
+    }
+
+    func matchingWindows(options: AttachOptions) -> [WindowAttachment] {
         guard let rawWindows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
-            return nil
+            return []
         }
 
-        let candidates = rawWindows.compactMap { windowInfo -> WindowAttachment? in
+        return rawWindows.compactMap { windowInfo -> WindowAttachment? in
             guard let ownerName = windowInfo.stringValue(kCGWindowOwnerName),
                   ownerName.localizedCaseInsensitiveContains(options.appName),
                   windowInfo.intValue(kCGWindowLayer) == 0,
@@ -148,10 +163,6 @@ private extension CGEventSimulatorWindowBackend {
                 bounds: bounds
             )
         }
-
-        return candidates.max { first, second in
-            (first.bounds.width * first.bounds.height) < (second.bounds.width * second.bounds.height)
-        }
     }
 
     func activateAttachedApplication() {
@@ -173,6 +184,63 @@ private extension CGEventSimulatorWindowBackend {
         guard AXIsProcessTrusted() else {
             throw HelperError.permissionDenied("Enable Accessibility permission for this helper process to post events")
         }
+    }
+
+    func diagnostics(accessibilityTrusted: Bool) -> JSONValue {
+        var checks: [JSONValue] = [
+            .object([
+                "name": .string("accessibility"),
+                "ok": .bool(accessibilityTrusted),
+                "message": .string(accessibilityTrusted ? "Accessibility permission is granted" : "Accessibility permission is required before posting CGEvents")
+            ]),
+            .object([
+                "name": .string("attachment"),
+                "ok": .bool(currentAttachment != nil),
+                "message": .string(currentAttachment == nil ? "No Simulator window is attached" : "Simulator window is attached")
+            ]),
+            .object([
+                "name": .string("delivery"),
+                "ok": .bool(accessibilityTrusted && currentAttachment != nil),
+                "message": .string("CGEvent posting is host-gated; successful posting does not prove the guest app consumed input")
+            ])
+        ]
+
+        if let currentAttachment,
+           let app = NSRunningApplication(processIdentifier: currentAttachment.ownerPID) {
+            checks.append(.object([
+                "name": .string("applicationActive"),
+                "ok": .bool(app.isActive),
+                "message": .string(app.isActive ? "Attached Simulator application is active" : "Attached Simulator application is not frontmost")
+            ]))
+        }
+
+        return .object([
+            "readyForInput": .bool(accessibilityTrusted && currentAttachment != nil),
+            "hostGated": .bool(true),
+            "checks": .array(checks)
+        ])
+    }
+
+    func attachFailureDetails(options: AttachOptions) -> [String: JSONValue] {
+        var requested: [String: JSONValue] = [
+            "appName": .string(options.appName)
+        ]
+        if let windowTitleContains = options.windowTitleContains {
+            requested["windowTitleContains"] = .string(windowTitleContains)
+        }
+
+        let matchesWithoutTitle = matchingWindows(options: AttachOptions(
+            appName: options.appName,
+            windowTitleContains: nil
+        ))
+
+        return [
+            "category": .string("windowDiscovery"),
+            "requested": .object(requested),
+            "accessibilityTrusted": .bool(AXIsProcessTrusted()),
+            "matchingWindowCount": .number(Double(matchesWithoutTitle.count)),
+            "remediation": .string("Open a visible Simulator window on the active desktop, or relax windowTitleContains")
+        ]
     }
 
     func screenPoint(for point: NormalizedPoint) throws -> CGPoint {

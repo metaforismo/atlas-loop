@@ -2,6 +2,7 @@ import type {
   ActionInput,
   ActionResult,
   ApiEnvelope,
+  ArtifactType,
   ArtifactRef,
   AtlasLoopError,
   BuildRequest,
@@ -12,6 +13,28 @@ import type {
   Session,
   TraceEvent
 } from "@atlas-loop/protocol";
+
+export interface SessionSummary {
+  session: Session;
+  paths: {
+    artifactDir: string;
+    manifest: string;
+    trace: string;
+    screenshots: string;
+  };
+  artifacts: {
+    total: number;
+    byType: Partial<Record<ArtifactType, number>>;
+    latestScreenshot?: ArtifactRef;
+  };
+  events: {
+    total: number;
+    latestAction?: Pick<ActionResult, "actionId" | "ok" | "startedAt" | "endedAt" | "error"> & {
+      artifactCount: number;
+    };
+    latestError?: AtlasLoopError;
+  };
+}
 
 export interface DaemonClientOptions {
   baseUrl?: string;
@@ -58,6 +81,10 @@ export class DaemonClient {
 
   getSession(sessionId: string): Promise<Session> {
     return this.request("GET", `/sessions/${encodeURIComponent(sessionId)}`);
+  }
+
+  getSessionSummary(sessionId: string): Promise<SessionSummary> {
+    return this.request("GET", `/sessions/${encodeURIComponent(sessionId)}/summary`);
   }
 
   endSession(sessionId: string): Promise<Session> {

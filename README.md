@@ -35,7 +35,9 @@ Xcode releases. Evidence always records the selected backend.
 - Xcode command line tools
 - Node.js 20+
 - Swift toolchain
-- GitHub CLI only for publishing the repository
+- A booted iOS Simulator for Simulator smoke runs
+- Accessibility permission for the native helper process when driving CGEvent
+  input into the visible Simulator window
 
 ## Quick Start
 
@@ -43,21 +45,30 @@ Xcode releases. Evidence always records the selected backend.
 npm install
 npm run typecheck
 npm test
+npm run verify:artifacts
+```
+
+Start the local daemon:
+
+```bash
 npm run daemon -- --port 4317
 ```
 
-In another terminal:
+In another terminal, check connectivity and create a session:
 
 ```bash
 npm run cli -- doctor
 npm run cli -- session start --simulator "iPhone 16"
 ```
 
-Open the viewer:
+Open the viewer in a third terminal when you want live screenshot updates:
 
 ```bash
 npm run viewer
 ```
+
+The viewer is a local Vite app served on loopback. It reads the daemon session
+state and screenshots; it is not a hosted dashboard.
 
 ## Main Commands
 
@@ -78,6 +89,21 @@ atlas-loop session stop --session <id>
 Coordinates are normalized from `0.0` to `1.0`, with origin at the top-left of
 the latest screenshot.
 
+## MCP Server
+
+Atlas Loop includes a local stdio MCP server for agents that can call tools but
+should not know the daemon HTTP details directly.
+
+```bash
+npm run mcp
+```
+
+The MCP server lists its tool surface without requiring a daemon process. Tool
+calls such as `atlas.createSession`, `atlas.performAction`, `atlas.build`,
+`atlas.install`, `atlas.launch`, and `atlas.listArtifacts` forward to the local
+daemon at `ATLAS_LOOP_DAEMON_URL` or `http://127.0.0.1:4317` by default. See
+[docs/daemon-api.md](docs/daemon-api.md) for the JSON-RPC and daemon contract.
+
 ## Evidence Layout
 
 ```text
@@ -92,32 +118,58 @@ artifacts/sessions/<session-id>/
   video/
 ```
 
+Evidence is local filesystem state. `session.json` records the selected
+Simulator and backend, `actions.jsonl` records requested actions and results,
+`manifest.json` indexes known artifacts, and screenshots/logs/metadata remain
+under the session directory. Validate a single session or the whole artifact
+root with:
+
+```bash
+npm run verify:artifacts -- artifacts/sessions/<session-id>
+npm run verify:artifacts -- artifacts/sessions
+```
+
+Do not commit `artifacts/`; it may contain screenshots or logs from local apps.
+
 ## Verification
 
-Fast local checks:
+Fast local checks that are safe for CI:
+
+```bash
+npm run verify:local
+```
+
+This runs dependency installation when needed, TypeScript checks, unit/viewer/MCP
+tests, and artifact validation. It skips Simulator smoke unless explicitly
+enabled.
+
+Equivalent direct commands:
 
 ```bash
 npm run typecheck
 npm test
-```
-
-Full local verification:
-
-```bash
-./scripts/verify-local.sh
+npm run verify:artifacts
 ```
 
 Simulator smoke is macOS/Xcode gated:
 
 ```bash
 npm run smoke:ios
+# or
+bash scripts/verify-local.sh --smoke-ios
 ```
 
-The smoke script verifies the local proof loop that is reliable without private
+The smoke script verifies the local loop that is reliable without private
 Simulator APIs: build the helper, build the demo app, create a daemon session,
-install, launch, capture a screenshot, and validate artifacts. Coordinate input
-is available through the CLI/MCP action APIs, but full checkout-by-tap smoke
-depends on the Simulator GUI accepting macOS CGEvents on the host.
+install, launch, capture a screenshot, and validate artifacts. It exits with a
+clear `SKIP` message when macOS, Xcode, `simctl`, a booted Simulator, or source
+paths are unavailable. Set `ATLAS_LOOP_SMOKE_REQUIRE=1` in a dedicated Simulator
+environment to turn those skips into failures.
+
+Primitive coordinate input is available through the CLI, MCP, daemon, and native
+helper protocol. A full checkout-by-tap smoke is still host-gated: the v1 CGEvent
+backend needs a visible Simulator window, Accessibility permission, and a host
+configuration where posted macOS events are actually consumed by the guest app.
 
 ## Security
 

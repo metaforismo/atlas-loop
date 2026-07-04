@@ -25,7 +25,7 @@ The helper should:
 - Run only on macOS.
 - Target a caller-supplied booted Simulator UDID.
 - Accept normalized or pixel coordinates from the daemon after validation.
-- Return structured NDJSON errors for failed HID operations.
+- Return structured NDJSON errors for failed HID operations, including native helper `code`, `retryable`, and optional diagnostic `details`.
 - Avoid writing outside the active session artifact directory.
 
 The v1 backend attaches to the visible Simulator app window and posts CGEvents to
@@ -34,6 +34,56 @@ and the Simulator window must be visible on an active desktop. Some Simulator,
 display, or permission combinations can report successful event posting while the
 guest app does not consume the click; Atlas Loop records those actions as local
 evidence rather than hiding the host limitation.
+
+## Diagnostics
+
+Use `hello` to confirm protocol compatibility and command support:
+
+```json
+{"id":"1","type":"hello","data":{}}
+```
+
+Use `metrics` as the lightweight helper self-test:
+
+```json
+{"id":"2","type":"metrics","data":{}}
+```
+
+The TypeScript `HidClient` exposes this as both `metrics()` and
+`diagnostics()`. The response includes:
+
+- `backend` and `privateBackendAvailable`.
+- `accessibilityTrusted`, which must be true before the CGEvent backend can post input.
+- `process.pid` and `process.executable` for checking which binary needs host permissions.
+- `attachment` when a Simulator window is attached.
+- `diagnostics.readyForInput`, `diagnostics.hostGated`, and `diagnostics.checks`.
+
+`readyForInput` only means the helper has Accessibility trust and an attached
+window. It does not prove the Simulator guest consumed a tap, because CGEvent
+delivery is host-gated.
+
+Helper failures keep the native helper error under the client error details:
+
+```json
+{
+  "code": "HID_FAILED",
+  "details": {
+    "helperCode": "windowNotFound",
+    "helperError": {
+      "code": "windowNotFound",
+      "retryable": true,
+      "details": {
+        "category": "windowDiscovery",
+        "matchingWindowCount": 0
+      }
+    }
+  }
+}
+```
+
+Validation failures such as `invalidRequest`, `invalidCoordinates`, and
+`unknownCommand` are normalized to `INVALID_REQUEST` at the Atlas protocol layer,
+while still preserving the helper code and details.
 
 ## Smoke Requirements
 
