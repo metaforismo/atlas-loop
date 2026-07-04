@@ -139,8 +139,10 @@ host-posted event.
 
 `GET /v1/sessions`, `GET /v1/sessions/:id`, summary, artifact, event, and latest
 screenshot read routes can hydrate sessions directly from this layout after a
-daemon restart. Persisted sessions are read-only: mutation routes still require a
-live in-memory session.
+daemon restart. `GET /v1/sessions/:id/artifacts/health` uses the same readable
+session lookup, then validates the resolved local session directory and returns
+the validator report plus session and count summaries. Persisted sessions are
+read-only: mutation routes still require a live in-memory session.
 
 Malformed session records are skipped. Malformed artifact references are dropped
 from the recovered artifact list and reported as summary storage warnings when a
@@ -200,6 +202,20 @@ That file records local-only provenance for the exported bundle, including the
 session id, bundle directory, sidecar path, and `export.json` path.
 
 ## Validator
+
+Daemon-backed artifact health and direct artifact verification use the same
+local filesystem integrity rules, but they answer different questions:
+
+- `atlas-loop artifacts health --session <id|latest>` asks the daemon to resolve
+  one readable session, validate that session's artifact directory, and return
+  `ok`, `target`, session identifiers, `source`, `artifactDir`, `report`, and
+  validation summary counts. It is intended for session health checks, including
+  persisted sessions after daemon restart, and it does not upload or mutate
+  artifacts.
+- `atlas-loop artifacts verify --path <dir>` validates an explicit local target
+  without daemon I/O. `atlas-loop artifacts verify --session <id|latest>` uses
+  the daemon summary only to find `paths.artifactDir`, then runs the same local
+  validator. It is a validation helper, not a daemon health endpoint.
 
 Run:
 

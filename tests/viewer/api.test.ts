@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildViewerActionRequest,
+  fetchArtifactHealth,
   markScreenshotFetchFailed,
   mergeScreenshotFetchResult,
+  normalizeArtifactHealth,
   normalizeArtifactList,
   normalizeEventList,
   normalizeScreenshotPayload,
@@ -108,6 +110,92 @@ describe("viewer api normalizers", () => {
     await expect(
       performViewerAction({ daemonUrl: "http://127.0.0.1:4317", sessionId: "sess_old" }, { kind: "screenshot" })
     ).rejects.toMatchObject({ message: "active session not found: sess_old", status: 404 });
+  });
+
+  it("fetches artifact health from the session-scoped daemon endpoint", async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => (
+      new Response(
+        JSON.stringify({
+          ok: true,
+          data: {
+            ok: true,
+            target: "/tmp/atlas-loop/sess_1",
+            sessionId: "sess_1",
+            requestedSessionId: "latest",
+            source: "disk",
+            artifactDir: "/tmp/atlas-loop/sess_1",
+            report: { ok: true, target: "/tmp/atlas-loop/sess_1", sessionCount: 1, issues: [] },
+            summary: { sessionCount: 1, errorCount: 0, warningCount: 0, issueCount: 0 }
+          }
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        }
+      )
+    ));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(fetchArtifactHealth({ daemonUrl: "http://127.0.0.1:4317/", sessionId: "latest" })).resolves.toMatchObject({
+      ok: true,
+      sessionId: "sess_1",
+      requestedSessionId: "latest",
+      source: "disk",
+      summary: { sessionCount: 1, errorCount: 0, warningCount: 0, issueCount: 0 }
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:4317/v1/sessions/latest/artifacts/health",
+      expect.objectContaining({ cache: "no-store" })
+    );
+  });
+
+  it("normalizes artifact health and infers counts from validation issues", () => {
+    expect(
+      normalizeArtifactHealth({
+        ok: false,
+        target: "/tmp/atlas-loop/sess_bad",
+        sessionId: "sess_bad",
+        report: {
+          ok: false,
+          sessionCount: 1,
+          issues: [
+            { severity: "error", path: "/tmp/atlas-loop/sess_bad/session.json", message: "session status is not recognized" },
+            { severity: "warning", path: "/tmp/atlas-loop/sess_bad/logs", message: "logs directory is missing" },
+            "loose validator note"
+          ]
+        },
+        summary: { sessionCount: "1" }
+      })
+    ).toEqual({
+      ok: false,
+      target: "/tmp/atlas-loop/sess_bad",
+      sessionId: "sess_bad",
+      requestedSessionId: undefined,
+      source: undefined,
+      artifactDir: undefined,
+      report: {
+        ok: false,
+        target: undefined,
+        sessionCount: 1,
+        issues: [
+          { severity: "error", path: "/tmp/atlas-loop/sess_bad/session.json", message: "session status is not recognized" },
+          { severity: "warning", path: "/tmp/atlas-loop/sess_bad/logs", message: "logs directory is missing" },
+          { message: "loose validator note" }
+        ]
+      },
+      summary: {
+        sessionCount: 1,
+        errorCount: 1,
+        warningCount: 1,
+        issueCount: 3
+      }
+    });
+
+    expect(normalizeArtifactHealth(null)).toBeUndefined();
+    expect(normalizeArtifactHealth({})).toBeUndefined();
+    expect(normalizeArtifactHealth({ ok: true })).toBeUndefined();
+    expect(normalizeArtifactHealth({ ok: true, summary: {} })).toBeUndefined();
+    expect(normalizeArtifactHealth({ ok: true, report: {} })).toBeUndefined();
   });
 
   it("accepts raw artifact arrays and wrapped artifact collections", () => {

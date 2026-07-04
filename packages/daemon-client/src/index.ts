@@ -44,6 +44,39 @@ export interface SessionSummary {
   };
 }
 
+export type ArtifactValidationSeverity = "error" | "warning";
+
+export interface ArtifactValidationIssue {
+  severity: ArtifactValidationSeverity;
+  path: string;
+  message: string;
+}
+
+export interface ArtifactValidationReport {
+  target: string;
+  sessionCount: number;
+  ok: boolean;
+  issues: ArtifactValidationIssue[];
+}
+
+export interface SessionArtifactHealthSummary {
+  sessionCount: number;
+  errorCount: number;
+  warningCount: number;
+  issueCount: number;
+}
+
+export interface SessionArtifactHealth {
+  ok: boolean;
+  target: string;
+  sessionId: string;
+  requestedSessionId: string;
+  source: "memory" | "disk";
+  artifactDir: string;
+  report: ArtifactValidationReport;
+  summary: SessionArtifactHealthSummary;
+}
+
 export interface CompactEvidenceSummary {
   sessionId: string;
   requestedSessionId: string;
@@ -203,6 +236,14 @@ export class DaemonClient {
 
   getSessionSummary(sessionId: string): Promise<SessionSummary> {
     return this.requestData("GET", `/sessions/${encodeURIComponent(sessionId)}/summary`, "session summary");
+  }
+
+  getSessionArtifactHealth(sessionId: string): Promise<SessionArtifactHealth> {
+    return this.requestData(
+      "GET",
+      `/sessions/${encodeURIComponent(sessionId)}/artifacts/health`,
+      "session artifact health"
+    );
   }
 
   endSession(sessionId: string): Promise<Session> {

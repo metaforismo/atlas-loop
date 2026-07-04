@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, FormEvent, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
 import {
+  fetchArtifactHealth,
   fetchArtifacts,
   fetchEvents,
   fetchHealth,
@@ -18,6 +19,7 @@ import {
 import { buildTimelineItems, mergeTraceEvents, sortArtifacts } from "./timeline.js";
 import type {
   ActionResultLike,
+  ArtifactHealth,
   ArtifactRef,
   HealthState,
   ScreenshotState,
@@ -30,6 +32,7 @@ import type {
   ViewerParams
 } from "./types.js";
 import {
+  artifactHealthPresentation,
   artifactDetailRows,
   artifactDisplayName,
   artifactTypeOptions,
@@ -46,6 +49,8 @@ import {
   sessionUpdatedAt,
   sortSessionList,
   timelineFilterOptions,
+  visibleArtifactHealth,
+  type ArtifactHealthStatus,
   type TimelineFilter,
   type UiTone
 } from "./viewerPresentation.js";
@@ -148,6 +153,9 @@ function useAtlasLoopData(params: ViewerParams) {
   const [sessionListError, setSessionListError] = useState<string | undefined>();
   const [session, setSession] = useState<Session | undefined>();
   const [sessionSummary, setSessionSummary] = useState<SessionSummary | undefined>();
+  const [artifactHealth, setArtifactHealth] = useState<ArtifactHealth | undefined>();
+  const [artifactHealthStatus, setArtifactHealthStatus] = useState<ArtifactHealthStatus>("loading");
+  const [artifactHealthError, setArtifactHealthError] = useState<string | undefined>();
   const [artifacts, setArtifacts] = useState<ArtifactRef[]>([]);
   const [events, setEvents] = useState<TraceEvent[]>([]);
   const [screenshot, setScreenshot] = useState<ScreenshotState>({ status: "loading" });
@@ -157,6 +165,14 @@ function useAtlasLoopData(params: ViewerParams) {
   const screenshotUrlRef = useRef<string | undefined>(undefined);
   const resolvedScreenshotKeyRef = useRef<string | undefined>(undefined);
   const latestScreenshotKey = useMemo(() => screenshotArtifactIdentity(sessionSummary, artifacts), [sessionSummary, artifacts]);
+  const artifactHealthRefreshKey = [
+    session?.id,
+    session?.status,
+    session?.updatedAt,
+    sessionSummary?.artifacts.total,
+    sessionSummary?.events.total,
+    latestScreenshotKey
+  ].join("|");
 
   useEffect(() => {
     setHealth("checking");
@@ -168,6 +184,9 @@ function useAtlasLoopData(params: ViewerParams) {
   useEffect(() => {
     setSession(undefined);
     setSessionSummary(undefined);
+    setArtifactHealth(undefined);
+    setArtifactHealthStatus("loading");
+    setArtifactHealthError(undefined);
     setArtifacts([]);
     setEvents([]);
     setScreenshot({ status: "loading" });
@@ -249,6 +268,52 @@ function useAtlasLoopData(params: ViewerParams) {
       window.clearInterval(timer);
     };
   }, [params.daemonUrl, params.sessionId]);
+
+  useEffect(() => {
+    if (health === "checking") {
+      setArtifactHealthStatus("loading");
+      setArtifactHealthError(undefined);
+      return;
+    }
+
+    if (health === "offline") {
+      setArtifactHealth(undefined);
+      setArtifactHealthStatus("offline");
+      setArtifactHealthError("Daemon is offline or not reachable.");
+      return;
+    }
+
+    const controller = new AbortController();
+    let loading = false;
+
+    const load = async (): Promise<void> => {
+      if (loading) return;
+      loading = true;
+      setArtifactHealthStatus((current) => (current === "ready" ? current : "loading"));
+      setArtifactHealthError(undefined);
+
+      try {
+        const nextHealth = await fetchArtifactHealth(params, controller.signal);
+        if (controller.signal.aborted) return;
+        setArtifactHealth(nextHealth);
+        setArtifactHealthStatus("ready");
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        setArtifactHealth(undefined);
+        setArtifactHealthStatus("error");
+        setArtifactHealthError(error instanceof Error ? error.message : "Failed to load artifact health.");
+      } finally {
+        loading = false;
+      }
+    };
+
+    void load();
+    const timer = window.setInterval(() => void load(), 30000);
+    return () => {
+      controller.abort();
+      window.clearInterval(timer);
+    };
+  }, [health, params.daemonUrl, params.sessionId, artifactHealthRefreshKey]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -370,6 +435,9 @@ function useAtlasLoopData(params: ViewerParams) {
     sessionListError,
     session,
     sessionSummary,
+    artifactHealth,
+    artifactHealthStatus,
+    artifactHealthError,
     artifacts,
     events,
     screenshot,
@@ -440,8 +508,22 @@ function formatTapCoordinate(value: number): string {
 
 export function App() {
   const params = useViewerParams();
-  const { health, sessions, sessionListStatus, sessionListError, session, sessionSummary, artifacts, screenshot, eventMode, lastError, timeline } =
-    useAtlasLoopData(params);
+  const {
+    health,
+    sessions,
+    sessionListStatus,
+    sessionListError,
+    session,
+    sessionSummary,
+    artifactHealth,
+    artifactHealthStatus,
+    artifactHealthError,
+    artifacts,
+    screenshot,
+    eventMode,
+    lastError,
+    timeline
+  } = useAtlasLoopData(params);
   const [draft, setDraft] = useState(params);
   const [artifactTypeFilter, setArtifactTypeFilter] = useState("all");
   const [artifactQuery, setArtifactQuery] = useState("");
@@ -720,6 +802,7 @@ export function App() {
           </div>
           {session ? <MetadataGrid session={session} /> : <MetadataSkeleton />}
           {sessionSummary ? <SummaryEvidence summary={sessionSummary} /> : null}
+          <EvidenceHealthPanel health={artifactHealth} status={artifactHealthStatus} error={artifactHealthError} />
           {session?.error ? <ErrorNotice message={session.error.message} compact /> : null}
         </section>
 
@@ -1333,6 +1416,82 @@ function SummaryEvidence({ summary }: { summary: SessionSummary }) {
         </div>
       ) : null}
     </section>
+  );
+}
+
+function EvidenceHealthPanel({
+  health,
+  status,
+  error
+}: {
+  health: ArtifactHealth | undefined;
+  status: ArtifactHealthStatus;
+  error?: string;
+}) {
+  const visibleHealth = visibleArtifactHealth(health, status);
+  const presentation = artifactHealthPresentation(visibleHealth, status, error);
+  const summary = visibleHealth?.summary;
+  const isLoading = status === "loading";
+  const issueRemainder = summary ? Math.max(0, summary.issueCount - presentation.issuePreview.length) : 0;
+  const statusText = summary
+    ? `${presentation.title}. OK ${visibleHealth?.ok ? "yes" : "no"}. ${summary.errorCount} errors, ${summary.warningCount} warnings, ${summary.issueCount} issues.`
+    : `${presentation.title}. ${presentation.detail}`;
+
+  return (
+    <section className={`evidence-health tone-${presentation.tone}`} aria-label="Evidence health" aria-busy={isLoading}>
+      <div className="panel-title-row">
+        <h2>Evidence health</h2>
+        <span>{presentation.statusText}</span>
+      </div>
+      <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+        {statusText}
+      </p>
+
+      <div className="evidence-health-banner">
+        <strong>{presentation.title}</strong>
+        <span>{presentation.detail}</span>
+      </div>
+
+      <div className="evidence-health-counts" aria-label="Artifact health counts">
+        <EvidenceHealthCount label="OK" value={summary ? (visibleHealth?.ok ? "yes" : "no") : "--"} tone={summary ? (visibleHealth?.ok ? "good" : "bad") : "neutral"} />
+        <EvidenceHealthCount label="Errors" value={summary ? String(summary.errorCount) : "--"} tone={summary?.errorCount ? "bad" : "neutral"} />
+        <EvidenceHealthCount label="Warnings" value={summary ? String(summary.warningCount) : "--"} tone={summary?.warningCount ? "warn" : "neutral"} />
+        <EvidenceHealthCount label="Issues" value={summary ? String(summary.issueCount) : "--"} tone={summary?.issueCount ? presentation.tone : "neutral"} />
+      </div>
+
+      <div className="evidence-health-issues" aria-label="Artifact health issue preview">
+        {isLoading ? (
+          <div className="health-loading-lines" aria-hidden="true">
+            <span />
+            <span />
+          </div>
+        ) : presentation.issuePreview.length > 0 ? (
+          <>
+            <ul>
+              {presentation.issuePreview.map((issue, index) => (
+                <li key={`${issue.path ?? "issue"}:${issue.message}:${index}`} className={`tone-${issue.tone}`}>
+                  <strong>{issue.severity}</strong>
+                  <span>{issue.message}</span>
+                  {issue.path ? <code>{issue.path}</code> : null}
+                </li>
+              ))}
+            </ul>
+            {issueRemainder > 0 ? <small>+{issueRemainder} more issue{issueRemainder === 1 ? "" : "s"}</small> : null}
+          </>
+        ) : (
+          <p>{status === "ready" && visibleHealth?.ok ? "No artifact health issues reported." : "No issue preview available."}</p>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function EvidenceHealthCount({ label, value, tone }: { label: string; value: string; tone: UiTone }) {
+  return (
+    <div className={`evidence-health-count tone-${tone}`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
   );
 }
 

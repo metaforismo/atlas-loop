@@ -73,6 +73,38 @@ export interface ArtifactRef {
   url?: string;
 }
 
+export interface ArtifactHealthIssue {
+  severity?: "error" | "warning" | string;
+  path?: string;
+  message: string;
+}
+
+export interface ArtifactHealthReport {
+  target?: string;
+  sessionCount?: number;
+  ok?: boolean;
+  issues?: ArtifactHealthIssue[];
+  [key: string]: unknown;
+}
+
+export interface ArtifactHealthSummary {
+  sessionCount: number;
+  errorCount: number;
+  warningCount: number;
+  issueCount: number;
+}
+
+export interface ArtifactHealth {
+  ok: boolean;
+  target?: string;
+  sessionId?: string;
+  requestedSessionId?: string;
+  source?: string;
+  artifactDir?: string;
+  report?: ArtifactHealthReport;
+  summary: ArtifactHealthSummary;
+}
+
 export interface ActionLike {
   id: string;
   sessionId?: string;

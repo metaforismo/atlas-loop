@@ -20,6 +20,8 @@ Recommended endpoints:
 - `POST /v1/sessions/:id/actions`: Performs one action and returns an `ActionResult`.
 - `POST /v1/sessions/:id/end`: Ends the session and flushes artifacts.
 - `GET /v1/sessions/:id/artifacts`: Lists known artifact references.
+- `GET /v1/sessions/:id/artifacts/health`: Validates the session artifact
+  directory through the daemon and returns a structured health report.
 - `GET /v1/sessions/:id/latest-screenshot`: Returns the latest screenshot image.
 - `GET /v1/sessions/:id/artifacts/latest-screenshot`: Returns the latest screenshot artifact reference as JSON.
 - `GET /v1/sessions/:id/events`: Returns parsed trace events as JSON.
@@ -101,6 +103,7 @@ Recommended additional tool names:
 - `atlas.install`
 - `atlas.launch`
 - `atlas.listArtifacts`
+- `atlas.getArtifactHealth`
 - `atlas.latestScreenshot`
 - `atlas.getArtifactPath`
 - `atlas.getLatestScreenshotPath`
@@ -213,6 +216,58 @@ bundle. It should not call upload services or download artifact bytes from the
 daemon. The only daemon read needed is the summary call that provides local
 session and artifact paths.
 
+Artifact health accepts a session id or `latest`:
+
+```json
+{
+  "sessionId": "latest"
+}
+```
+
+The CLI command is:
+
+```sh
+atlas-loop artifacts health --session latest
+```
+
+The daemon route is `GET /v1/sessions/:id/artifacts/health`; the MCP tool is
+`atlas.getArtifactHealth`. Health is daemon-backed but still local-only: the
+daemon resolves the readable session, including disk-backed persisted sessions,
+validates that session's artifact directory on the local filesystem, and
+returns a structured report. It does not upload, copy, archive, or mutate
+artifacts, and it is not a signal that a persisted session can still receive
+build/install/action calls.
+
+Example data payload:
+
+```json
+{
+  "ok": true,
+  "target": "/absolute/path/to/artifacts/sessions/sess_123",
+  "sessionId": "sess_123",
+  "requestedSessionId": "latest",
+  "source": "disk",
+  "artifactDir": "/absolute/path/to/artifacts/sessions/sess_123",
+  "summary": {
+    "sessionCount": 1,
+    "issueCount": 0,
+    "warningCount": 0,
+    "errorCount": 0
+  },
+  "report": {
+    "target": "/absolute/path/to/artifacts/sessions/sess_123",
+    "sessionCount": 1,
+    "issues": [],
+    "ok": true
+  }
+}
+```
+
+`ok` is false when validation finds errors. Warnings should remain visible in
+the `report` and summary counts but do not make the artifact tree unreadable.
+`source` is the daemon storage source for the resolved session, currently
+`memory` for live sessions or `disk` for persisted evidence.
+
 Artifact verification accepts exactly one of `sessionId` or `path`:
 
 ```json
@@ -253,6 +308,12 @@ does not call the daemon. The top-level `target` and `report.target` values are
 the resolved absolute target paths; `requestedPath` preserves the caller's
 original path input when `path` mode is used. Supplying both fields or neither
 field is an `INVALID_REQUEST`.
+
+Use health for the daemon session view and `latest` alias resolution. Use
+verification for direct local validation, especially CI checks and explicit
+filesystem targets. Both use local filesystem validation and neither implies
+cloud storage, hosted auth, Android support, Revyl compatibility, serve-sim, or
+XcodeBuildMCP runtime dependencies.
 
 ## Local Safety
 

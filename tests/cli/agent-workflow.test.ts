@@ -435,6 +435,58 @@ describe("CLI agent workflow helpers", () => {
     });
   });
 
+  it("prints daemon-backed artifact health and exits nonzero when unhealthy", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "atlas-loop-cli-health-"));
+    const originalCwd = process.cwd();
+    const originalLog = console.log;
+    const logged: string[] = [];
+    const requestedPaths: string[] = [];
+    const server = await startArtifactHealthDaemon((requestPath) => {
+      requestedPaths.push(requestPath);
+      if (requestPath === "/sessions/sess_unhealthy/artifacts/health") {
+        return artifactHealth("sess_unhealthy", "sess_unhealthy", false, {
+          errorCount: 1,
+          warningCount: 1,
+          issueCount: 2
+        });
+      }
+      return artifactHealth("sess_health", "latest", true);
+    });
+    const daemonUrl = `http://127.0.0.1:${server.port}`;
+
+    await writeFile(join(tempDir, "atlas-loop.config.json"), JSON.stringify({ daemonUrl }, null, 2));
+    console.log = (value?: unknown) => {
+      logged.push(String(value));
+    };
+
+    try {
+      process.chdir(tempDir);
+      await expect(main(["artifacts", "health", "--session", "latest"])).resolves.toBe(0);
+      await expect(main(["artifacts", "health", "--session", "sess_unhealthy"])).resolves.toBe(1);
+    } finally {
+      process.chdir(originalCwd);
+      console.log = originalLog;
+      await server.close();
+      await rm(tempDir, { recursive: true, force: true });
+    }
+
+    expect(requestedPaths).toEqual([
+      "/sessions/latest/artifacts/health",
+      "/sessions/sess_unhealthy/artifacts/health"
+    ]);
+    expect(JSON.parse(logged[0])).toEqual(artifactHealth("sess_health", "latest", true));
+    expect(JSON.parse(logged[1])).toMatchObject({
+      ok: false,
+      sessionId: "sess_unhealthy",
+      requestedSessionId: "sess_unhealthy",
+      summary: {
+        errorCount: 1,
+        warningCount: 1,
+        issueCount: 2
+      }
+    });
+  });
+
   it("rejects ambiguous artifact verification inputs before validation", async () => {
     await expect(main([
       "artifacts",
@@ -601,6 +653,34 @@ async function startFakeDaemon(summaryForPath: (requestPath: string) => SessionS
   };
 }
 
+async function startArtifactHealthDaemon(healthForPath: (requestPath: string) => unknown): Promise<{
+  port: number;
+  close: () => Promise<void>;
+}> {
+  const server = createServer((request, response) => {
+    if (request.method !== "GET" || !request.url || !/^\/sessions\/[^/]+\/artifacts\/health$/.test(request.url)) {
+      response.writeHead(404, { "content-type": "application/json" });
+      response.end(JSON.stringify({
+        ok: false,
+        error: { code: "NOT_FOUND", message: `unexpected route ${request.method} ${request.url}` }
+      }));
+      return;
+    }
+
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({ ok: true, data: healthForPath(request.url) }));
+  });
+
+  await new Promise<void>((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("fake artifact health daemon did not bind a TCP port");
+
+  return {
+    port: address.port,
+    close: () => closeServer(server)
+  };
+}
+
 async function startRecordingDaemon(requests: Array<{ path: string; body: unknown }>): Promise<{
   port: number;
   close: () => Promise<void>;
@@ -639,6 +719,30 @@ async function startRecordingDaemon(requests: Array<{ path: string; body: unknow
   return {
     port: address.port,
     close: () => closeServer(server)
+  };
+}
+
+function artifactHealth(
+  sessionId: string,
+  requestedSessionId: string,
+  ok: boolean,
+  counts: Partial<{ sessionCount: number; errorCount: number; warningCount: number; issueCount: number }> = {}
+): unknown {
+  const summary = {
+    sessionCount: counts.sessionCount ?? 1,
+    errorCount: counts.errorCount ?? 0,
+    warningCount: counts.warningCount ?? 0,
+    issueCount: counts.issueCount ?? 0
+  };
+  return {
+    ok,
+    target: `/tmp/atlas-loop/${sessionId}`,
+    source: "daemon",
+    artifactDir: `/tmp/atlas-loop/${sessionId}`,
+    requestedSessionId,
+    sessionId,
+    report: { ok, issues: [] },
+    summary
   };
 }
 

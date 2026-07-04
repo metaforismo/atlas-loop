@@ -49,6 +49,7 @@ describe("DaemonClient", () => {
       { dataLabel: "created session", call: (client) => client.createSession() },
       { dataLabel: "session", call: (client) => client.getSession("sess_1") },
       { dataLabel: "session summary", call: (client) => client.getSessionSummary("sess_1") },
+      { dataLabel: "session artifact health", call: (client) => client.getSessionArtifactHealth("sess_1") },
       { dataLabel: "ended session", call: (client) => client.endSession("sess_1") },
       { dataLabel: "build result", call: (client) => client.build("sess_1", { scheme: "AtlasLoop" }) },
       { dataLabel: "install result", call: (client) => client.install("sess_1", { appPath: "/tmp/App.app" }) },
@@ -158,6 +159,66 @@ describe("DaemonClient", () => {
       events: { total: 3 }
     });
     expect(calls[0].url).toBe("http://127.0.0.1:4317/sessions/sess_1/summary");
+    expect(calls[0].init.method).toBe("GET");
+  });
+
+  it("requests session artifact health from the daemon artifact health endpoint", async () => {
+    const calls: Array<{ url: string; init: RequestInit }> = [];
+    const client = new DaemonClient({
+      baseUrl: "http://127.0.0.1:4317",
+      fetchImpl: async (url, init) => {
+        calls.push({ url: String(url), init: init ?? {} });
+        return new Response(JSON.stringify({
+          ok: true,
+          data: {
+            ok: false,
+            target: "/tmp/sess_1",
+            sessionId: "sess_1",
+            requestedSessionId: "latest",
+            source: "disk",
+            artifactDir: "/tmp/sess_1",
+            report: {
+              target: "/tmp/sess_1",
+              sessionCount: 1,
+              ok: false,
+              issues: [
+                { severity: "error", path: "/tmp/sess_1/session.json", message: "bad platform" },
+                { severity: "warning", path: "/tmp/sess_1/actions.jsonl", message: "missing actions" }
+              ]
+            },
+            summary: {
+              sessionCount: 1,
+              errorCount: 1,
+              warningCount: 1,
+              issueCount: 2
+            }
+          }
+        }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+    });
+
+    await expect(client.getSessionArtifactHealth("latest")).resolves.toMatchObject({
+      ok: false,
+      sessionId: "sess_1",
+      requestedSessionId: "latest",
+      source: "disk",
+      summary: {
+        sessionCount: 1,
+        errorCount: 1,
+        warningCount: 1,
+        issueCount: 2
+      },
+      report: {
+        issues: [
+          { severity: "error", path: "/tmp/sess_1/session.json", message: "bad platform" },
+          { severity: "warning", path: "/tmp/sess_1/actions.jsonl", message: "missing actions" }
+        ]
+      }
+    });
+    expect(calls[0].url).toBe("http://127.0.0.1:4317/sessions/latest/artifacts/health");
     expect(calls[0].init.method).toBe("GET");
   });
 
