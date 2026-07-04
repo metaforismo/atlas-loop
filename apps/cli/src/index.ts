@@ -9,6 +9,7 @@ import { createSimulator } from "@atlas-loop/simulator";
 import { loadConfig } from "@atlas-loop/config";
 import {
   buildEvidenceMarkdownReport,
+  buildSessionHandoff,
   type CompactEvidenceSummary,
   DaemonClient,
   DaemonClientError,
@@ -159,6 +160,14 @@ export async function main(args: Args): Promise<number> {
     }
     if (subcommand === "ready") {
       printJson(await buildSessionReadiness(client, {
+        sessionId: requireFlag(flags, "session"),
+        daemonUrl,
+        viewerBaseUrl: stringFlag(flags, "viewer-base-url")
+      }));
+      return 0;
+    }
+    if (subcommand === "handoff") {
+      printJson(await buildSessionHandoff(client, {
         sessionId: requireFlag(flags, "session"),
         daemonUrl,
         viewerBaseUrl: stringFlag(flags, "viewer-base-url")
@@ -666,6 +675,7 @@ Usage:
   atlas-loop session latest
   atlas-loop session status --session <id|latest>
   atlas-loop session ready --session <id|latest>
+  atlas-loop session handoff --session <id|latest>
   atlas-loop session stop --session <id|latest>
   atlas-loop build --session <id|latest> --project <path> --scheme <scheme>
   atlas-loop install --session <id|latest> --app <path.app>

@@ -6,6 +6,7 @@ import {
   artifactDetailRows,
   artifactDisplayName,
   artifactTypeOptions,
+  buildAgentHandoffBrief,
   eventModeTone,
   filterArtifacts,
   filterTimelineItems,
@@ -20,7 +21,8 @@ import {
   timelineFilterOptions,
   visibleArtifactHealth
 } from "../../apps/viewer/src/viewerPresentation.js";
-import type { ArtifactHealth, ArtifactRef, SessionListItem } from "../../apps/viewer/src/types.js";
+import type { AgentHandoffInput } from "../../apps/viewer/src/viewerPresentation.js";
+import type { ArtifactHealth, ArtifactRef, Session, SessionListItem, SessionSummary, TraceEvent } from "../../apps/viewer/src/types.js";
 import type { TimelineItem } from "../../apps/viewer/src/timeline.js";
 
 describe("viewer presentation helpers", () => {
@@ -120,6 +122,167 @@ describe("viewer presentation helpers", () => {
       }
     ]);
     expect(artifactHealthIssuePreview(health, 3)[2]).toMatchObject({ severity: "issue", tone: "neutral" });
+  });
+
+  it("derives a ready agent handoff brief from loaded session evidence", () => {
+    const brief = buildAgentHandoffBrief(handoffInput());
+
+    expect(brief).toMatchObject({
+      readiness: "ready",
+      title: "Ready for handoff",
+      tone: "good",
+      latestScreenshot: {
+        path: "screenshots/latest.png",
+        source: "blob",
+        tone: "good"
+      },
+      latestAction: {
+        label: "Last action passed",
+        tone: "good"
+      },
+      notices: []
+    });
+    expect(brief.identifiers).toEqual(
+      expect.arrayContaining([
+        { label: "Viewer", value: "latest", mono: true },
+        { label: "Session", value: "sess_1", mono: true },
+        { label: "Daemon", value: "http://127.0.0.1:4317", mono: true }
+      ])
+    );
+    expect(brief.nextSteps).toContain("Pass the daemon URL and resolved session id to the next agent.");
+  });
+
+  it("marks the handoff brief waiting while session, screenshot, and health data are still loading", () => {
+    const brief = buildAgentHandoffBrief(
+      handoffInput({
+        health: "checking",
+        session: undefined,
+        sessionSummary: undefined,
+        artifactHealth: undefined,
+        artifactHealthStatus: "loading",
+        screenshot: { status: "loading" },
+        artifacts: [],
+        events: []
+      })
+    );
+
+    expect(brief.readiness).toBe("waiting");
+    expect(brief.tone).toBe("warn");
+    expect(brief.notices.map((notice) => notice.title)).toEqual(
+      expect.arrayContaining(["Daemon check pending", "No session loaded", "Artifact health loading", "Screenshot loading"])
+    );
+    expect(brief.latestScreenshot).toMatchObject({
+      path: "--",
+      source: "loading",
+      tone: "neutral"
+    });
+  });
+
+  it("promotes failed actions and artifact health errors into handoff blockers", () => {
+    const events: TraceEvent[] = [
+      {
+        type: "action.completed",
+        at: "2026-07-04T09:00:08.000Z",
+        result: {
+          actionId: "act_failed",
+          ok: false,
+          endedAt: "2026-07-04T09:00:08.000Z",
+          error: { code: "TAP_MISSED", message: "Tap target was not visible" }
+        }
+      }
+    ];
+    const artifactHealth: ArtifactHealth = {
+      ok: false,
+      report: {
+        issues: [{ severity: "error", path: "/tmp/atlas-loop/sess_1/session.json", message: "session manifest missing latest screenshot" }]
+      },
+      summary: { sessionCount: 1, errorCount: 1, warningCount: 0, issueCount: 1 }
+    };
+    const brief = buildAgentHandoffBrief(
+      handoffInput({
+        artifactHealth,
+        events,
+        sessionSummary: {
+          ...baseSummary,
+          events: {
+            total: 3,
+            latestAction: {
+              actionId: "act_failed",
+              ok: false,
+              endedAt: "2026-07-04T09:00:08.000Z",
+              artifactCount: 0,
+              error: { code: "TAP_MISSED", message: "Tap target was not visible" }
+            }
+          }
+        }
+      })
+    );
+
+    expect(brief.readiness).toBe("blocked");
+    expect(brief.tone).toBe("bad");
+    expect(brief.latestAction).toMatchObject({
+      label: "Last action failed",
+      tone: "bad",
+      error: "Tap target was not visible"
+    });
+    expect(brief.notices).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ title: "Latest action failed", detail: "Tap target was not visible", tone: "bad" }),
+        expect.objectContaining({ title: "Artifact health errors", detail: "1 error and 0 warnings reported.", tone: "bad" })
+      ])
+    );
+    expect(brief.nextSteps).toEqual(
+      expect.arrayContaining([
+        "Fix artifact health errors before treating the evidence set as complete.",
+        "Inspect the failed action in the timeline, correct the UI state, then retry locally."
+      ])
+    );
+  });
+
+  it("does not mark handoff ready without a completed action result", () => {
+    const brief = buildAgentHandoffBrief(
+      handoffInput({
+        sessionSummary: {
+          ...baseSummary,
+          events: { total: 0 }
+        },
+        events: []
+      })
+    );
+
+    expect(brief.readiness).toBe("waiting");
+    expect(brief.notices).toEqual(expect.arrayContaining([
+      expect.objectContaining({ title: "No action result", tone: "warn" })
+    ]));
+    expect(brief.nextSteps).toContain("Run one meaningful action or capture a screenshot before another agent takes over.");
+  });
+
+  it("treats a newer started action as running even when an older action passed", () => {
+    const brief = buildAgentHandoffBrief(
+      handoffInput({
+        events: [
+          {
+            type: "action.started",
+            at: "2026-07-04T09:00:05.000Z",
+            action: {
+              id: "act_running",
+              kind: "tap",
+              createdAt: "2026-07-04T09:00:05.000Z",
+              input: { kind: "tap", x: 0.5, y: 0.5 }
+            }
+          }
+        ]
+      })
+    );
+
+    expect(brief.readiness).toBe("waiting");
+    expect(brief.latestAction).toMatchObject({
+      label: "Action running",
+      tone: "warn"
+    });
+    expect(brief.notices).toEqual(expect.arrayContaining([
+      expect.objectContaining({ title: "Action still running", tone: "warn" })
+    ]));
   });
 
   it("summarizes artifacts by frequency and type", () => {
@@ -265,3 +428,73 @@ describe("viewer presentation helpers", () => {
     expect(latestSessionEmptyState("offline").title).toBe("Daemon offline");
   });
 });
+
+const baseSession: Session = {
+  id: "sess_1",
+  status: "running",
+  createdAt: "2026-07-04T09:00:00.000Z",
+  updatedAt: "2026-07-04T09:00:05.000Z",
+  simulator: { name: "iPhone 16 Pro", runtime: "iOS 19.0" },
+  app: { bundleId: "com.example.demo" },
+  artifactDir: "/tmp/atlas-loop/sess_1"
+};
+
+const baseSummary: SessionSummary = {
+  session: baseSession,
+  paths: {
+    artifactDir: "/tmp/atlas-loop/sess_1",
+    manifest: "/tmp/atlas-loop/sess_1/session.json",
+    trace: "/tmp/atlas-loop/sess_1/trace.jsonl",
+    screenshots: "/tmp/atlas-loop/sess_1/screenshots"
+  },
+  artifacts: {
+    total: 2,
+    byType: { screenshot: 1, log: 1 },
+    latestScreenshotId: "shot_1",
+    latestScreenshotPath: "screenshots/latest.png",
+    latestScreenshotCreatedAt: "2026-07-04T09:00:04.000Z"
+  },
+  events: {
+    total: 2,
+    latestAction: {
+      actionId: "act_1",
+      ok: true,
+      endedAt: "2026-07-04T09:00:03.000Z",
+      artifacts: [{ id: "shot_1", type: "screenshot", path: "screenshots/latest.png" }],
+      artifactCount: 1
+    }
+  },
+  storage: {
+    source: "memory",
+    artifactBacked: true,
+    warnings: []
+  }
+};
+
+function handoffInput(overrides: Partial<AgentHandoffInput> = {}): AgentHandoffInput {
+  return {
+    health: "online",
+    params: { daemonUrl: "http://127.0.0.1:4317", sessionId: "latest" },
+    session: baseSession,
+    sessionSummary: baseSummary,
+    artifactHealth: {
+      ok: true,
+      report: { ok: true, target: "/tmp/atlas-loop/sess_1", sessionCount: 1, issues: [] },
+      summary: { sessionCount: 1, errorCount: 0, warningCount: 0, issueCount: 0 }
+    },
+    artifactHealthStatus: "ready",
+    screenshot: {
+      status: "ready",
+      src: "blob:latest",
+      source: "blob",
+      mediaType: "image/png",
+      updatedAt: "2026-07-04T09:00:04.000Z"
+    },
+    artifacts: [
+      { id: "shot_1", type: "screenshot", path: "screenshots/latest.png", createdAt: "2026-07-04T09:00:04.000Z" },
+      { id: "log_1", type: "log", path: "logs/run.log", createdAt: "2026-07-04T09:00:02.000Z" }
+    ],
+    events: [],
+    ...overrides
+  };
+}

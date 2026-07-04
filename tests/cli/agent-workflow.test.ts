@@ -248,6 +248,80 @@ describe("CLI agent workflow helpers", () => {
     });
   });
 
+  it("prints session handoff JSON and keeps health failures as blockers", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "atlas-loop-cli-handoff-"));
+    const originalCwd = process.cwd();
+    const originalLog = console.log;
+    const logged: string[] = [];
+    const requestedPaths: string[] = [];
+    const latestScreenshot: ArtifactRef = {
+      id: "artifact_handoff",
+      sessionId: "sess_handoff_cli",
+      type: "screenshot",
+      path: "/tmp/atlas-loop/sess-handoff-cli/screenshots/latest.png",
+      createdAt: "2026-07-04T12:00:00.000Z"
+    };
+    const server = await startSessionHandoffDaemon((requestPath) => {
+      requestedPaths.push(requestPath);
+      if (requestPath === "/sessions/latest/summary") {
+        return {
+          ok: true,
+          data: sessionSummary("sess_handoff_cli", {
+            artifactDir: "/tmp/atlas-loop/sess-handoff-cli",
+            latestScreenshot,
+            storage: { source: "disk", artifactBacked: true, warnings: [] }
+          })
+        };
+      }
+      return {
+        ok: false,
+        status: 404,
+        error: { code: "NOT_FOUND", message: "artifact health missing" }
+      };
+    });
+    const daemonUrl = `http://127.0.0.1:${server.port}`;
+
+    await writeFile(join(tempDir, "atlas-loop.config.json"), JSON.stringify({ daemonUrl }, null, 2));
+    console.log = (value?: unknown) => {
+      logged.push(String(value));
+    };
+
+    try {
+      process.chdir(tempDir);
+      await expect(main(["session", "handoff", "--session", "latest", "--viewer-base-url", "http://127.0.0.1:5176/"])).resolves.toBe(0);
+    } finally {
+      process.chdir(originalCwd);
+      console.log = originalLog;
+      await server.close();
+      await rm(tempDir, { recursive: true, force: true });
+    }
+
+    expect(requestedPaths).toEqual([
+      "/sessions/latest/summary",
+      "/sessions/sess_handoff_cli/artifacts/health"
+    ]);
+    expect(JSON.parse(logged[0])).toMatchObject({
+      sessionId: "sess_handoff_cli",
+      requestedSessionId: "latest",
+      status: "running",
+      daemonUrl,
+      viewerBaseUrl: "http://127.0.0.1:5176",
+      viewerUrl: `http://127.0.0.1:5176?daemonUrl=${encodeURIComponent(daemonUrl)}&sessionId=sess_handoff_cli`,
+      artifactDir: "/tmp/atlas-loop/sess-handoff-cli",
+      latestScreenshotPath: latestScreenshot.path,
+      artifactHealth: null,
+      canMutate: false,
+      hasScreenshot: true,
+      ready: false,
+      blockingReasons: ["artifact health unavailable: artifact health missing"],
+      nextCommands: expect.arrayContaining([
+        `atlas-loop artifacts health --session sess_handoff_cli --daemon-url ${daemonUrl}`,
+        `atlas-loop viewer url --session sess_handoff_cli --viewer-base-url http://127.0.0.1:5176 --daemon-url ${daemonUrl}`
+      ])
+    });
+    expect(JSON.parse(logged[0]).nextCommands).not.toContain(`atlas-loop screenshot --session sess_handoff_cli --reason handoff --daemon-url ${daemonUrl}`);
+  });
+
   it("prints and writes Markdown evidence reports", async () => {
     const tempDir = await mkdtemp(join(tmpdir(), "atlas-loop-cli-report-"));
     const originalCwd = process.cwd();
@@ -674,6 +748,49 @@ async function startArtifactHealthDaemon(healthForPath: (requestPath: string) =>
   await new Promise<void>((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("fake artifact health daemon did not bind a TCP port");
+
+  return {
+    port: address.port,
+    close: () => closeServer(server)
+  };
+}
+
+async function startSessionHandoffDaemon(responseForPath: (requestPath: string) => {
+  ok: true;
+  data: unknown;
+} | {
+  ok: false;
+  status: number;
+  error: { code: string; message: string };
+}): Promise<{
+  port: number;
+  close: () => Promise<void>;
+}> {
+  const server = createServer((request, response) => {
+    const requestPath = request.url ?? "";
+    if (request.method !== "GET" || !requestPath) {
+      response.writeHead(404, { "content-type": "application/json" });
+      response.end(JSON.stringify({
+        ok: false,
+        error: { code: "NOT_FOUND", message: `unexpected route ${request.method} ${request.url}` }
+      }));
+      return;
+    }
+
+    const result = responseForPath(requestPath);
+    if (result.ok) {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ ok: true, data: result.data }));
+      return;
+    }
+
+    response.writeHead(result.status, { "content-type": "application/json" });
+    response.end(JSON.stringify({ ok: false, error: result.error }));
+  });
+
+  await new Promise<void>((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("fake handoff daemon did not bind a TCP port");
 
   return {
     port: address.port,

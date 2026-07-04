@@ -7,6 +7,7 @@ import { exportSessionArtifacts } from "@atlas-loop/artifacts";
 import { loadConfig as loadAtlasLoopConfig } from "@atlas-loop/config";
 import {
   buildEvidenceMarkdownReport,
+  buildSessionHandoff,
   type CompactEvidenceSummary,
   DaemonClient,
   DaemonClientError,
@@ -130,6 +131,15 @@ export const tools = [
   {
     name: "atlas.sessionReady",
     description: "Return compact readiness for one session: resolved id, status, storage, evidence signals, viewer URL, and mutation safety.",
+    inputSchema: objectSchema(["sessionId"], {
+      ...sessionIdProperty(),
+      daemonUrl: { type: "string", description: "Optional daemon URL override." },
+      viewerBaseUrl: { type: "string", description: "Optional viewer app base URL override." }
+    })
+  },
+  {
+    name: "atlas.getSessionHandoff",
+    description: "Return structured local session handoff data for coding agents, including evidence paths, health summary, blockers, and next CLI commands.",
     inputSchema: objectSchema(["sessionId"], {
       ...sessionIdProperty(),
       daemonUrl: { type: "string", description: "Optional daemon URL override." },
@@ -262,6 +272,8 @@ async function callTool(name: string, args: Record<string, unknown>, runtime: To
       return client.getSessionSummary(requireString(args, "sessionId"));
     case "atlas.sessionReady":
       return getSessionReady(client, args, runtime);
+    case "atlas.getSessionHandoff":
+      return getSessionHandoff(client, args, runtime);
     case "atlas.performAction":
       return client.performAction(requireString(args, "sessionId"), { action: requireActionInput(args.action) });
     case "atlas.takeScreenshot":
@@ -348,6 +360,22 @@ async function getSessionReady(
     canMutate: storageSource === "memory" && isLiveSessionStatus(status),
     hasScreenshot: latestScreenshotPath !== null
   };
+}
+
+async function getSessionHandoff(
+  client: McpDaemonClient,
+  args: Record<string, unknown>,
+  runtime: ToolRuntime
+) {
+  const handoffClient = {
+    getSessionSummary: (sessionId: string) => client.getSessionSummary(sessionId),
+    getSessionArtifactHealth: (sessionId: string) => getArtifactHealth(client, sessionId)
+  };
+  return buildSessionHandoff(handoffClient, {
+    sessionId: requireString(args, "sessionId"),
+    daemonUrl: await resolveRuntimeDaemonUrl(args, runtime),
+    viewerBaseUrl: optionalString(args, "viewerBaseUrl") ?? runtime.viewerBaseUrl
+  });
 }
 
 async function getLatestScreenshotPath(client: McpDaemonClient, args: Record<string, unknown>): Promise<{ path: string; artifact: unknown }> {

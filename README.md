@@ -73,6 +73,50 @@ The viewer is a local Vite app served on loopback. It reads the daemon session
 state, screenshots, artifacts, and timeline events; it is not a hosted
 dashboard.
 
+## Agent Handoff Quick Path
+
+For an agent-to-operator handoff, keep the daemon and viewer local, resolve the
+session, check artifact health, then export local evidence:
+
+Terminal 1:
+
+```bash
+npm run daemon -- --port 4317
+```
+
+Terminal 2:
+
+```bash
+npm run viewer
+```
+
+Terminal 3:
+
+```bash
+npm run cli -- session start --simulator "iPhone 16" --viewer
+npm run cli -- build --session latest --project apps/ios-commerce-demo/CommerceDemo.xcodeproj --scheme CommerceDemo
+npm run cli -- install --session latest --app <path-to-built-app>
+npm run cli -- launch --session latest --bundle-id app.atlasloop.CommerceDemo
+npm run cli -- screenshot --session latest --reason handoff
+npm run cli -- session ready --session latest
+npm run cli -- artifacts health --session latest
+npm run cli -- viewer open --session latest --launch
+npm run cli -- evidence report --session latest --out artifacts/reports/<session-id>.md
+npm run cli -- evidence export --session latest --out artifacts/exports/<session-id>
+```
+
+If a session already exists, begin with `session list`, `session status`, and
+`session ready` instead of creating a new one. Read the `canMutate` field from
+`session ready`: live in-memory sessions can still receive build, install,
+launch, screenshot, and input commands, while disk-backed sessions are
+evidence-only.
+
+The shortcut command is `atlas-loop session handoff --session latest`. It
+aggregates the readiness, health, viewer URL, blockers, and copy-paste next
+commands that otherwise come from the explicit commands above. See
+[docs/handoff-workflow.md](docs/handoff-workflow.md) for the full local
+handoff checklist.
+
 ## Main Commands
 
 ```bash
@@ -226,6 +270,12 @@ the copied artifacts.
 
 Do not commit `artifacts/` or exported evidence bundles; they may contain
 screenshots or logs from local apps.
+
+For agent/operator handoff notes, include the resolved session id, whether the
+session came from memory or disk, the viewer URL, artifact health warnings or
+errors, and any evidence report or export path. Keep the note explicit about
+host-gated input behavior so a launch-argument smoke proof is not mistaken for
+primitive HID success.
 
 ## Verification
 

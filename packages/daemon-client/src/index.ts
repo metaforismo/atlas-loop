@@ -77,6 +77,47 @@ export interface SessionArtifactHealth {
   summary: SessionArtifactHealthSummary;
 }
 
+export interface SessionHandoffArtifactHealth {
+  ok: boolean;
+  target: string;
+  source: string;
+  summary: SessionArtifactHealthSummary;
+}
+
+export interface SessionHandoff {
+  sessionId: string;
+  requestedSessionId: string;
+  status: string;
+  daemonUrl: string;
+  viewerBaseUrl: string;
+  viewerUrl: string;
+  artifactDir: string | null;
+  storage: {
+    source: string;
+    artifactBacked: boolean;
+    warningCount: number;
+  };
+  latestScreenshotPath: string | null;
+  latestAction?: SessionSummary["events"]["latestAction"];
+  latestError?: AtlasLoopError;
+  artifactHealth: SessionHandoffArtifactHealth | null;
+  canMutate: boolean;
+  hasScreenshot: boolean;
+  ready: boolean;
+  blockingReasons: string[];
+  nextCommands: string[];
+}
+
+export interface SessionHandoffClient {
+  getSessionSummary(sessionId: string): Promise<SessionSummary>;
+  getSessionArtifactHealth?(sessionId: string): Promise<{
+    ok: boolean;
+    target: string;
+    source: string;
+    summary: SessionArtifactHealthSummary;
+  }>;
+}
+
 export interface CompactEvidenceSummary {
   sessionId: string;
   requestedSessionId: string;
@@ -98,6 +139,58 @@ export interface EvidenceReportData extends CompactEvidenceSummary {
   latestAction?: SessionSummary["events"]["latestAction"];
   latestError?: AtlasLoopError;
   storage: SessionSummary["storage"];
+}
+
+export async function buildSessionHandoff(
+  client: SessionHandoffClient,
+  params: { sessionId: string; daemonUrl: string; viewerBaseUrl?: string }
+): Promise<SessionHandoff> {
+  const requestedSessionId = params.sessionId;
+  const summary = await client.getSessionSummary(requestedSessionId);
+  const sessionId = firstString(summary.session?.id) ?? requestedSessionId;
+  const status = firstString(summary.session?.status) ?? "unknown";
+  const artifactDir = firstString(summary.paths?.artifactDir) ?? null;
+  const storageWarnings = Array.isArray(summary.storage?.warnings) ? summary.storage.warnings : [];
+  const storageSource = firstString(summary.storage?.source) ?? "unknown";
+  const latestScreenshotPath = firstString(summary.artifacts?.latestScreenshot?.path)
+    ?? firstString(summary.artifacts?.latestScreenshotPath)
+    ?? null;
+  const viewerBaseUrl = trimTrailingSlash(params.viewerBaseUrl ?? "http://127.0.0.1:5173");
+  const daemonUrl = trimTrailingSlash(params.daemonUrl);
+  const artifactHealthResult = await readSessionArtifactHealth(client, sessionId);
+  const canMutate = storageSource === "memory" && isLiveSessionStatus(status);
+  const hasScreenshot = latestScreenshotPath !== null;
+  const blockingReasons = sessionHandoffBlockingReasons({
+    status,
+    artifactDir,
+    latestAction: summary.events?.latestAction,
+    latestError: summary.events?.latestError,
+    artifactHealthResult
+  });
+
+  return {
+    sessionId,
+    requestedSessionId,
+    status,
+    daemonUrl,
+    viewerBaseUrl,
+    viewerUrl: buildHandoffViewerUrl({ daemonUrl, sessionId, viewerBaseUrl }),
+    artifactDir,
+    storage: {
+      source: storageSource,
+      artifactBacked: Boolean(summary.storage?.artifactBacked),
+      warningCount: storageWarnings.length
+    },
+    latestScreenshotPath,
+    ...(summary.events?.latestAction ? { latestAction: summary.events.latestAction } : {}),
+    ...(summary.events?.latestError ? { latestError: summary.events.latestError } : {}),
+    artifactHealth: artifactHealthResult.health,
+    canMutate,
+    hasScreenshot,
+    ready: blockingReasons.length === 0,
+    blockingReasons,
+    nextCommands: buildSessionHandoffNextCommands({ sessionId, daemonUrl, viewerBaseUrl, canMutate })
+  };
 }
 
 export function evidenceReportDataFromSessionSummary(
@@ -365,6 +458,95 @@ function parseEnvelope<T>(text: string): ApiEnvelope<T> {
 
 function trimTrailingSlash(value: string): string {
   return value.endsWith("/") ? value.slice(0, -1) : value;
+}
+
+async function readSessionArtifactHealth(
+  client: SessionHandoffClient,
+  sessionId: string
+): Promise<{ health: SessionHandoffArtifactHealth | null; unavailableReason?: string }> {
+  if (typeof client.getSessionArtifactHealth !== "function") {
+    return { health: null, unavailableReason: "daemon client does not support artifact health" };
+  }
+
+  try {
+    const health = await client.getSessionArtifactHealth(sessionId);
+    return {
+      health: {
+        ok: health.ok,
+        target: health.target,
+        source: health.source,
+        summary: health.summary
+      }
+    };
+  } catch (error) {
+    return { health: null, unavailableReason: errorMessage(error) };
+  }
+}
+
+function sessionHandoffBlockingReasons(params: {
+  status: string;
+  artifactDir: string | null;
+  latestAction?: SessionSummary["events"]["latestAction"];
+  latestError?: AtlasLoopError;
+  artifactHealthResult: { health: SessionHandoffArtifactHealth | null; unavailableReason?: string };
+}): string[] {
+  const reasons: string[] = [];
+  if (params.status === "unknown") reasons.push("session status is unknown");
+  if (params.status === "failed") reasons.push("session status is failed");
+  if (!params.artifactDir) reasons.push("session summary did not include paths.artifactDir");
+  if (!params.artifactHealthResult.health) {
+    reasons.push(`artifact health unavailable: ${params.artifactHealthResult.unavailableReason ?? "unknown error"}`);
+  } else if (!params.artifactHealthResult.health.ok) {
+    const summary = params.artifactHealthResult.health.summary;
+    reasons.push(`artifact health failed: ${summary.errorCount} errors, ${summary.warningCount} warnings`);
+  }
+  if (params.latestAction?.ok === false) {
+    reasons.push(`latest action failed: ${params.latestAction.error?.message ?? params.latestAction.actionId}`);
+  }
+  if (params.latestError) reasons.push(`latest error: ${params.latestError.message}`);
+  return reasons;
+}
+
+function buildSessionHandoffNextCommands(params: {
+  sessionId: string;
+  daemonUrl: string;
+  viewerBaseUrl: string;
+  canMutate: boolean;
+}): string[] {
+  const session = shellArg(params.sessionId);
+  const daemon = `--daemon-url ${shellArg(params.daemonUrl)}`;
+  return [
+    ...(params.canMutate ? [`atlas-loop screenshot --session ${session} --reason handoff ${daemon}`] : []),
+    `atlas-loop artifacts health --session ${session} ${daemon}`,
+    `atlas-loop evidence report --session ${session} ${daemon}`,
+    `atlas-loop evidence export --session ${session} --out ${shellArg(`./atlas-loop-evidence/${params.sessionId}`)} ${daemon}`,
+    `atlas-loop viewer url --session ${session} --viewer-base-url ${shellArg(params.viewerBaseUrl)} ${daemon}`
+  ];
+}
+
+function buildHandoffViewerUrl(params: { daemonUrl: string; sessionId: string; viewerBaseUrl: string }): string {
+  return `${params.viewerBaseUrl}?daemonUrl=${encodeURIComponent(params.daemonUrl)}&sessionId=${encodeURIComponent(params.sessionId)}`;
+}
+
+function isLiveSessionStatus(status: string): boolean {
+  return status !== "ended" && status !== "failed" && status !== "unknown";
+}
+
+function firstString(value: unknown): string | undefined {
+  return typeof value === "string" && value ? value : undefined;
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === "object" && typeof (error as { message?: unknown }).message === "string") {
+    return (error as { message: string }).message;
+  }
+  return String(error);
+}
+
+function shellArg(value: string): string {
+  if (/^[A-Za-z0-9_./:@-]+$/.test(value)) return value;
+  return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
 function formatArtifactCounts(counts: Partial<Record<ArtifactType, number>>): string {
