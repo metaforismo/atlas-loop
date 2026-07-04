@@ -35,6 +35,14 @@ const sessionStatuses = new Set<Session["status"]>([
   "ended",
   "failed"
 ]);
+const traceEventTypes = new Set([
+  "session.created",
+  "session.statusChanged",
+  "action.started",
+  "action.completed",
+  "artifact.created",
+  "error"
+]);
 const artifactTypeDirs: Partial<Record<ArtifactRef["type"], string>> = {
   screenshot: "screenshots",
   log: "logs",
@@ -148,6 +156,7 @@ async function validateSessionDir(sessionDir: string, issues: ValidationIssue[])
   }
 
   await validateActions(sessionDir, sessionId, issues);
+  await validateTrace(sessionDir, sessionId, issues);
   await validateManifest(sessionDir, sessionId, issues);
   await validateExportMetadata(sessionDir, sessionId, issues);
   await validateEvidenceExportMetadata(sessionDir, sessionId, issues);
@@ -246,6 +255,133 @@ async function validateActionResult(
   for (const [artifactIndex, artifact] of result.artifacts.entries()) {
     await validateArtifactRef(`${path}#artifact[${artifactIndex}]`, artifact, sessionId, sessionDir, issues);
   }
+}
+
+async function validateTrace(sessionDir: string, sessionId: string, issues: ValidationIssue[]): Promise<void> {
+  const tracePath = join(sessionDir, "trace.jsonl");
+  if (!(await exists(tracePath))) return;
+
+  const lines = (await readFile(tracePath, "utf8")).split(/\r?\n/);
+  for (const [index, line] of lines.entries()) {
+    if (!line.trim()) continue;
+    const linePath = `${tracePath}:${index + 1}`;
+    let event: unknown;
+    try {
+      event = JSON.parse(line);
+    } catch (parseError) {
+      issues.push(error(linePath, `invalid JSONL record: ${(parseError as Error).message}`));
+      continue;
+    }
+
+    if (!isRecord(event)) {
+      issues.push(error(linePath, "trace event must be an object"));
+      continue;
+    }
+
+    const eventType = event.type;
+    if (!isIsoTimestamp(event.at)) {
+      issues.push(error(linePath, "trace event at must be an ISO timestamp"));
+    }
+    if (typeof eventType !== "string" || !traceEventTypes.has(eventType)) {
+      issues.push(error(linePath, "trace event type is not recognized"));
+      continue;
+    }
+
+    switch (eventType) {
+      case "session.created":
+        validateTraceSessionCreated(linePath, event, sessionId, issues);
+        break;
+      case "session.statusChanged":
+        validateTraceSessionStatusChanged(linePath, event, sessionId, issues);
+        break;
+      case "action.started":
+        validateTraceActionStarted(linePath, event, sessionId, issues);
+        break;
+      case "action.completed":
+        await validateTraceActionCompleted(linePath, event, sessionId, sessionDir, issues);
+        break;
+      case "artifact.created":
+        await validateArtifactRef(linePath, event.artifact, sessionId, sessionDir, issues);
+        break;
+      case "error":
+        validateTraceError(linePath, event, sessionId, issues);
+        break;
+    }
+  }
+}
+
+function validateTraceSessionCreated(path: string, event: Record<string, unknown>, sessionId: string, issues: ValidationIssue[]): void {
+  if (!isRecord(event.session)) {
+    issues.push(error(path, "trace session.created requires a session object"));
+    return;
+  }
+
+  const session = event.session;
+  if (session.id !== sessionId) {
+    issues.push(error(path, `trace session.created session.id must match session id ${sessionId}`));
+  }
+  if (!isSessionStatus(session.status)) {
+    issues.push(error(path, "trace session.created session.status is not recognized"));
+  }
+  if (!isIsoTimestamp(session.createdAt)) {
+    issues.push(error(path, "trace session.created session.createdAt must be an ISO timestamp"));
+  }
+  if (!isIsoTimestamp(session.updatedAt)) {
+    issues.push(error(path, "trace session.created session.updatedAt must be an ISO timestamp"));
+  }
+  if (session.error !== undefined) {
+    validateErrorObject(path, session.error, "trace session.created session.error", issues);
+  }
+}
+
+function validateTraceSessionStatusChanged(path: string, event: Record<string, unknown>, sessionId: string, issues: ValidationIssue[]): void {
+  if (event.sessionId !== sessionId) {
+    issues.push(error(path, `trace session.statusChanged sessionId must match session id ${sessionId}`));
+  }
+  if (!isSessionStatus(event.from)) {
+    issues.push(error(path, "trace session.statusChanged from status is not recognized"));
+  }
+  if (!isSessionStatus(event.to)) {
+    issues.push(error(path, "trace session.statusChanged to status is not recognized"));
+  }
+}
+
+function validateTraceActionStarted(path: string, event: Record<string, unknown>, sessionId: string, issues: ValidationIssue[]): void {
+  if (!isRecord(event.action)) {
+    issues.push(error(path, "trace action.started requires an action object"));
+    return;
+  }
+  validateActionRecord(path, event.action as Partial<Action>, sessionId, issues);
+}
+
+async function validateTraceActionCompleted(
+  path: string,
+  event: Record<string, unknown>,
+  sessionId: string,
+  sessionDir: string,
+  issues: ValidationIssue[]
+): Promise<void> {
+  if (!isRecord(event.result)) {
+    issues.push(error(path, "trace action.completed requires a result object"));
+    return;
+  }
+
+  const actionId = event.result.actionId;
+  if (typeof actionId !== "string" || !actionId) {
+    issues.push(error(path, "trace action.completed result.actionId must be a non-empty string"));
+  }
+  await validateActionResult(path, event.result, actionId, sessionId, sessionDir, issues);
+}
+
+function validateTraceError(path: string, event: Record<string, unknown>, sessionId: string, issues: ValidationIssue[]): void {
+  if (event.sessionId !== undefined && event.sessionId !== sessionId) {
+    issues.push(error(path, `trace error sessionId must match session id ${sessionId}`));
+  }
+  if (!isRecord(event.error)) {
+    issues.push(error(path, "trace error.error must be an object"));
+    return;
+  }
+  validateErrorObject(path, event.error, "trace error.error", issues);
 }
 
 async function validateManifest(sessionDir: string, sessionId: string, issues: ValidationIssue[]): Promise<void> {

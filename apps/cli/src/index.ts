@@ -18,6 +18,7 @@ import {
 } from "@atlas-loop/daemon-client";
 import { startDaemonServer } from "../../daemon/src/server.ts";
 import type { ActionInput, ArtifactRef } from "@atlas-loop/protocol";
+import { validateArtifactTarget, type ValidationReport } from "../../../scripts/verify-artifacts.ts";
 
 type Args = string[];
 const DEFAULT_VIEWER_BASE_URL = "http://127.0.0.1:5173";
@@ -28,6 +29,10 @@ interface EvidenceClient {
 }
 
 interface SessionReadyClient {
+  getSessionSummary(sessionId: string): Promise<SessionSummary>;
+}
+
+interface ArtifactValidationClient {
   getSessionSummary(sessionId: string): Promise<SessionSummary>;
 }
 
@@ -71,6 +76,17 @@ interface LocalEvidenceExportMetadata {
   latestScreenshotPath: string | null;
   exportedLatestScreenshotPath: string | null;
   storage: SessionSummary["storage"];
+}
+
+export interface ArtifactVerification {
+  ok: boolean;
+  target: string;
+  source: "session" | "path";
+  requestedSessionId?: string;
+  sessionId?: string;
+  artifactDir?: string;
+  requestedPath?: string;
+  report: ValidationReport;
 }
 
 export async function main(args: Args): Promise<number> {
@@ -206,6 +222,15 @@ export async function main(args: Args): Promise<number> {
     const summary = await client.getSessionSummary(requireFlag(flags, "session"));
     printJson({ path: summary.paths.artifactDir });
     return 0;
+  }
+
+  if (command === "artifacts" && subcommand === "verify") {
+    const result = await verifyArtifacts(client, {
+      sessionId: stringFlag(flags, "session"),
+      path: stringFlag(flags, "path")
+    });
+    printJson(result);
+    return result.ok ? 0 : 1;
   }
 
   if (command === "artifacts" && subcommand === "open") {
@@ -399,6 +424,44 @@ export async function exportLocalEvidence(
   return metadata;
 }
 
+export async function verifyArtifacts(
+  client: ArtifactValidationClient,
+  params: { sessionId?: string; path?: string }
+): Promise<ArtifactVerification> {
+  const requestedSessionId = params.sessionId;
+  const requestedPath = params.path;
+  const hasSessionId = Boolean(requestedSessionId);
+  const hasPath = Boolean(requestedPath);
+  if (hasSessionId === hasPath) {
+    throw new Error("Provide exactly one of --session or --path for artifacts verify");
+  }
+
+  if (requestedSessionId) {
+    const summary = await client.getSessionSummary(requestedSessionId);
+    const artifactDir = firstString(summary.paths?.artifactDir);
+    if (!artifactDir) throw new Error("session summary did not include paths.artifactDir");
+    const report = await validateArtifactTarget(resolveLocalPath(artifactDir, "session summary paths.artifactDir"));
+    return {
+      ok: report.ok,
+      target: report.target,
+      source: "session",
+      requestedSessionId,
+      sessionId: firstString(summary.session?.id) ?? requestedSessionId,
+      artifactDir,
+      report
+    };
+  }
+
+  const report = await validateArtifactTarget(resolveLocalPath(requestedPath as string, "artifact validation path"));
+  return {
+    ok: report.ok,
+    target: report.target,
+    source: "path",
+    requestedPath,
+    report
+  };
+}
+
 async function tryLatestScreenshot(client: EvidenceClient, sessionId: string): Promise<ArtifactRef | null> {
   try {
     return await client.latestScreenshot(sessionId);
@@ -571,6 +634,8 @@ Usage:
   atlas-loop artifacts list --session <id|latest>
   atlas-loop artifacts latest-screenshot --session <id|latest>
   atlas-loop artifacts path --session <id|latest>
+  atlas-loop artifacts verify --session <id|latest>
+  atlas-loop artifacts verify --path <dir>
   atlas-loop artifacts open --session <id|latest> [--latest-screenshot]
   atlas-loop evidence --session <id|latest>
   atlas-loop evidence report --session <id|latest> [--out report.md]

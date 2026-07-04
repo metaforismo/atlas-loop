@@ -95,6 +95,8 @@ atlas-loop screenshot --session <id> --reason confirmation
 atlas-loop artifacts list --session <id>
 atlas-loop artifacts latest-screenshot --session <id>
 atlas-loop artifacts path --session <id>
+atlas-loop artifacts verify --session <id>
+atlas-loop artifacts verify --path <dir>
 atlas-loop artifacts open --session <id> [--latest-screenshot]
 atlas-loop evidence --session <id>
 atlas-loop evidence report --session <id> [--out report.md]
@@ -116,15 +118,18 @@ should not know the daemon HTTP details directly.
 npm run mcp
 ```
 
-The MCP server lists its tool surface without requiring a daemon process. Tool
-calls such as `atlas.createSession`, `atlas.performAction`, `atlas.build`,
-`atlas.install`, `atlas.launch`, `atlas.listArtifacts`,
+The MCP server lists its tool surface without requiring a daemon process. Most
+runtime calls, including `atlas.createSession`, `atlas.performAction`,
+`atlas.build`, `atlas.install`, `atlas.launch`, `atlas.listArtifacts`,
 `atlas.getArtifactPath`, `atlas.getLatestScreenshotPath`, and
-`atlas.getViewerUrl` forward to the local daemon at `ATLAS_LOOP_DAEMON_URL` or
-`http://127.0.0.1:4317` by default. Before acting, agents can call
-`atlas.sessionReady` to resolve `latest` into a concrete session id and get a
-compact JSON status with storage source, warning count, artifact directory,
-latest screenshot path, latest action id/result, latest error, viewer URL,
+`atlas.getViewerUrl`, forward to the local daemon at `ATLAS_LOOP_DAEMON_URL` or
+`http://127.0.0.1:4317` by default. `atlas.verifyArtifacts` validates an
+explicit local `path` without daemon I/O; with `sessionId`, it reads the session
+summary from the daemon and validates `paths.artifactDir`. Before acting,
+agents can call `atlas.sessionReady` to resolve `latest` into a concrete
+session id and get a compact JSON status with storage source, warning count,
+artifact directory, latest screenshot path, latest action id/result, latest
+error, viewer URL,
 `hasScreenshot`, and `canMutate`. `canMutate` is true only for live in-memory
 sessions, never for disk-backed evidence discovered after a daemon restart.
 `atlas.exportEvidence` reads the session summary and copies the referenced
@@ -156,12 +161,16 @@ Validate a single session or the whole artifact root with:
 ```bash
 npm run verify:artifacts -- artifacts/sessions/<session-id>
 npm run verify:artifacts -- artifacts/sessions
+atlas-loop artifacts verify --session latest
+atlas-loop artifacts verify --path artifacts/sessions/<session-id>
 ```
 
 Warnings from `verify:artifacts` are non-fatal. They usually mean a legacy or
 minimal persisted session is still readable, but some expected evidence such as
 `actions.jsonl`, screenshots, logs, or metadata was never written. Errors mean
 the session record or artifact references should not be trusted until fixed.
+The `atlas-loop artifacts verify` command prints a structured JSON object with
+the validator report plus the requested session or path metadata.
 
 ## Inspecting Persisted Evidence
 
@@ -180,6 +189,8 @@ npm run cli -- session list
 npm run cli -- session status --session latest
 npm run cli -- session ready --session latest
 npm run cli -- artifacts path --session <session-id>
+npm run cli -- artifacts verify --session <session-id>
+npm run cli -- artifacts verify --path artifacts/sessions/<session-id>
 npm run cli -- artifacts open --session <session-id>
 npm run cli -- viewer url --session <session-id>
 npm run cli -- evidence report --session <session-id> --out artifacts/report.md

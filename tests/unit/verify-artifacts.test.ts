@@ -156,6 +156,17 @@ describe("artifact validator", () => {
     expect(report.issues).toEqual([]);
   });
 
+  it("accepts known trace events with contained payload artifacts", async () => {
+    const root = await makeTempRoot();
+    const sessionDir = await writeValidSession(root);
+    await writeValidTrace(sessionDir);
+
+    const report = await validateArtifactTarget(sessionDir);
+
+    expect(report.ok).toBe(true);
+    expect(report.issues).toEqual([]);
+  });
+
   it("keeps legacy or minimal persisted sessions warning-only when metadata is incomplete", async () => {
     const root = await makeTempRoot();
     await writeMinimalPersistedSession(root);
@@ -334,6 +345,147 @@ describe("artifact validator", () => {
     expect(report.issues.map((issue) => issue.message)).toContain("manifest.json must be an object");
   });
 
+  it("rejects malformed trace JSONL and unknown trace event types", async () => {
+    const root = await makeTempRoot();
+    const sessionDir = await writeValidSession(root);
+    await writeFile(
+      join(sessionDir, "trace.jsonl"),
+      [
+        "{not-json",
+        JSON.stringify(["not", "an", "event"]),
+        JSON.stringify({ type: "future.event", at: "2026-07-04T00:00:00.000Z" }),
+        JSON.stringify({ type: "session.statusChanged", at: "2026-07-04", sessionId: "session_ok", from: "created", to: "ended" })
+      ].join("\n")
+    );
+
+    const report = await validateArtifactTarget(sessionDir);
+    const messages = report.issues.map((issue) => issue.message).join("\n");
+
+    expect(report.ok).toBe(false);
+    expect(messages).toContain("invalid JSONL record");
+    expect(messages).toContain("trace event must be an object");
+    expect(messages).toContain("trace event type is not recognized");
+    expect(messages).toContain("trace event at must be an ISO timestamp");
+  });
+
+  it("rejects trace error events without an error object", async () => {
+    const root = await makeTempRoot();
+    const sessionDir = await writeValidSession(root);
+    await writeFile(
+      join(sessionDir, "trace.jsonl"),
+      [
+        JSON.stringify({ type: "error", at: "2026-07-04T00:00:00.000Z" }),
+        JSON.stringify({ type: "error", at: "2026-07-04T00:00:01.000Z", error: "not-an-error-object" })
+      ].join("\n")
+    );
+
+    const report = await validateArtifactTarget(sessionDir);
+    const messages = report.issues.map((issue) => issue.message);
+
+    expect(report.ok).toBe(false);
+    expect(messages).toEqual([
+      "trace error.error must be an object",
+      "trace error.error must be an object"
+    ]);
+  });
+
+  it("rejects trace events whose payloads do not match the session or escape artifact roots", async () => {
+    const root = await makeTempRoot();
+    const sessionDir = await writeValidSession(root);
+    const escapedPath = join(root, "outside.png");
+    await writeFile(escapedPath, "outside");
+    await writeFile(
+      join(sessionDir, "trace.jsonl"),
+      [
+        JSON.stringify({
+          type: "session.created",
+          at: "2026-07-04T00:00:00.000Z",
+          session: {
+            id: "other_session",
+            status: "stale",
+            createdAt: "not-a-date",
+            updatedAt: "2026-07-04"
+          }
+        }),
+        JSON.stringify({
+          type: "session.statusChanged",
+          at: "2026-07-04T00:00:01.000Z",
+          sessionId: "other_session",
+          from: "created",
+          to: "stale"
+        }),
+        JSON.stringify({
+          type: "action.started",
+          at: "2026-07-04T00:00:02.000Z",
+          action: {
+            id: "",
+            sessionId: "other_session",
+            kind: "unknown",
+            createdAt: "not-a-date"
+          }
+        }),
+        JSON.stringify({
+          type: "action.completed",
+          at: "2026-07-04T00:00:03.000Z",
+          result: {
+            actionId: "",
+            ok: "yes",
+            startedAt: "not-a-date",
+            endedAt: "2026-07-04T00:00:03.000Z",
+            artifacts: [
+              {
+                id: "trace_screenshot",
+                sessionId: "session_ok",
+                type: "screenshot",
+                path: escapedPath,
+                createdAt: "2026-07-04T00:00:03.000Z"
+              }
+            ]
+          }
+        }),
+        JSON.stringify({
+          type: "artifact.created",
+          at: "2026-07-04T00:00:04.000Z",
+          artifact: {
+            id: "trace_metadata",
+            sessionId: "session_ok",
+            type: "metadata",
+            path: join(sessionDir, "logs", "daemon.log"),
+            createdAt: "2026-07-04T00:00:04.000Z"
+          }
+        }),
+        JSON.stringify({
+          type: "error",
+          at: "2026-07-04T00:00:05.000Z",
+          sessionId: "other_session",
+          error: {
+            message: ""
+          }
+        })
+      ].join("\n")
+    );
+
+    const report = await validateArtifactTarget(sessionDir);
+    const messages = report.issues.map((issue) => issue.message).join("\n");
+
+    expect(report.ok).toBe(false);
+    expect(messages).toContain("trace session.created session.id must match session id session_ok");
+    expect(messages).toContain("trace session.created session.status is not recognized");
+    expect(messages).toContain("trace session.created session.createdAt must be an ISO timestamp");
+    expect(messages).toContain("trace session.statusChanged sessionId must match session id session_ok");
+    expect(messages).toContain("trace session.statusChanged to status is not recognized");
+    expect(messages).toContain("action.id must be a non-empty string");
+    expect(messages).toContain("action.sessionId must match session id session_ok");
+    expect(messages).toContain("action.kind is not a known Atlas Loop action kind");
+    expect(messages).toContain("trace action.completed result.actionId must be a non-empty string");
+    expect(messages).toContain("result.ok must be boolean");
+    expect(messages).toMatch(/escapes session directory/);
+    expect(messages).toMatch(/must be inside metadata\//);
+    expect(messages).toContain("trace error sessionId must match session id session_ok");
+    expect(messages).toContain("trace error.error.code should be a non-empty string");
+    expect(messages).toContain("trace error.error.message should be a non-empty string");
+  });
+
   it("rejects corrupt artifact hashes and missing referenced proof files", async () => {
     const root = await makeTempRoot();
     const sessionDir = await writeValidSession(root);
@@ -500,6 +652,50 @@ describe("artifact validator", () => {
 
 function sha256Text(text: string): string {
   return createHash("sha256").update(text).digest("hex");
+}
+
+async function writeValidTrace(sessionDir: string): Promise<void> {
+  const session = JSON.parse(await readFile(join(sessionDir, "session.json"), "utf8"));
+  const action = {
+    id: "trace_act_1",
+    sessionId: "session_ok",
+    kind: "screenshot",
+    createdAt: "2026-07-04T00:00:00.500Z",
+    sequence: 1
+  };
+  const artifact = {
+    id: "trace_screenshot_1",
+    sessionId: "session_ok",
+    type: "screenshot",
+    path: join(sessionDir, "screenshots", "first.png"),
+    createdAt: "2026-07-04T00:00:00.700Z",
+    sha256: sha256Text("png")
+  };
+  const result = {
+    actionId: action.id,
+    ok: true,
+    startedAt: "2026-07-04T00:00:00.500Z",
+    endedAt: "2026-07-04T00:00:00.700Z",
+    artifacts: [artifact]
+  };
+  await writeFile(
+    join(sessionDir, "trace.jsonl"),
+    [
+      { type: "session.created", at: "2026-07-04T00:00:00.000Z", session },
+      { type: "session.statusChanged", at: "2026-07-04T00:00:00.100Z", sessionId: "session_ok", from: "created", to: "running" },
+      { type: "action.started", at: "2026-07-04T00:00:00.500Z", action },
+      { type: "action.completed", at: "2026-07-04T00:00:00.700Z", result },
+      { type: "artifact.created", at: "2026-07-04T00:00:00.700Z", artifact },
+      {
+        type: "error",
+        at: "2026-07-04T00:00:00.800Z",
+        sessionId: "session_ok",
+        error: { code: "COMMAND_FAILED", message: "diagnostic trace event" }
+      }
+    ]
+      .map((event) => JSON.stringify(event))
+      .join("\n") + "\n\n"
+  );
 }
 
 interface TestExportFile {
