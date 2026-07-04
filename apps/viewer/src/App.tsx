@@ -97,6 +97,13 @@ interface ScreenshotTapTarget {
   label: string;
 }
 
+interface ActionMutationState {
+  canSubmitActions: boolean;
+  title: string;
+  detail: string;
+  tone: UiTone;
+}
+
 type ScreenshotTargetStyle = CSSProperties & {
   "--target-left": string;
   "--target-top": string;
@@ -496,6 +503,10 @@ export function App() {
   const screenshotIsDisplayable = isDisplayableScreenshot(screenshot);
   const screenshotTone: UiTone = screenshot.status === "error" ? "bad" : screenshot.status === "stale" ? "warn" : screenshot.status === "ready" ? "good" : "neutral";
   const screenshotTargetKey = screenshotIsDisplayable ? `${screenshot.src}|${screenshot.updatedAt}` : undefined;
+  const actionMutationState = useMemo(
+    () => getActionMutationState(health, sessionSummary?.storage.source, session?.status),
+    [health, sessionSummary?.storage.source, session?.status]
+  );
 
   useEffect(() => {
     if (!selectedArtifact) {
@@ -712,7 +723,13 @@ export function App() {
           {session?.error ? <ErrorNotice message={session.error.message} compact /> : null}
         </section>
 
-        <ActionPanel params={params} selectedSessionId={selectedSessionId} form={actionForm} onFieldChange={updateActionFormField} />
+        <ActionPanel
+          params={params}
+          selectedSessionId={selectedSessionId}
+          mutationState={actionMutationState}
+          form={actionForm}
+          onFieldChange={updateActionFormField}
+        />
 
         <section className="inspector-section artifact-section">
           <div className="panel-title-row">
@@ -912,17 +929,20 @@ function SessionBrowserRow({ session, selected, onSelect }: { session: SessionLi
 function ActionPanel({
   params,
   selectedSessionId,
+  mutationState,
   form,
   onFieldChange
 }: {
   params: ViewerParams;
   selectedSessionId: string;
+  mutationState: ActionMutationState;
   form: ViewerActionFormState;
   onFieldChange: (field: ViewerActionFormField, value: string) => void;
 }) {
   const [submitState, setSubmitState] = useState<ViewerActionSubmitState>({ status: "idle" });
   const actionParams: ViewerParams = { ...params, sessionId: selectedSessionId };
   const isPending = submitState.status === "pending";
+  const submitDisabled = isPending || !mutationState.canSubmitActions;
   const statusTone = actionSubmitTone(submitState);
 
   useEffect(() => {
@@ -945,7 +965,7 @@ function ActionPanel({
 
   const onSubmit = (draft: ViewerActionDraft, label: string) => (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
-    if (isPending) return;
+    if (submitDisabled) return;
     void submitAction(draft, label);
   };
 
@@ -954,6 +974,11 @@ function ActionPanel({
       <div className="panel-title-row">
         <h2>Actions</h2>
         <span>{selectedSessionId}</span>
+      </div>
+
+      <div className={`action-availability tone-${mutationState.tone}`} role="status" aria-live="polite" aria-atomic="true">
+        <strong>{mutationState.title}</strong>
+        <span>{mutationState.detail}</span>
       </div>
 
       <div className="action-panel-grid">
@@ -965,7 +990,7 @@ function ActionPanel({
             placeholder="manual"
             onChange={(value) => onFieldChange("screenshotReason", value)}
           />
-          <ActionSubmitButton label={VIEWER_ACTION_LABELS.screenshot} pending={isPending} />
+          <ActionSubmitButton label={VIEWER_ACTION_LABELS.screenshot} pending={isPending} disabled={submitDisabled} disabledReason={mutationState.title} />
         </form>
 
         <form className="action-row" onSubmit={onSubmit({ kind: "wait", durationMs: form.waitDurationMs }, VIEWER_ACTION_LABELS.wait)}>
@@ -977,7 +1002,7 @@ function ActionPanel({
             step={100}
             onChange={(value) => onFieldChange("waitDurationMs", value)}
           />
-          <ActionSubmitButton label={VIEWER_ACTION_LABELS.wait} pending={isPending} />
+          <ActionSubmitButton label={VIEWER_ACTION_LABELS.wait} pending={isPending} disabled={submitDisabled} disabledReason={mutationState.title} />
         </form>
 
         <form className="action-row" onSubmit={onSubmit({ kind: "tap", x: form.tapX, y: form.tapY }, VIEWER_ACTION_LABELS.tap)}>
@@ -1001,7 +1026,7 @@ function ActionPanel({
               onChange={(value) => onFieldChange("tapY", value)}
             />
           </div>
-          <ActionSubmitButton label={VIEWER_ACTION_LABELS.tap} pending={isPending} />
+          <ActionSubmitButton label={VIEWER_ACTION_LABELS.tap} pending={isPending} disabled={submitDisabled} disabledReason={mutationState.title} />
         </form>
 
         <form className="action-row" onSubmit={onSubmit({ kind: "typeText", text: form.typeText }, VIEWER_ACTION_LABELS.typeText)}>
@@ -1012,7 +1037,7 @@ function ActionPanel({
             placeholder="Hello"
             onChange={(value) => onFieldChange("typeText", value)}
           />
-          <ActionSubmitButton label={VIEWER_ACTION_LABELS.typeText} pending={isPending} />
+          <ActionSubmitButton label={VIEWER_ACTION_LABELS.typeText} pending={isPending} disabled={submitDisabled} disabledReason={mutationState.title} />
         </form>
 
         <form
@@ -1073,7 +1098,7 @@ function ActionPanel({
               onChange={(value) => onFieldChange("swipeDurationMs", value)}
             />
           </div>
-          <ActionSubmitButton label={VIEWER_ACTION_LABELS.swipe} pending={isPending} />
+          <ActionSubmitButton label={VIEWER_ACTION_LABELS.swipe} pending={isPending} disabled={submitDisabled} disabledReason={mutationState.title} />
         </form>
       </div>
 
@@ -1142,9 +1167,9 @@ function ActionTextInput({
   );
 }
 
-function ActionSubmitButton({ label, pending }: { label: string; pending: boolean }) {
+function ActionSubmitButton({ label, pending, disabled, disabledReason }: { label: string; pending: boolean; disabled: boolean; disabledReason: string }) {
   return (
-    <button type="submit" disabled={pending}>
+    <button type="submit" disabled={disabled} title={disabled && !pending ? disabledReason : undefined}>
       {pending ? "Pending" : label}
     </button>
   );
@@ -1433,4 +1458,49 @@ function actionStatusMessage(state: ViewerActionSubmitState): string {
   if (state.status === "idle") return "No action submitted.";
   if (state.status === "pending") return "Waiting for daemon response.";
   return state.message;
+}
+
+function getActionMutationState(health: HealthState, storageSource: SessionSummary["storage"]["source"] | undefined, status: Session["status"] | undefined): ActionMutationState {
+  if (health === "offline") {
+    return {
+      canSubmitActions: false,
+      title: "Daemon offline",
+      detail: "Actions need a reachable daemon.",
+      tone: "bad"
+    };
+  }
+
+  if (status === "ended" || status === "failed") {
+    return {
+      canSubmitActions: false,
+      title: "Session ended",
+      detail: `${status} sessions are evidence only.`,
+      tone: "neutral"
+    };
+  }
+
+  if (!status || status === "unknown" || !storageSource) {
+    return {
+      canSubmitActions: false,
+      title: "Session state pending",
+      detail: "Waiting for storage and status.",
+      tone: "warn"
+    };
+  }
+
+  if (storageSource !== "memory") {
+    return {
+      canSubmitActions: false,
+      title: "Read-only evidence",
+      detail: `${storageSource} storage does not accept actions.`,
+      tone: "warn"
+    };
+  }
+
+  return {
+    canSubmitActions: true,
+    title: "Live memory session",
+    detail: "Actions send to daemon.",
+    tone: "good"
+  };
 }

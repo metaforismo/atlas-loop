@@ -1,5 +1,5 @@
 import { createServer, type Server } from "node:http";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -27,6 +27,7 @@ describe("MCP contract documentation", () => {
       "atlas.sessionReady",
       "atlas.getArtifactPath",
       "atlas.getLatestScreenshotPath",
+      "atlas.verifyArtifacts",
       "atlas.getViewerUrl",
       "atlas.getEvidence",
       "atlas.getEvidenceReport",
@@ -40,6 +41,7 @@ describe("MCP contract documentation", () => {
     const build = schemaFor("atlas.build");
     const action = schemaFor("atlas.performAction");
     const ready = schemaFor("atlas.sessionReady");
+    const verifyArtifacts = schemaFor("atlas.verifyArtifacts");
 
     expect(createSession.properties).toMatchObject({
       simulator: {
@@ -86,6 +88,17 @@ describe("MCP contract documentation", () => {
         }
       }
     });
+    expect(verifyArtifacts).toMatchObject({
+      properties: {
+        sessionId: { type: "string", description: "Session id or latest." },
+        path: { type: "string", description: "Local artifact directory or artifact root to validate." }
+      },
+      additionalProperties: false
+    });
+    expect(verifyArtifacts.oneOf).toEqual(expect.arrayContaining([
+      { required: ["sessionId"] },
+      { required: ["path"] }
+    ]));
   });
 
   it("returns the daemon latest session through a dedicated MCP helper", async () => {
@@ -328,6 +341,133 @@ describe("MCP contract documentation", () => {
     expect(result).toEqual({
       ok: true,
       data: { path: artifact.path, artifact }
+    });
+  });
+
+  it("validates an explicit local artifact path without daemon I/O", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "atlas-loop-mcp-verify-path-"));
+    const resolvedTempDir = await realpath(tempDir);
+    const artifactDir = join(resolvedTempDir, "sess_verify_path");
+    const requestedPath = "sess_verify_path";
+    const originalCwd = process.cwd();
+    let daemonCalled = false;
+
+    await writeValidArtifactSession(artifactDir, "sess_verify_path");
+
+    try {
+      process.chdir(tempDir);
+      const result = await callToolWithEnvelope("atlas.verifyArtifacts", { path: requestedPath }, {
+        client: {
+          getSessionSummary: async () => {
+            daemonCalled = true;
+            return {};
+          }
+        } as never
+      });
+
+      expect(daemonCalled).toBe(false);
+      expect(result).toEqual({
+        ok: true,
+        data: {
+          ok: true,
+          target: artifactDir,
+          source: "path",
+          requestedPath,
+          report: {
+            target: artifactDir,
+            sessionCount: 1,
+            issues: [],
+            ok: true
+          }
+        }
+      });
+    } finally {
+      process.chdir(originalCwd);
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("validates a session artifact directory through the session summary", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "atlas-loop-mcp-verify-session-"));
+    const artifactDir = join(tempDir, "sessions", "sess_verify");
+    const calls: string[] = [];
+
+    await writeValidArtifactSession(artifactDir, "sess_verify");
+
+    try {
+      const result = await callToolWithEnvelope("atlas.verifyArtifacts", { sessionId: "latest" }, {
+        client: {
+          getSessionSummary: async (sessionId: string) => {
+            calls.push(sessionId);
+            return {
+              session: { id: "sess_verify" },
+              paths: { artifactDir }
+            };
+          }
+        } as never
+      });
+
+      expect(calls).toEqual(["latest"]);
+      expect(result).toEqual({
+        ok: true,
+        data: {
+          ok: true,
+          target: artifactDir,
+          source: "session",
+          requestedSessionId: "latest",
+          sessionId: "sess_verify",
+          artifactDir,
+          report: {
+            target: artifactDir,
+            sessionCount: 1,
+            issues: [],
+            ok: true
+          }
+        }
+      });
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects ambiguous MCP artifact verification inputs before daemon I/O", async () => {
+    let daemonCalled = false;
+
+    const both = await callToolWithEnvelope("atlas.verifyArtifacts", {
+      sessionId: "latest",
+      path: "/tmp/atlas-loop/sess"
+    }, {
+      client: {
+        getSessionSummary: async () => {
+          daemonCalled = true;
+          return {};
+        }
+      } as never
+    });
+
+    const neither = await callToolWithEnvelope("atlas.verifyArtifacts", {}, {
+      client: {
+        getSessionSummary: async () => {
+          daemonCalled = true;
+          return {};
+        }
+      } as never
+    });
+
+    expect(daemonCalled).toBe(false);
+    expect(both).toMatchObject({
+      ok: false,
+      error: {
+        code: "INVALID_REQUEST",
+        message: "Provide exactly one of sessionId or path"
+      }
+    });
+    expect(neither).toMatchObject({
+      ok: false,
+      error: {
+        code: "INVALID_REQUEST",
+        message: "Provide exactly one of sessionId or path"
+      }
     });
   });
 
@@ -641,4 +781,21 @@ function schemaFor(name: string): Record<string, any> {
   const schema = tools.find((tool) => tool.name === name)?.inputSchema;
   if (!schema || typeof schema !== "object") throw new Error(`missing schema for ${name}`);
   return schema as Record<string, any>;
+}
+
+async function writeValidArtifactSession(artifactDir: string, sessionId: string): Promise<void> {
+  await mkdir(join(artifactDir, "screenshots"), { recursive: true });
+  await mkdir(join(artifactDir, "logs"), { recursive: true });
+  await mkdir(join(artifactDir, "metadata"), { recursive: true });
+  await writeFile(join(artifactDir, "session.json"), JSON.stringify({
+    id: sessionId,
+    schemaVersion: "atlas-loop.session.v1",
+    platform: "ios-simulator",
+    status: "running",
+    createdAt: "2026-07-04T12:00:00.000Z",
+    updatedAt: "2026-07-04T12:00:01.000Z",
+    simulator: { name: "iPhone 16" },
+    artifactDir
+  }, null, 2));
+  await writeFile(join(artifactDir, "actions.jsonl"), "");
 }

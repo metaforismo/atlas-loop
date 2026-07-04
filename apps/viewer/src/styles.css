@@ -973,6 +973,40 @@ h2 {
   min-width: 0;
 }
 
+.action-availability {
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  border: 1px solid currentColor;
+  border-radius: 8px;
+  padding: 8px 9px;
+  background: rgba(12, 17, 23, 0.68);
+}
+
+.action-availability.tone-neutral {
+  color: var(--muted);
+}
+
+.action-availability strong {
+  min-width: 0;
+  overflow: hidden;
+  color: currentColor;
+  font-size: 11px;
+  font-weight: 780;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.action-availability span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--soft);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
 .action-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(86px, auto);
@@ -1634,6 +1668,7 @@ h2 {
   }
 
   .action-row,
+  .action-availability,
   .action-status {
     grid-template-columns: 1fr;
   }

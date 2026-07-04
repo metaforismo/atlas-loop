@@ -104,6 +104,7 @@ Recommended additional tool names:
 - `atlas.latestScreenshot`
 - `atlas.getArtifactPath`
 - `atlas.getLatestScreenshotPath`
+- `atlas.verifyArtifacts`
 - `atlas.getViewerUrl`
 - `atlas.getEvidence`
 - `atlas.getEvidenceReport`
@@ -211,6 +212,47 @@ Evidence export accepts a session id and a local output directory:
 bundle. It should not call upload services or download artifact bytes from the
 daemon. The only daemon read needed is the summary call that provides local
 session and artifact paths.
+
+Artifact verification accepts exactly one of `sessionId` or `path`:
+
+```json
+{
+  "sessionId": "latest"
+}
+```
+
+```json
+{
+  "path": "artifacts/sessions/sess_123"
+}
+```
+
+`atlas.verifyArtifacts` returns a structured JSON report from the local
+artifact validator plus top-level request metadata:
+
+```json
+{
+  "ok": true,
+  "target": "/absolute/path/to/artifacts/sessions/sess_123",
+  "source": "session",
+  "requestedSessionId": "latest",
+  "sessionId": "sess_123",
+  "artifactDir": "/absolute/path/to/artifacts/sessions/sess_123",
+  "report": {
+    "target": "/absolute/path/to/artifacts/sessions/sess_123",
+    "sessionCount": 1,
+    "issues": [],
+    "ok": true
+  }
+}
+```
+
+For `sessionId`, the tool reads only the session summary and validates
+`paths.artifactDir`. For `path`, it validates the local target directly and
+does not call the daemon. The top-level `target` and `report.target` values are
+the resolved absolute target paths; `requestedPath` preserves the caller's
+original path input when `path` mode is used. Supplying both fields or neither
+field is an `INVALID_REQUEST`.
 
 ## Local Safety
 

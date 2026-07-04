@@ -15,6 +15,7 @@ import {
   type SessionSummary
 } from "@atlas-loop/daemon-client";
 import { validateActionInput, type ActionInput, type ArtifactRef, type AtlasLoopError, type BuildRequest, type Edge, type LaunchRequest } from "@atlas-loop/protocol";
+import { validateArtifactTarget, type ValidationReport } from "../../../scripts/verify-artifacts.ts";
 
 const DEFAULT_VIEWER_BASE_URL = "http://127.0.0.1:5173";
 
@@ -89,6 +90,17 @@ interface LocalEvidenceExportMetadata {
   storage: SessionSummary["storage"];
 }
 
+interface ArtifactVerification {
+  ok: boolean;
+  target: string;
+  source: "session" | "path";
+  requestedSessionId?: string;
+  sessionId?: string;
+  artifactDir?: string;
+  requestedPath?: string;
+  report: ValidationReport;
+}
+
 export const tools = [
   { name: "atlas.health", description: "Check local daemon readiness.", inputSchema: objectSchema([]) },
   { name: "atlas.listSessions", description: "List active and persisted local iOS Simulator sessions.", inputSchema: objectSchema([]) },
@@ -111,6 +123,11 @@ export const tools = [
   { name: "atlas.latestScreenshot", description: "Return the latest screenshot artifact reference.", inputSchema: sessionIdSchema() },
   { name: "atlas.getArtifactPath", description: "Return the local artifact directory path for a session.", inputSchema: objectSchema(["sessionId"], { sessionId: { type: "string" } }) },
   { name: "atlas.getLatestScreenshotPath", description: "Return the local path for the latest screenshot artifact.", inputSchema: objectSchema(["sessionId"], { sessionId: { type: "string" } }) },
+  {
+    name: "atlas.verifyArtifacts",
+    description: "Validate a session artifact directory or explicit local artifact target and return a structured report.",
+    inputSchema: verifyArtifactsSchema()
+  },
   {
     name: "atlas.getViewerUrl",
     description: "Return the local viewer URL for a session without opening a browser.",
@@ -233,6 +250,8 @@ async function callTool(name: string, args: Record<string, unknown>, runtime: To
       return getArtifactPath(client, args);
     case "atlas.getLatestScreenshotPath":
       return getLatestScreenshotPath(client, args);
+    case "atlas.verifyArtifacts":
+      return verifyArtifacts(client, args);
     case "atlas.getViewerUrl":
       return getViewerUrl(args, runtime);
     case "atlas.getEvidence":
@@ -309,6 +328,41 @@ async function getLatestScreenshotPath(client: McpDaemonClient, args: Record<str
   const artifact = await client.latestScreenshot(requireString(args, "sessionId"));
   if (typeof artifact.path !== "string" || !artifact.path) throw new Error("latest screenshot did not include a path");
   return { path: artifact.path, artifact };
+}
+
+async function verifyArtifacts(client: Pick<McpDaemonClient, "getSessionSummary">, args: Record<string, unknown>): Promise<ArtifactVerification> {
+  const requestedSessionId = optionalString(args, "sessionId");
+  const requestedPath = optionalString(args, "path");
+  const hasSessionId = requestedSessionId !== undefined;
+  const hasPath = requestedPath !== undefined;
+  if (hasSessionId === hasPath) {
+    throw Object.assign(new Error("Provide exactly one of sessionId or path"), { code: "INVALID_REQUEST" });
+  }
+
+  if (requestedSessionId) {
+    const summary = await client.getSessionSummary(requestedSessionId);
+    const artifactDir = firstString(summary.paths?.artifactDir);
+    if (!artifactDir) throw new Error("session summary did not include paths.artifactDir");
+    const report = await validateArtifactTarget(resolveLocalPath(artifactDir, "session summary paths.artifactDir"));
+    return {
+      ok: report.ok,
+      target: report.target,
+      source: "session",
+      requestedSessionId,
+      sessionId: firstString(summary.session?.id) ?? requestedSessionId,
+      artifactDir,
+      report
+    };
+  }
+
+  const report = await validateArtifactTarget(resolveLocalPath(requestedPath as string, "artifact validation path"));
+  return {
+    ok: report.ok,
+    target: report.target,
+    source: "path",
+    requestedPath,
+    report
+  };
 }
 
 async function getEvidence(
@@ -681,6 +735,21 @@ function evidenceExportSchema(): Record<string, unknown> {
     ...sessionIdProperty(),
     outDir: { type: "string", description: "Local directory where the export bundle will be written." }
   });
+}
+
+function verifyArtifactsSchema(): Record<string, unknown> {
+  return {
+    type: "object",
+    properties: {
+      sessionId: { type: "string", description: "Session id or latest." },
+      path: { type: "string", description: "Local artifact directory or artifact root to validate." }
+    },
+    oneOf: [
+      { required: ["sessionId"] },
+      { required: ["path"] }
+    ],
+    additionalProperties: false
+  };
 }
 
 function performActionSchema(): Record<string, unknown> {

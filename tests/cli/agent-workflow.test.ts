@@ -1,5 +1,5 @@
 import { createServer, type Server } from "node:http";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -352,6 +352,100 @@ describe("CLI agent workflow helpers", () => {
     }
   });
 
+  it("verifies an explicit local artifact path with structured JSON output", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "atlas-loop-cli-verify-path-"));
+    const resolvedTempDir = await realpath(tempDir);
+    const artifactDir = join(resolvedTempDir, "sess_verify_path");
+    const requestedPath = "sess_verify_path";
+    const originalCwd = process.cwd();
+    const originalLog = console.log;
+    const logged: string[] = [];
+
+    await writeValidArtifactSession(artifactDir, "sess_verify_path");
+    console.log = (value?: unknown) => {
+      logged.push(String(value));
+    };
+
+    try {
+      process.chdir(tempDir);
+      await expect(main(["artifacts", "verify", "--path", requestedPath])).resolves.toBe(0);
+    } finally {
+      process.chdir(originalCwd);
+      console.log = originalLog;
+      await rm(tempDir, { recursive: true, force: true });
+    }
+
+    expect(JSON.parse(logged[0])).toEqual({
+      ok: true,
+      target: artifactDir,
+      source: "path",
+      requestedPath,
+      report: {
+        target: artifactDir,
+        sessionCount: 1,
+        issues: [],
+        ok: true
+      }
+    });
+  });
+
+  it("verifies a session artifact directory by resolving the session summary", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "atlas-loop-cli-verify-session-"));
+    const artifactDir = join(tempDir, "sessions", "sess_verify");
+    const originalCwd = process.cwd();
+    const originalLog = console.log;
+    const logged: string[] = [];
+    const requestedPaths: string[] = [];
+    const server = await startFakeDaemon((requestPath) => {
+      requestedPaths.push(requestPath);
+      return sessionSummary("sess_verify", { artifactDir });
+    });
+    const daemonUrl = `http://127.0.0.1:${server.port}`;
+
+    await writeValidArtifactSession(artifactDir, "sess_verify");
+    await writeFile(join(tempDir, "atlas-loop.config.json"), JSON.stringify({ daemonUrl }, null, 2));
+    console.log = (value?: unknown) => {
+      logged.push(String(value));
+    };
+
+    try {
+      process.chdir(tempDir);
+      await expect(main(["artifacts", "verify", "--session", "latest"])).resolves.toBe(0);
+    } finally {
+      process.chdir(originalCwd);
+      console.log = originalLog;
+      await server.close();
+      await rm(tempDir, { recursive: true, force: true });
+    }
+
+    expect(requestedPaths).toEqual(["/sessions/latest/summary"]);
+    expect(JSON.parse(logged[0])).toEqual({
+      ok: true,
+      target: artifactDir,
+      source: "session",
+      requestedSessionId: "latest",
+      sessionId: "sess_verify",
+      artifactDir,
+      report: {
+        target: artifactDir,
+        sessionCount: 1,
+        issues: [],
+        ok: true
+      }
+    });
+  });
+
+  it("rejects ambiguous artifact verification inputs before validation", async () => {
+    await expect(main([
+      "artifacts",
+      "verify",
+      "--session",
+      "latest",
+      "--path",
+      "/tmp/atlas-loop/sess"
+    ])).rejects.toThrow("Provide exactly one of --session or --path");
+  });
+
   it("serializes primitive action commands to daemon action requests", async () => {
     const tempDir = await mkdtemp(join(tmpdir(), "atlas-loop-cli-actions-"));
     const originalCwd = process.cwd();
@@ -601,4 +695,12 @@ function sessionRecord(sessionId: string, artifactDir: string): Session {
     simulator: { name: "iPhone 16" },
     artifactDir
   };
+}
+
+async function writeValidArtifactSession(artifactDir: string, sessionId: string): Promise<void> {
+  await mkdir(join(artifactDir, "screenshots"), { recursive: true });
+  await mkdir(join(artifactDir, "logs"), { recursive: true });
+  await mkdir(join(artifactDir, "metadata"), { recursive: true });
+  await writeFile(join(artifactDir, "session.json"), JSON.stringify(sessionRecord(sessionId, artifactDir), null, 2));
+  await writeFile(join(artifactDir, "actions.jsonl"), "");
 }

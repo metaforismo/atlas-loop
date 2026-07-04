@@ -54,6 +54,30 @@ boolean, `startedAt` and `endedAt` must be ISO timestamps, and `artifacts` must
 be an array. Result `error` values, when present, should include string `code`
 and `message` fields; incomplete legacy error payloads are reported as warnings.
 
+## Trace Events
+
+`trace.jsonl`, when present, is append-only JSONL. Missing traces remain
+non-fatal for legacy or minimal sessions. Each nonblank line must parse as a
+JSON object with one of these known event types:
+
+- `session.created`
+- `session.statusChanged`
+- `action.started`
+- `action.completed`
+- `artifact.created`
+- `error`
+
+Every event must include an ISO UTC `at` timestamp. `session.created` events
+must include a session object whose `id` matches the session directory id and
+whose basic status and timestamps are valid. `session.statusChanged` events must
+refer to the same session id and use recognized `from` and `to` statuses.
+`action.started` events use the same action validation as `actions.jsonl`.
+`action.completed` events validate the action result and its artifact paths.
+`artifact.created` events validate the artifact reference and contained file
+path. `error` events validate the error object using the same warning/error
+rules as action result errors, and a present `sessionId` must match the session
+directory id.
+
 ## Manifest
 
 `manifest.json`, when present, is an object using
