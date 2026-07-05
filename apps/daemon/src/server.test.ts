@@ -664,6 +664,7 @@ describe("daemon session summary", () => {
       port: 0,
       artifactRoot,
       hidHelperPath: "/tmp/atlas-loop/helper",
+      autoScreenshot: false,
       simulator: fakeSimulator(),
       hidClientFactory: () => fakeHidClient() as never
     });
@@ -869,6 +870,95 @@ describe("daemon artifact content route", () => {
 
     const manifestOnDisk = JSON.parse(await readFile(join(listed[0].path, "..", "..", "manifest.json"), "utf8"));
     expect(manifestOnDisk.artifacts[0].url).toBeUndefined();
+  });
+});
+
+describe("daemon post-action screenshots", () => {
+  async function daemonForScreenshots(options: { autoScreenshot?: boolean; screenshotFails?: boolean } = {}) {
+    const artifactRoot = await mkdtemp(join(tmpdir(), "atlas-loop-after-shot-"));
+    tempDirs.push(artifactRoot);
+    const simulator = fakeSimulator();
+    if (options.screenshotFails) {
+      simulator.screenshot = async () => {
+        throw new Error("screenshot pipeline unavailable");
+      };
+    }
+    const daemon = await startDaemonServer({
+      port: 0,
+      artifactRoot,
+      autoScreenshot: options.autoScreenshot,
+      simulator,
+      hidClientFactory: () => fakeHidClient() as never
+    });
+    startedDaemons.push(daemon);
+
+    const created = await requestJson<{ id: string }>(daemon.url, "/sessions", {
+      method: "POST",
+      body: JSON.stringify({ simulator: { name: "iPhone 16" } })
+    });
+    return { daemon, sessionId: created.id };
+  }
+
+  it("captures an after screenshot with action linkage for successful input actions", async () => {
+    const { daemon, sessionId } = await daemonForScreenshots();
+
+    const result = await requestJson<Record<string, any>>(daemon.url, `/sessions/${sessionId}/actions`, {
+      method: "POST",
+      body: JSON.stringify({ action: { kind: "tap", x: 0.25, y: 0.75 } })
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.artifacts).toHaveLength(2);
+    expect(result.artifacts[0].type).toBe("metadata");
+    expect(result.artifacts[1]).toMatchObject({
+      type: "screenshot",
+      metadata: {
+        role: "after",
+        actionId: result.actionId,
+        actionKind: "tap",
+        tapX: 0.25,
+        tapY: 0.75
+      }
+    });
+  });
+
+  it("honors per-request skipScreenshot", async () => {
+    const { daemon, sessionId } = await daemonForScreenshots();
+
+    const result = await requestJson<Record<string, any>>(daemon.url, `/sessions/${sessionId}/actions`, {
+      method: "POST",
+      body: JSON.stringify({ action: { kind: "swipe", from: { x: 0.5, y: 0.8 }, to: { x: 0.5, y: 0.2 }, durationMs: 300 }, skipScreenshot: true })
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.artifacts).toHaveLength(1);
+    expect(result.artifacts[0].type).toBe("metadata");
+  });
+
+  it("honors the autoScreenshot config switch", async () => {
+    const { daemon, sessionId } = await daemonForScreenshots({ autoScreenshot: false });
+
+    const result = await requestJson<Record<string, any>>(daemon.url, `/sessions/${sessionId}/actions`, {
+      method: "POST",
+      body: JSON.stringify({ action: { kind: "tap", x: 0.5, y: 0.5 } })
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.artifacts).toHaveLength(1);
+  });
+
+  it("keeps the action successful and records a trace error when capture fails", async () => {
+    const { daemon, sessionId } = await daemonForScreenshots({ screenshotFails: true });
+
+    const result = await requestJson<Record<string, any>>(daemon.url, `/sessions/${sessionId}/actions`, {
+      method: "POST",
+      body: JSON.stringify({ action: { kind: "tap", x: 0.5, y: 0.5 } })
+    });
+    const events = await requestJson<Array<Record<string, any>>>(daemon.url, `/sessions/${sessionId}/events`);
+
+    expect(result.ok).toBe(true);
+    expect(result.artifacts).toHaveLength(1);
+    expect(events.some((event) => event.type === "error" && String(event.error?.message ?? "").includes("screenshot pipeline unavailable"))).toBe(true);
   });
 });
 
