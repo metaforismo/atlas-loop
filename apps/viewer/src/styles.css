@@ -3112,3 +3112,83 @@ h2 {
   max-height: 120px;
   overflow-y: auto;
 }
+
+.atlas-mode-toggle {
+  display: flex;
+  gap: 4px;
+}
+
+.atlas-mode-toggle button.selected {
+  outline: 2px solid var(--accent);
+}
+
+.atlas-graph-wrap {
+  flex: 1;
+  min-height: 480px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, transparent);
+  background: rgba(0, 0, 0, 0.22);
+  overflow: hidden;
+}
+
+.atlas-graph {
+  width: 100%;
+  height: 100%;
+  min-height: 480px;
+  cursor: grab;
+  touch-action: none;
+}
+
+.atlas-graph:active {
+  cursor: grabbing;
+}
+
+.atlas-graph-edge path {
+  stroke: color-mix(in srgb, var(--accent) 55%, transparent);
+  stroke-width: 1.6;
+}
+
+.atlas-graph-edge text {
+  fill: color-mix(in srgb, currentColor 62%, transparent);
+  font-size: 10px;
+}
+
+.atlas-graph-node rect {
+  fill: rgba(10, 14, 22, 0.92);
+  stroke: color-mix(in srgb, var(--accent) 40%, transparent);
+  stroke-width: 1.4;
+}
+
+.atlas-graph-node.selected rect {
+  stroke: var(--accent);
+  stroke-width: 2.4;
+}
+
+.atlas-graph-node circle {
+  fill: color-mix(in srgb, var(--accent) 30%, transparent);
+  stroke: var(--accent);
+  stroke-width: 1.6;
+}
+
+.atlas-graph-node {
+  cursor: pointer;
+}
+
+.atlas-graph-node.launch {
+  cursor: default;
+}
+
+.atlas-graph-node-name {
+  fill: currentColor;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.atlas-graph-node-meta {
+  fill: color-mix(in srgb, currentColor 60%, transparent);
+  font-size: 10px;
+}
+
+#atlas-arrow path {
+  fill: color-mix(in srgb, var(--accent) 70%, transparent);
+}
