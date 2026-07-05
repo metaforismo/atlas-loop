@@ -170,7 +170,9 @@ single local directory containing `handoff.json`, `handoff.md`, `README.md`,
 are recorded as warnings in the manifest instead of breaking the handoff
 bundle. Run `atlas-loop handoff verify --bundle <dir>` to check a bundle's
 local self-consistency; it re-checks the manifest, contained paths, regular
-files, and SHA-256/size integrity without daemon or network access. See
+files, and SHA-256/size integrity without daemon or network access. MCP
+callers can run the same local check with `atlas.verifyHandoffBundle` and a
+`bundleDir` argument; the tool does not call the daemon or upload data. See
 [docs/handoff-workflow.md](docs/handoff-workflow.md) for the full local
 handoff checklist. The handoff output is a local operator note, not a share
 link or hosted workspace.
@@ -241,6 +243,9 @@ directory for one readable session, including persisted sessions discovered
 after a restart. It does not upload artifacts. `atlas.verifyArtifacts`
 validates an explicit local `path` without daemon I/O; with `sessionId`, it
 reads the session summary from the daemon and validates `paths.artifactDir`.
+`atlas.verifyHandoffBundle` validates a local handoff `bundleDir` without
+daemon I/O or uploads and returns the same structured verification report as
+`atlas-loop handoff verify --bundle <dir>`.
 Before acting, agents can call `atlas.sessionReady` to resolve `latest` into a
 concrete session id and get a compact JSON status with storage source, warning
 count, artifact directory, latest screenshot path, latest action id/result,
@@ -358,10 +363,11 @@ launch-argument smoke proof is not mistaken for primitive HID success.
 Use `session handoff --session latest --bundle artifacts/handoffs/<session-id>`
 when the next agent needs a local directory with both the note and machine
 readable trace context. The bundle `README.md` is for humans, while
-`manifest.json` records local-only provenance, generated file paths, warnings,
+`manifest.json` records local-only metadata, generated file paths, warnings,
 and file integrity. Run `handoff verify --bundle artifacts/handoffs/<session-id>`
 after creating or receiving the directory to catch local path, file type, and
-hash inconsistencies before handoff.
+hash inconsistencies before handoff, or call MCP `atlas.verifyHandoffBundle`
+with the same bundle directory when working from an MCP runtime.
 
 ## Verification
 

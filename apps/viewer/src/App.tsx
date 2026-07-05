@@ -1757,6 +1757,12 @@ function HandoffBundleOutput({ summary }: { summary: AgentHandoffBundleSummary }
             <code title={summary.verifyCommand}>{summary.verifyCommand}</code>
           </dd>
         </div>
+        <div className="handoff-bundle-output-command">
+          <dt>MCP tool</dt>
+          <dd>
+            <code title={summary.mcpVerifyToolCall}>{summary.mcpVerifyToolCall}</code>
+          </dd>
+        </div>
       </dl>
     </section>
   );

@@ -57,6 +57,91 @@ export interface ExportSessionArtifactsResult {
   metadata: SessionArtifactExportMetadata;
 }
 
+export interface SessionHandoffBundleFiles {
+  manifest: string;
+  handoffJson: string;
+  handoffMarkdown: string;
+  readme: string;
+  eventsJson: string | null;
+  evidenceReport: string | null;
+}
+
+export interface SessionHandoffBundleFileIntegrity {
+  sha256: string;
+  sizeBytes: number;
+}
+
+export interface SessionHandoffBundleIntegrity {
+  handoffJson: SessionHandoffBundleFileIntegrity;
+  handoffMarkdown: SessionHandoffBundleFileIntegrity;
+  readme: SessionHandoffBundleFileIntegrity;
+  eventsJson?: SessionHandoffBundleFileIntegrity;
+  evidenceReport?: SessionHandoffBundleFileIntegrity;
+}
+
+export interface SessionHandoffBundleManifest {
+  schemaVersion: "atlas-loop.handoff-bundle.v1";
+  sessionId: string;
+  requestedSessionId: string;
+  createdAt: string;
+  exportedAt: string;
+  ready: boolean;
+  localOnly: true;
+  uploaded: false;
+  viewerUrl: string;
+  artifactDir: string | null;
+  bundleDir: string;
+  files: SessionHandoffBundleFiles;
+  integrity: SessionHandoffBundleIntegrity;
+  warnings: string[];
+}
+
+export type SessionHandoffBundleFileKey = keyof SessionHandoffBundleFiles;
+export type SessionHandoffBundleIntegrityKey = keyof SessionHandoffBundleIntegrity;
+
+export interface HandoffVerifyIssue {
+  severity: "error" | "warning";
+  path: string;
+  message: string;
+}
+
+export interface SessionHandoffBundleVerification {
+  ok: boolean;
+  schemaVersion: "atlas-loop.handoff-verify.v1";
+  bundleDir: string;
+  manifestPath: string;
+  sessionId: string | null;
+  checkedAt: string;
+  filesChecked: number;
+  summary: {
+    errorCount: number;
+    warningCount: number;
+    issueCount: number;
+  };
+  issues: HandoffVerifyIssue[];
+  localOnly: true;
+  uploaded: false;
+}
+
+export interface SessionHandoffBundleResult {
+  ok: true;
+  schemaVersion: SessionHandoffBundleManifest["schemaVersion"];
+  bundleDir: string;
+  manifestPath: string;
+  sessionId: string;
+  requestedSessionId: string;
+  ready: boolean;
+  localOnly: true;
+  uploaded: false;
+  files: SessionHandoffBundleFiles;
+  integrity: SessionHandoffBundleIntegrity;
+  warnings: string[];
+}
+
+export interface VerifySessionHandoffBundleParams {
+  bundleDir: string;
+}
+
 interface ArtifactCandidate {
   artifact: unknown;
   sourcePath: string;
@@ -72,6 +157,10 @@ interface ExportSourceTree {
   directories: string[];
   files: ExportSourceFile[];
 }
+
+const REQUIRED_HANDOFF_BUNDLE_FILE_KEYS = ["manifest", "handoffJson", "handoffMarkdown", "readme"] as const;
+const OPTIONAL_HANDOFF_BUNDLE_FILE_KEYS = ["eventsJson", "evidenceReport"] as const;
+const HANDOFF_BUNDLE_INTEGRITY_KEYS = ["handoffJson", "handoffMarkdown", "readme", "eventsJson", "evidenceReport"] as const;
 
 const sessionStatuses = new Set<Session["status"]>([
   "created",
@@ -309,6 +398,207 @@ export async function resolveContainedArtifactPath(
 export async function writeJson(path: string, data: unknown): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, `${JSON.stringify(data, null, 2)}\n`, "utf8");
+}
+
+export async function verifySessionHandoffBundle(
+  params: VerifySessionHandoffBundleParams
+): Promise<SessionHandoffBundleVerification> {
+  const bundleDir = resolve(params.bundleDir);
+  const manifestPath = join(bundleDir, "manifest.json");
+  const issues: HandoffVerifyIssue[] = [];
+  let filesChecked = 0;
+  let manifest: Record<string, unknown> | null = null;
+  let realBundleDir = bundleDir;
+
+  try {
+    realBundleDir = await realpath(bundleDir);
+    const bundleStats = await lstat(realBundleDir);
+    if (!bundleStats.isDirectory()) {
+      addHandoffVerifyIssue(issues, bundleDir, "handoff bundle path must resolve to a directory");
+      return buildHandoffVerificationResult({ bundleDir, manifestPath, manifest, checkedAt: new Date().toISOString(), filesChecked, issues });
+    }
+  } catch (error) {
+    addHandoffVerifyIssue(issues, bundleDir, `handoff bundle directory could not be read: ${formatErrorMessage(error)}`);
+    return buildHandoffVerificationResult({ bundleDir, manifestPath, manifest, checkedAt: new Date().toISOString(), filesChecked, issues });
+  }
+
+  const verifiedManifestPath = await verifyHandoffBundleFileValue({
+    bundleDir,
+    realBundleDir,
+    key: "manifest",
+    value: manifestPath,
+    required: true,
+    issues
+  });
+  if (!verifiedManifestPath) {
+    return buildHandoffVerificationResult({ bundleDir, manifestPath, manifest, checkedAt: new Date().toISOString(), filesChecked, issues });
+  }
+
+  try {
+    const parsedManifest = JSON.parse(await readFile(verifiedManifestPath, "utf8"));
+    manifest = isRecord(parsedManifest) ? parsedManifest : null;
+    if (!manifest) {
+      addHandoffVerifyIssue(issues, manifestPath, "manifest.json must contain a JSON object");
+      return buildHandoffVerificationResult({ bundleDir, manifestPath, manifest, checkedAt: new Date().toISOString(), filesChecked, issues });
+    }
+  } catch (error) {
+    addHandoffVerifyIssue(issues, manifestPath, `manifest.json could not be read or parsed: ${formatErrorMessage(error)}`);
+    return buildHandoffVerificationResult({ bundleDir, manifestPath, manifest, checkedAt: new Date().toISOString(), filesChecked, issues });
+  }
+
+  if (manifest.schemaVersion !== "atlas-loop.handoff-bundle.v1") {
+    addHandoffVerifyIssue(issues, "schemaVersion", "schemaVersion must be atlas-loop.handoff-bundle.v1");
+  }
+  if (manifest.localOnly !== true) {
+    addHandoffVerifyIssue(issues, "localOnly", "localOnly must be true");
+  }
+  if (manifest.uploaded !== false) {
+    addHandoffVerifyIssue(issues, "uploaded", "uploaded must be false");
+  }
+  validateHandoffBundleManifestMetadata(manifest, bundleDir, issues);
+
+  const files = isRecord(manifest.files) ? manifest.files : null;
+  const integrity = isRecord(manifest.integrity) ? manifest.integrity : null;
+  if (!files) addHandoffVerifyIssue(issues, "files", "manifest files must be an object");
+  if (!integrity) addHandoffVerifyIssue(issues, "integrity", "manifest integrity must be an object");
+
+  if (integrity) {
+    if (hasOwn(integrity, "manifest")) {
+      addHandoffVerifyIssue(issues, "integrity.manifest", "integrity must not include manifest");
+    }
+    for (const key of Object.keys(integrity).sort()) {
+      if (key !== "manifest" && !isHandoffBundleIntegrityKey(key)) {
+        addHandoffVerifyIssue(issues, `integrity.${key}`, "integrity contains an unknown file key");
+      }
+    }
+  }
+
+  for (const key of REQUIRED_HANDOFF_BUNDLE_FILE_KEYS) {
+    const resolvedPath = await verifyHandoffBundleFilePath({
+      bundleDir,
+      realBundleDir,
+      files,
+      key,
+      required: true,
+      issues
+    });
+    if (key === "manifest") {
+      if (resolvedPath && resolvedPath !== manifestPath) {
+        addHandoffVerifyIssue(issues, String(files?.manifest ?? "files.manifest"), "files.manifest must point to the bundle manifest.json that was verified");
+      }
+      continue;
+    }
+    const integrityEntry = verifyHandoffBundleIntegrityEntry({
+      integrity,
+      key,
+      required: true,
+      issues
+    });
+    if (resolvedPath && integrityEntry) {
+      filesChecked += await verifyHandoffBundleFileIntegrity(resolvedPath, integrityEntry, issues);
+    }
+  }
+
+  for (const key of OPTIONAL_HANDOFF_BUNDLE_FILE_KEYS) {
+    const fileValue = files?.[key];
+    const hasFilePath = fileValue !== null && fileValue !== undefined;
+    const hasIntegrityEntry = Boolean(integrity && hasOwn(integrity, key));
+
+    if (!hasFilePath) {
+      if (hasIntegrityEntry) {
+        addHandoffVerifyIssue(issues, `integrity.${key}`, `integrity.${key} is present without files.${key}`);
+      }
+      continue;
+    }
+
+    const resolvedPath = await verifyHandoffBundleFilePath({
+      bundleDir,
+      realBundleDir,
+      files,
+      key,
+      required: false,
+      issues
+    });
+    const integrityEntry = verifyHandoffBundleIntegrityEntry({
+      integrity,
+      key,
+      required: true,
+      issues
+    });
+    if (resolvedPath && integrityEntry) {
+      filesChecked += await verifyHandoffBundleFileIntegrity(resolvedPath, integrityEntry, issues);
+    }
+  }
+
+  return buildHandoffVerificationResult({ bundleDir, manifestPath, manifest, checkedAt: new Date().toISOString(), filesChecked, issues });
+}
+
+function validateHandoffBundleManifestMetadata(
+  manifest: Record<string, unknown>,
+  bundleDir: string,
+  issues: HandoffVerifyIssue[]
+): void {
+  verifyRequiredManifestString(manifest, "sessionId", issues);
+  verifyRequiredManifestString(manifest, "requestedSessionId", issues);
+  verifyRequiredManifestTimestamp(manifest, "createdAt", issues);
+  verifyRequiredManifestTimestamp(manifest, "exportedAt", issues);
+  verifyRequiredManifestString(manifest, "viewerUrl", issues);
+
+  if (manifest.ready !== true && manifest.ready !== false) {
+    addHandoffVerifyIssue(issues, "ready", "ready must be a boolean");
+  }
+
+  const manifestBundleDir = verifyRequiredManifestString(manifest, "bundleDir", issues);
+  if (manifestBundleDir) {
+    if (manifestBundleDir.includes("://")) {
+      addHandoffVerifyIssue(issues, "bundleDir", "bundleDir must be a local filesystem path");
+    } else if (resolve(manifestBundleDir) !== bundleDir) {
+      addHandoffVerifyIssue(issues, "bundleDir", "bundleDir must match the verified handoff bundle directory");
+    }
+  }
+
+  if (manifest.artifactDir !== null && manifest.artifactDir !== undefined) {
+    const artifactDir = manifest.artifactDir;
+    if (typeof artifactDir !== "string" || artifactDir.length === 0) {
+      addHandoffVerifyIssue(issues, "artifactDir", "artifactDir must be null or a non-empty local filesystem path string");
+    } else if (artifactDir.includes("://")) {
+      addHandoffVerifyIssue(issues, "artifactDir", "artifactDir must be null or a local filesystem path");
+    }
+  }
+
+  if (!Array.isArray(manifest.warnings)) {
+    addHandoffVerifyIssue(issues, "warnings", "warnings must be an array of strings");
+  } else {
+    manifest.warnings.forEach((warning, index) => {
+      if (typeof warning !== "string") {
+        addHandoffVerifyIssue(issues, `warnings.${index}`, "warnings entries must be strings");
+      }
+    });
+  }
+}
+
+function verifyRequiredManifestString(
+  manifest: Record<string, unknown>,
+  key: string,
+  issues: HandoffVerifyIssue[]
+): string | null {
+  const value = manifest[key];
+  if (typeof value !== "string" || value.length === 0) {
+    addHandoffVerifyIssue(issues, key, `${key} must be a non-empty string`);
+    return null;
+  }
+  return value;
+}
+
+function verifyRequiredManifestTimestamp(
+  manifest: Record<string, unknown>,
+  key: string,
+  issues: HandoffVerifyIssue[]
+): void {
+  const value = verifyRequiredManifestString(manifest, key, issues);
+  if (value && Number.isNaN(Date.parse(value))) {
+    addHandoffVerifyIssue(issues, key, `${key} must be a valid timestamp string`);
+  }
 }
 
 function sessionLayoutFromPath(root: string, sessionPath: string): SessionArtifacts {
@@ -624,6 +914,195 @@ function portablePathForSessionReference(sourceSessionDir: string, path: string)
 
 function toPortablePath(path: string): string {
   return path.replace(/\\/g, "/");
+}
+
+async function verifyHandoffBundleFilePath(params: {
+  bundleDir: string;
+  realBundleDir: string;
+  files: Record<string, unknown> | null;
+  key: SessionHandoffBundleFileKey;
+  required: boolean;
+  issues: HandoffVerifyIssue[];
+}): Promise<string | null> {
+  if (!params.files) return null;
+  return verifyHandoffBundleFileValue({
+    bundleDir: params.bundleDir,
+    realBundleDir: params.realBundleDir,
+    key: params.key,
+    value: params.files[params.key],
+    required: params.required,
+    issues: params.issues
+  });
+}
+
+async function verifyHandoffBundleFileValue(params: {
+  bundleDir: string;
+  realBundleDir: string;
+  key: SessionHandoffBundleFileKey;
+  value: unknown;
+  required: boolean;
+  issues: HandoffVerifyIssue[];
+}): Promise<string | null> {
+  const value = params.value;
+  if (value === null || value === undefined) {
+    if (params.required) {
+      addHandoffVerifyIssue(params.issues, `files.${params.key}`, `files.${params.key} is required`);
+    }
+    return null;
+  }
+  if (value === "") {
+    addHandoffVerifyIssue(params.issues, `files.${params.key}`, `files.${params.key} must be null or a non-empty file path string`);
+    return null;
+  }
+  if (typeof value !== "string") {
+    addHandoffVerifyIssue(params.issues, `files.${params.key}`, `files.${params.key} must be a file path string`);
+    return null;
+  }
+  if (value.includes("://")) {
+    addHandoffVerifyIssue(params.issues, value, `files.${params.key} must be a local filesystem path inside the bundle`);
+    return null;
+  }
+
+  const resolvedPath = resolve(isAbsolute(value) ? value : join(params.bundleDir, value));
+  if (!isPathInsideOrEqual(params.bundleDir, resolvedPath)) {
+    addHandoffVerifyIssue(params.issues, value, `files.${params.key} must stay inside the bundle`);
+    return null;
+  }
+  let fileStats;
+  try {
+    fileStats = await lstat(resolvedPath);
+  } catch (error) {
+    addHandoffVerifyIssue(params.issues, resolvedPath, `files.${params.key} does not exist: ${formatErrorMessage(error)}`);
+    return null;
+  }
+  if (!fileStats.isFile()) {
+    addHandoffVerifyIssue(params.issues, resolvedPath, `files.${params.key} must be a regular file inside the bundle`);
+    return null;
+  }
+  let realResolvedPath: string;
+  try {
+    realResolvedPath = await realpath(resolvedPath);
+  } catch (error) {
+    addHandoffVerifyIssue(params.issues, resolvedPath, `files.${params.key} real path could not be read: ${formatErrorMessage(error)}`);
+    return null;
+  }
+  if (!isPathInsideOrEqual(params.realBundleDir, realResolvedPath)) {
+    addHandoffVerifyIssue(params.issues, resolvedPath, `files.${params.key} must resolve inside the bundle`);
+    return null;
+  }
+
+  return resolvedPath;
+}
+
+function verifyHandoffBundleIntegrityEntry(params: {
+  integrity: Record<string, unknown> | null;
+  key: SessionHandoffBundleIntegrityKey;
+  required: boolean;
+  issues: HandoffVerifyIssue[];
+}): SessionHandoffBundleFileIntegrity | null {
+  if (!params.integrity || !hasOwn(params.integrity, params.key)) {
+    if (params.required) {
+      addHandoffVerifyIssue(params.issues, `integrity.${params.key}`, `missing required integrity for files.${params.key}`);
+    }
+    return null;
+  }
+
+  const entry = params.integrity[params.key];
+  if (!isRecord(entry)) {
+    addHandoffVerifyIssue(params.issues, `integrity.${params.key}`, `integrity.${params.key} must be an object`);
+    return null;
+  }
+
+  const sha256 = entry.sha256;
+  const sizeBytes = entry.sizeBytes;
+  let valid = true;
+  if (typeof sha256 !== "string" || !/^[a-f0-9]{64}$/.test(sha256)) {
+    addHandoffVerifyIssue(params.issues, `integrity.${params.key}.sha256`, `integrity.${params.key}.sha256 must be a SHA-256 hex digest`);
+    valid = false;
+  }
+  if (typeof sizeBytes !== "number" || !Number.isSafeInteger(sizeBytes) || sizeBytes < 0) {
+    addHandoffVerifyIssue(params.issues, `integrity.${params.key}.sizeBytes`, `integrity.${params.key}.sizeBytes must be a non-negative integer`);
+    valid = false;
+  }
+
+  if (!valid || typeof sha256 !== "string" || typeof sizeBytes !== "number") return null;
+  return { sha256, sizeBytes };
+}
+
+async function verifyHandoffBundleFileIntegrity(
+  filePath: string,
+  expectedIntegrity: SessionHandoffBundleFileIntegrity,
+  issues: HandoffVerifyIssue[]
+): Promise<number> {
+  let actualIntegrity: SessionHandoffBundleFileIntegrity;
+  try {
+    actualIntegrity = await readHandoffBundleFileIntegrity(filePath);
+  } catch (error) {
+    addHandoffVerifyIssue(issues, filePath, `could not read file for integrity: ${formatErrorMessage(error)}`);
+    return 0;
+  }
+
+  if (actualIntegrity.sha256 !== expectedIntegrity.sha256) {
+    addHandoffVerifyIssue(issues, filePath, `sha256 mismatch: expected ${expectedIntegrity.sha256}, got ${actualIntegrity.sha256}`);
+  }
+  if (actualIntegrity.sizeBytes !== expectedIntegrity.sizeBytes) {
+    addHandoffVerifyIssue(issues, filePath, `sizeBytes mismatch: expected ${expectedIntegrity.sizeBytes}, got ${actualIntegrity.sizeBytes}`);
+  }
+  return 1;
+}
+
+async function readHandoffBundleFileIntegrity(filePath: string): Promise<SessionHandoffBundleFileIntegrity> {
+  const contents = await readFile(filePath);
+  return {
+    sha256: createHash("sha256").update(contents).digest("hex"),
+    sizeBytes: contents.byteLength
+  };
+}
+
+function buildHandoffVerificationResult(params: {
+  bundleDir: string;
+  manifestPath: string;
+  manifest: Record<string, unknown> | null;
+  checkedAt: string;
+  filesChecked: number;
+  issues: HandoffVerifyIssue[];
+}): SessionHandoffBundleVerification {
+  const errorCount = params.issues.filter((issue) => issue.severity === "error").length;
+  const warningCount = params.issues.filter((issue) => issue.severity === "warning").length;
+  return {
+    ok: errorCount === 0,
+    schemaVersion: "atlas-loop.handoff-verify.v1",
+    bundleDir: params.bundleDir,
+    manifestPath: params.manifestPath,
+    sessionId: firstString(params.manifest?.sessionId) ?? null,
+    checkedAt: params.checkedAt,
+    filesChecked: params.filesChecked,
+    summary: {
+      errorCount,
+      warningCount,
+      issueCount: params.issues.length
+    },
+    issues: params.issues,
+    localOnly: true,
+    uploaded: false
+  };
+}
+
+function addHandoffVerifyIssue(
+  issues: HandoffVerifyIssue[],
+  path: string,
+  message: string,
+  severity: HandoffVerifyIssue["severity"] = "error"
+): void {
+  issues.push({ severity, path, message });
+}
+
+function hasOwn(record: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(record, key);
+}
+
+function isHandoffBundleIntegrityKey(key: string): key is SessionHandoffBundleIntegrityKey {
+  return (HANDOFF_BUNDLE_INTEGRITY_KEYS as readonly string[]).includes(key);
 }
 
 async function readPersistedSessionDir(
@@ -961,6 +1440,16 @@ function isSafeSessionId(sessionId: string): boolean {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function firstString(value: unknown): string | undefined {
+  return typeof value === "string" && value ? value : undefined;
+}
+
+function formatErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  return JSON.stringify(error);
 }
 
 function compactMetadata(metadata: Record<string, unknown>): Record<string, unknown> | undefined {

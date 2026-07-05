@@ -251,7 +251,7 @@ export; a symlink that escapes the source session fails the export instead of
 being followed.
 
 CLI and MCP evidence exports may also include `atlas-evidence-export.json`.
-That file records local-only provenance for the exported bundle, including the
+That file records local-only metadata for the exported bundle, including the
 session id, bundle directory, sidecar path, and `export.json` path.
 
 ## Handoff Evidence
@@ -288,6 +288,9 @@ and `sizeBytes` for every generated non-manifest file present in the bundle.
 --bundle <dir>` validates this derived bundle format by checking the schema,
 local-only flags, contained regular file paths, required and optional file
 consistency, and SHA-256/size integrity for every generated non-manifest file.
+MCP callers can run the same local-only check with `atlas.verifyHandoffBundle`
+and a `bundleDir` input. The check is self-consistency validation, not
+provenance signing.
 
 Reports and exports are local files. They should not be committed by default,
 and they do not upload screenshots, logs, metadata, or app bundles.
@@ -310,7 +313,8 @@ local filesystem integrity rules, but they answer different questions:
 - `atlas-loop handoff verify --bundle <dir>` validates a generated handoff
   bundle rather than a raw session artifact tree. It reads `<dir>/manifest.json`
   and returns `schemaVersion: "atlas-loop.handoff-verify.v1"` with local issue
-  counts and path/hash failures.
+  counts and path/hash failures. MCP `atlas.verifyHandoffBundle` returns the
+  same report inside the normal MCP tool envelope without daemon I/O.
 
 Run:
 
