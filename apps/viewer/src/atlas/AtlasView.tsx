@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { ViewerParams } from "../types.js";
 import { formatDateTime } from "../viewerPresentation.js";
 import { fetchAtlasMap, screenDisplayName, screenImageUrl, type AtlasMapViewLike, type AtlasScreenLike } from "./atlasApi.js";
+import { MapGraph } from "./MapGraph.js";
 import { ScreenDetail } from "./ScreenDetail.js";
 import { ScreensGrid } from "./ScreensGrid.js";
 
@@ -22,6 +23,7 @@ export function AtlasView({
   const [state, setState] = useState<AtlasLoadState>({ status: "loading" });
   const [selectedScreenId, setSelectedScreenId] = useState<string | undefined>();
   const [rebuildNonce, setRebuildNonce] = useState(0);
+  const [mode, setMode] = useState<"grid" | "graph">("grid");
 
   useEffect(() => {
     const controller = new AbortController();
@@ -58,6 +60,14 @@ export function AtlasView({
           </span>
         </div>
         <div className="atlas-topbar-actions">
+          <div className="atlas-mode-toggle" role="group" aria-label="Map layout mode">
+            <button type="button" className={mode === "grid" ? "selected" : ""} aria-pressed={mode === "grid"} onClick={() => setMode("grid")}>
+              Screens
+            </button>
+            <button type="button" className={mode === "graph" ? "selected" : ""} aria-pressed={mode === "graph"} onClick={() => setMode("graph")}>
+              Graph
+            </button>
+          </div>
           <button type="button" onClick={() => setRebuildNonce((nonce) => nonce + 1)} disabled={state.status === "loading"}>
             Rebuild
           </button>
@@ -80,13 +90,23 @@ export function AtlasView({
       ) : null}
 
       <div className="atlas-body">
-        <ScreensGrid
-          daemonUrl={params.daemonUrl}
-          screens={view?.map.screens ?? []}
-          loading={state.status === "loading"}
-          selectedScreenId={selectedScreen?.id}
-          onSelect={setSelectedScreenId}
-        />
+        {mode === "graph" && view ? (
+          <MapGraph
+            daemonUrl={params.daemonUrl}
+            screens={view.map.screens}
+            transitions={view.map.transitions}
+            selectedScreenId={selectedScreen?.id}
+            onSelectScreen={setSelectedScreenId}
+          />
+        ) : (
+          <ScreensGrid
+            daemonUrl={params.daemonUrl}
+            screens={view?.map.screens ?? []}
+            loading={state.status === "loading"}
+            selectedScreenId={selectedScreen?.id}
+            onSelect={setSelectedScreenId}
+          />
+        )}
         {view && selectedScreen ? (
           <ScreenDetail
             daemonUrl={params.daemonUrl}
