@@ -41,6 +41,8 @@ const traceEventTypes = new Set([
   "action.started",
   "action.completed",
   "artifact.created",
+  "video.started",
+  "video.stopped",
   "error"
 ]);
 const artifactTypeDirs: Partial<Record<ArtifactRef["type"], string>> = {
