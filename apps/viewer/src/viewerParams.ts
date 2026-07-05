@@ -36,6 +36,10 @@ export function normalizeViewerBaseUrl(value: string | null | undefined): string
   }
 }
 
+export function normalizeViewerView(value: string | null | undefined): "session" | "atlas" {
+  return value === "atlas" ? "atlas" : "session";
+}
+
 export function readViewerParams(search: string, viewerBaseUrl?: string): ViewerParams {
   const params = new URLSearchParams(search);
   const normalizedViewerBaseUrl = normalizeViewerBaseUrl(viewerBaseUrl);
@@ -43,6 +47,8 @@ export function readViewerParams(search: string, viewerBaseUrl?: string): Viewer
     daemonUrl: normalizeDaemonUrl(params.get("daemonUrl")),
     sessionId: normalizeSessionId(params.get("sessionId"))
   };
+  const view = normalizeViewerView(params.get("view"));
+  if (view === "atlas") result.view = view;
   if (normalizedViewerBaseUrl) result.viewerBaseUrl = normalizedViewerBaseUrl;
   return result;
 }
@@ -51,6 +57,7 @@ export function writeViewerSearch(params: ViewerParams): string {
   const search = new URLSearchParams();
   search.set("daemonUrl", normalizeDaemonUrl(params.daemonUrl));
   search.set("sessionId", normalizeSessionId(params.sessionId));
+  if (normalizeViewerView(params.view) === "atlas") search.set("view", "atlas");
   return `?${search.toString()}`;
 }
 

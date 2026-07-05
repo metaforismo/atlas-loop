@@ -257,10 +257,13 @@ export interface ApiEnvelope<T> {
   error?: AtlasLoopError;
 }
 
+export type ViewerView = "session" | "atlas";
+
 export interface ViewerParams {
   daemonUrl: string;
   sessionId: string;
   viewerBaseUrl?: string;
+  view?: ViewerView;
 }
 
 export type HealthState = "checking" | "online" | "offline";

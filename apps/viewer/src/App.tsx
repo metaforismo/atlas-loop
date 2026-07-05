@@ -19,6 +19,7 @@ import {
   type ViewerActionFormField,
   type ViewerActionFormState
 } from "./components/ActionPanel.js";
+import { AtlasView } from "./atlas/AtlasView.js";
 import { ActionDetailPanel } from "./components/ActionDetailPanel.js";
 import { EmptyState, ErrorNotice, MetricTile, StatusRow } from "./components/common.js";
 import { EvidenceHealthPanel } from "./components/EvidenceHealthPanel.js";
@@ -243,6 +244,16 @@ export function App() {
     focusArtifactOption(artifactId);
   };
 
+  if (params.view === "atlas") {
+    return (
+      <AtlasView
+        params={params}
+        onSwitchToSessions={() => applyViewerParams({ daemonUrl: params.daemonUrl, sessionId: params.sessionId })}
+        onOpenSession={(sessionId) => applyViewerParams({ daemonUrl: params.daemonUrl, sessionId })}
+      />
+    );
+  }
+
   return (
     <main className="viewer-shell">
       <aside className="rail panel" aria-label="Viewer connection and session list">
@@ -320,6 +331,14 @@ export function App() {
           <StatusRow label="Warnings" value={String(storageWarnings.length)} tone={storageWarnings.length > 0 ? "warn" : "neutral"} />
           <StatusRow label="Artifacts" value={String(artifacts.length)} tone="neutral" />
         </section>
+
+        <button
+          type="button"
+          className="atlas-switch"
+          onClick={() => applyViewerParams({ daemonUrl: params.daemonUrl, sessionId: params.sessionId, view: "atlas" })}
+        >
+          Atlas map →
+        </button>
 
         {showLastError ? <ErrorNotice message={lastError!} /> : null}
       </aside>
