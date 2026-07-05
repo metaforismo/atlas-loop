@@ -22,12 +22,29 @@ export function normalizeSessionId(value: string | null | undefined): string {
   return trimmed ? trimmed : DEFAULT_SESSION_ID;
 }
 
-export function readViewerParams(search: string): ViewerParams {
+export function normalizeViewerBaseUrl(value: string | null | undefined): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) return undefined;
+
+  try {
+    const parsed = new URL(trimmed);
+    parsed.hash = "";
+    parsed.search = "";
+    return parsed.toString().replace(/\/$/, "");
+  } catch {
+    return undefined;
+  }
+}
+
+export function readViewerParams(search: string, viewerBaseUrl?: string): ViewerParams {
   const params = new URLSearchParams(search);
-  return {
+  const normalizedViewerBaseUrl = normalizeViewerBaseUrl(viewerBaseUrl);
+  const result: ViewerParams = {
     daemonUrl: normalizeDaemonUrl(params.get("daemonUrl")),
     sessionId: normalizeSessionId(params.get("sessionId"))
   };
+  if (normalizedViewerBaseUrl) result.viewerBaseUrl = normalizedViewerBaseUrl;
+  return result;
 }
 
 export function writeViewerSearch(params: ViewerParams): string {

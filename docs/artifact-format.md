@@ -272,7 +272,16 @@ atlas-loop evidence report --session latest --out artifacts/reports/<session-id>
 atlas-loop evidence export --session latest --out artifacts/exports/<session-id>
 atlas-loop events export --session latest --out artifacts/events/<session-id>.json
 atlas-loop session handoff --session latest --format markdown --out artifacts/handoffs/<session-id>.md
+atlas-loop session handoff --session latest --bundle artifacts/handoffs/<session-id>
 ```
+
+The handoff bundle directory uses `schemaVersion:
+"atlas-loop.handoff-bundle.v1"` in `manifest.json`. It always includes
+`handoff.json`, `handoff.md`, and `manifest.json`; it includes `events.json`
+and `evidence-report.md` when the daemon can read those surfaces for the
+resolved session. Missing optional files are listed in `warnings`, and the
+corresponding manifest file path is `null`. The bundle manifest records
+`localOnly: true` and `uploaded: false`.
 
 Reports and exports are local files. They should not be committed by default,
 and they do not upload screenshots, logs, metadata, or app bundles.

@@ -880,7 +880,7 @@ function agentHandoffCopyPayloads(
     {
       id: "commands",
       label: "Copy commands",
-      ariaLabel: "Copy read-only local daemon command snippets",
+      ariaLabel: "Copy local handoff command snippets",
       value: agentHandoffCommands(input, resolvedSessionId)
     }
   ];
@@ -918,6 +918,8 @@ function agentHandoffCommands(input: AgentHandoffInput, resolvedSessionId: strin
   const baseUrl = input.params.daemonUrl.replace(/\/+$/, "");
   const cliSession = shellSingleQuote(rawSessionId);
   const cliDaemon = shellSingleQuote(baseUrl);
+  const viewerBaseUrl = (input.params.viewerBaseUrl ?? "http://127.0.0.1:5173").replace(/\/+$/, "");
+  const cliViewerBaseUrl = shellSingleQuote(viewerBaseUrl);
   const endpoints = [
     `${baseUrl}/healthz`,
     `${baseUrl}/v1/sessions/${sessionId}`,
@@ -927,8 +929,9 @@ function agentHandoffCommands(input: AgentHandoffInput, resolvedSessionId: strin
   ];
 
   return [
-    "# Read-only atlas-loop CLI handoff commands",
+    "# Local atlas-loop CLI handoff commands",
     `atlas-loop artifacts health --session ${cliSession} --daemon-url ${cliDaemon}`,
+    `atlas-loop session handoff --session ${cliSession} --bundle ${shellSingleQuote(`./atlas-loop-handoffs/${rawSessionId}`)} --viewer-base-url ${cliViewerBaseUrl} --daemon-url ${cliDaemon}`,
     `atlas-loop evidence report --session ${cliSession} --daemon-url ${cliDaemon}`,
     `atlas-loop evidence export --session ${cliSession} --out ${shellSingleQuote(`./atlas-loop-evidence/${rawSessionId}`)} --daemon-url ${cliDaemon}`,
     `atlas-loop events export --session ${cliSession} --out ${shellSingleQuote(`./atlas-loop-events/${rawSessionId}.json`)} --daemon-url ${cliDaemon}`,
@@ -946,12 +949,12 @@ function agentHandoffCommandPreview(value: string | undefined): AgentHandoffComm
 
   if (lines.length === 0) return undefined;
 
-  const visibleLines = lines.slice(0, 5);
+  const visibleLines = lines.slice(0, 6);
   const hiddenLines = lines.slice(visibleLines.length);
 
   return {
-    label: "Read-only local command preview",
-    detail: "CLI exports and daemon GET checks",
+    label: "Local handoff command preview",
+    detail: "Local handoff bundle, CLI exports, and daemon GET checks",
     visibleLines,
     hiddenLines,
     hiddenLineCount: hiddenLines.length,

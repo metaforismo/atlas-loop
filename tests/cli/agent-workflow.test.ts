@@ -534,6 +534,7 @@ describe("CLI agent workflow helpers", () => {
       blockingReasons: ["artifact health unavailable: artifact health missing"],
       nextCommands: expect.arrayContaining([
         `atlas-loop artifacts health --session sess_handoff_cli --daemon-url ${daemonUrl}`,
+        `atlas-loop session handoff --session sess_handoff_cli --bundle ./atlas-loop-handoffs/sess_handoff_cli --viewer-base-url http://127.0.0.1:5176 --daemon-url ${daemonUrl}`,
         `atlas-loop events export --session sess_handoff_cli --out ./atlas-loop-events/sess_handoff_cli.json --daemon-url ${daemonUrl}`,
         `atlas-loop viewer url --session sess_handoff_cli --viewer-base-url http://127.0.0.1:5176 --daemon-url ${daemonUrl}`
       ])
@@ -553,6 +554,7 @@ describe("CLI agent workflow helpers", () => {
       sessionId: "sess_handoff_cli",
       requestedSessionId: "latest",
       nextCommands: expect.arrayContaining([
+        `atlas-loop session handoff --session sess_handoff_cli --bundle ./atlas-loop-handoffs/sess_handoff_cli --viewer-base-url http://127.0.0.1:5176 --daemon-url ${daemonUrl}`,
         `atlas-loop events export --session sess_handoff_cli --out ./atlas-loop-events/sess_handoff_cli.json --daemon-url ${daemonUrl}`
       ])
     });
@@ -669,6 +671,7 @@ describe("CLI agent workflow helpers", () => {
     expect(logged[0]).toContain("- Action error: HID\\_FAILED: tap failed");
     expect(logged[0]).toContain("- Latest error: HID\\_FAILED: tap failed");
     expect(logged[0]).toContain("- artifact health failed: 1 errors, 2 warnings");
+    expect(logged[0]).toContain(`atlas-loop session handoff --session sess_handoff_md --bundle ./atlas-loop-handoffs/sess_handoff_md --viewer-base-url http://127.0.0.1:5177 --daemon-url ${daemonUrl}`);
     expect(logged[0]).toContain(`atlas-loop events export --session sess_handoff_md --out ./atlas-loop-events/sess_handoff_md.json --daemon-url ${daemonUrl}`);
     expect(logged[0]).toContain(`atlas-loop screenshot --session sess_handoff_md --reason handoff --daemon-url ${daemonUrl}`);
 
@@ -718,6 +721,307 @@ describe("CLI agent workflow helpers", () => {
         "--out",
         "handoff.md"
       ])).rejects.toThrow("--format must be json or markdown");
+    } finally {
+      process.chdir(originalCwd);
+      await server.close();
+      await rm(tempDir, { recursive: true, force: true });
+    }
+
+    expect(requestedPaths).toEqual([]);
+  });
+
+  it("writes local session handoff bundles with resolved session evidence", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "atlas-loop-cli-handoff-bundle-"));
+    const bundleDir = join(tempDir, "handoff-bundle");
+    const originalCwd = process.cwd();
+    const originalLog = console.log;
+    const logged: string[] = [];
+    const requestedPaths: string[] = [];
+    const artifactDir = "/tmp/atlas-loop/sess-bundle";
+    const latestScreenshot: ArtifactRef = {
+      id: "artifact_bundle",
+      sessionId: "sess_bundle",
+      type: "screenshot",
+      path: `${artifactDir}/screenshots/latest.png`,
+      createdAt: "2026-07-04T12:00:00.000Z",
+      metadata: { actionId: "act_screenshot", operation: "screenshot", sizeBytes: 2048 }
+    };
+    const logArtifact: ArtifactRef = {
+      id: "log_bundle",
+      sessionId: "sess_bundle",
+      type: "log",
+      path: `${artifactDir}/logs/install.log`,
+      createdAt: "2026-07-04T12:00:03.000Z",
+      metadata: { actionId: "act_install", operation: "install", sizeBytes: 481 }
+    };
+    const events = traceEvents("sess_bundle");
+    const summary = sessionSummary("sess_bundle", {
+      artifactDir,
+      latestScreenshot,
+      storage: { source: "memory", artifactBacked: true, warnings: [] }
+    });
+    const server = await startSessionHandoffDaemon((requestPath) => {
+      requestedPaths.push(requestPath);
+      if (requestPath === "/sessions/latest/summary" || requestPath === "/sessions/sess_bundle/summary") {
+        return { ok: true, data: summary };
+      }
+      if (requestPath === "/sessions/sess_bundle/artifacts/health") {
+        return {
+          ok: true,
+          data: artifactHealth("sess_bundle", "sess_bundle", true)
+        };
+      }
+      if (requestPath === "/sessions/sess_bundle/events") {
+        return { ok: true, data: events };
+      }
+      if (requestPath === "/sessions/sess_bundle/artifacts") {
+        return { ok: true, data: [logArtifact, latestScreenshot] };
+      }
+      return {
+        ok: false,
+        status: 404,
+        error: { code: "NOT_FOUND", message: `unexpected route ${requestPath}` }
+      };
+    });
+    const daemonUrl = `http://127.0.0.1:${server.port}`;
+    let manifest: any;
+    let output: any;
+    let handoffJson: any;
+    let eventsJson: any;
+    let handoffMarkdown = "";
+    let evidenceReport = "";
+
+    await writeFile(join(tempDir, "atlas-loop.config.json"), JSON.stringify({ daemonUrl }, null, 2));
+    console.log = (value?: unknown) => {
+      logged.push(String(value));
+    };
+
+    try {
+      process.chdir(tempDir);
+      await expect(main([
+        "session",
+        "handoff",
+        "--session",
+        "latest",
+        "--bundle",
+        bundleDir,
+        "--viewer-base-url",
+        "http://127.0.0.1:5176/"
+      ])).resolves.toBe(0);
+      output = JSON.parse(logged[0]);
+      manifest = JSON.parse(await readFile(join(bundleDir, "manifest.json"), "utf8"));
+      handoffJson = JSON.parse(await readFile(join(bundleDir, "handoff.json"), "utf8"));
+      eventsJson = JSON.parse(await readFile(join(bundleDir, "events.json"), "utf8"));
+      handoffMarkdown = await readFile(join(bundleDir, "handoff.md"), "utf8");
+      evidenceReport = await readFile(join(bundleDir, "evidence-report.md"), "utf8");
+    } finally {
+      process.chdir(originalCwd);
+      console.log = originalLog;
+      await server.close();
+      await rm(tempDir, { recursive: true, force: true });
+    }
+
+    expect(requestedPaths).toEqual([
+      "/sessions/latest/summary",
+      "/sessions/sess_bundle/artifacts/health",
+      "/sessions/sess_bundle/events",
+      "/sessions/sess_bundle/summary",
+      "/sessions/sess_bundle/artifacts"
+    ]);
+    expect(Number.isNaN(Date.parse(manifest.createdAt))).toBe(false);
+    expect(Number.isNaN(Date.parse(manifest.exportedAt))).toBe(false);
+    expect(output).toMatchObject({
+      ok: true,
+      schemaVersion: "atlas-loop.handoff-bundle.v1",
+      bundleDir,
+      manifestPath: join(bundleDir, "manifest.json"),
+      sessionId: "sess_bundle",
+      requestedSessionId: "latest",
+      ready: true,
+      localOnly: true,
+      uploaded: false,
+      warnings: []
+    });
+    expect(output.files).toEqual(manifest.files);
+    expect(manifest).toMatchObject({
+      schemaVersion: "atlas-loop.handoff-bundle.v1",
+      sessionId: "sess_bundle",
+      requestedSessionId: "latest",
+      ready: true,
+      localOnly: true,
+      uploaded: false,
+      viewerUrl: `http://127.0.0.1:5176?daemonUrl=${encodeURIComponent(daemonUrl)}&sessionId=sess_bundle`,
+      artifactDir,
+      bundleDir,
+      files: {
+        manifest: join(bundleDir, "manifest.json"),
+        handoffJson: join(bundleDir, "handoff.json"),
+        handoffMarkdown: join(bundleDir, "handoff.md"),
+        eventsJson: join(bundleDir, "events.json"),
+        evidenceReport: join(bundleDir, "evidence-report.md")
+      },
+      warnings: []
+    });
+    expect(handoffJson).toMatchObject({
+      sessionId: "sess_bundle",
+      requestedSessionId: "latest",
+      ready: true
+    });
+    expect(handoffJson).not.toHaveProperty("localOnly");
+    expect(handoffMarkdown).toContain("# Atlas Loop Session Handoff");
+    expect(handoffMarkdown).toContain("- Resolved session: `sess_bundle`");
+    expect(eventsJson).toMatchObject({
+      schemaVersion: "atlas-loop.events-export.v1",
+      requestedSessionId: "sess_bundle",
+      outPath: join(bundleDir, "events.json"),
+      localOnly: true,
+      uploaded: false,
+      total: events.length,
+      matched: events.length,
+      count: events.length,
+      events
+    });
+    expect(evidenceReport).toContain("# Atlas Loop Evidence Report");
+    expect(evidenceReport).toContain("sess_bundle");
+    expect(evidenceReport).toContain("log_bundle");
+  });
+
+  it("keeps handoff bundles usable when optional event and report exports fail", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "atlas-loop-cli-handoff-bundle-partial-"));
+    const bundleDir = join(tempDir, "handoff-bundle");
+    const originalCwd = process.cwd();
+    const originalLog = console.log;
+    const logged: string[] = [];
+    const requestedPaths: string[] = [];
+    const summary = sessionSummary("sess_bundle_partial", {
+      artifactDir: "/tmp/atlas-loop/sess-bundle-partial",
+      storage: { source: "disk", artifactBacked: true, warnings: [] }
+    });
+    const server = await startSessionHandoffDaemon((requestPath) => {
+      requestedPaths.push(requestPath);
+      if (requestPath === "/sessions/latest/summary") {
+        return { ok: true, data: summary };
+      }
+      if (requestPath === "/sessions/sess_bundle_partial/artifacts/health") {
+        return {
+          ok: true,
+          data: artifactHealth("sess_bundle_partial", "sess_bundle_partial", true)
+        };
+      }
+      if (requestPath === "/sessions/sess_bundle_partial/events") {
+        return {
+          ok: false,
+          status: 404,
+          error: { code: "NOT_FOUND", message: "events route unavailable" }
+        };
+      }
+      if (requestPath === "/sessions/sess_bundle_partial/summary") {
+        return {
+          ok: false,
+          status: 500,
+          error: { code: "INTERNAL", message: "resolved summary unavailable" }
+        };
+      }
+      return {
+        ok: false,
+        status: 404,
+        error: { code: "NOT_FOUND", message: `unexpected route ${requestPath}` }
+      };
+    });
+    const daemonUrl = `http://127.0.0.1:${server.port}`;
+    let output: any;
+    let manifest: any;
+    let handoffJson: any;
+
+    await writeFile(join(tempDir, "atlas-loop.config.json"), JSON.stringify({ daemonUrl }, null, 2));
+    await mkdir(bundleDir, { recursive: true });
+    await writeFile(join(bundleDir, "events.json"), "{\"stale\":true}\n", "utf8");
+    await writeFile(join(bundleDir, "evidence-report.md"), "# stale report\n", "utf8");
+    console.log = (value?: unknown) => {
+      logged.push(String(value));
+    };
+
+    try {
+      process.chdir(tempDir);
+      await expect(main([
+        "session",
+        "handoff",
+        "--session",
+        "latest",
+        "--bundle",
+        bundleDir
+      ])).resolves.toBe(0);
+      output = JSON.parse(logged[0]);
+      manifest = JSON.parse(await readFile(join(bundleDir, "manifest.json"), "utf8"));
+      handoffJson = JSON.parse(await readFile(join(bundleDir, "handoff.json"), "utf8"));
+      await expect(readFile(join(bundleDir, "events.json"), "utf8")).rejects.toThrow();
+      await expect(readFile(join(bundleDir, "evidence-report.md"), "utf8")).rejects.toThrow();
+    } finally {
+      process.chdir(originalCwd);
+      console.log = originalLog;
+      await server.close();
+      await rm(tempDir, { recursive: true, force: true });
+    }
+
+    expect(requestedPaths).toEqual([
+      "/sessions/latest/summary",
+      "/sessions/sess_bundle_partial/artifacts/health",
+      "/sessions/sess_bundle_partial/events",
+      "/sessions/sess_bundle_partial/summary"
+    ]);
+    expect(handoffJson).toMatchObject({
+      sessionId: "sess_bundle_partial",
+      requestedSessionId: "latest"
+    });
+    expect(manifest.files).toMatchObject({
+      manifest: join(bundleDir, "manifest.json"),
+      handoffJson: join(bundleDir, "handoff.json"),
+      handoffMarkdown: join(bundleDir, "handoff.md"),
+      eventsJson: null,
+      evidenceReport: null
+    });
+    expect(manifest.warnings).toHaveLength(2);
+    expect(manifest.warnings[0]).toContain("events.json");
+    expect(manifest.warnings[1]).toContain("evidence-report.md");
+    expect(output.warnings).toEqual(manifest.warnings);
+  });
+
+  it("rejects ambiguous or non-local handoff bundle output before reading the daemon", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "atlas-loop-cli-handoff-bundle-invalid-"));
+    const originalCwd = process.cwd();
+    const requestedPaths: string[] = [];
+    const server = await startSessionHandoffDaemon((requestPath) => {
+      requestedPaths.push(requestPath);
+      return {
+        ok: false,
+        status: 500,
+        error: { code: "UNEXPECTED_DAEMON_READ", message: requestPath }
+      };
+    });
+    const daemonUrl = `http://127.0.0.1:${server.port}`;
+
+    await writeFile(join(tempDir, "atlas-loop.config.json"), JSON.stringify({ daemonUrl }, null, 2));
+
+    try {
+      process.chdir(tempDir);
+      await expect(main([
+        "session",
+        "handoff",
+        "--session",
+        "latest",
+        "--bundle",
+        join(tempDir, "bundle"),
+        "--out",
+        join(tempDir, "handoff.json")
+      ])).rejects.toThrow("Use either --bundle or --out for session handoff, not both");
+      await expect(main([
+        "session",
+        "handoff",
+        "--session",
+        "latest",
+        "--bundle",
+        "https://example.com/handoff"
+      ])).rejects.toThrow("handoff bundle path must be a local filesystem path");
     } finally {
       process.chdir(originalCwd);
       await server.close();

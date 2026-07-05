@@ -313,6 +313,7 @@ describe("MCP contract documentation", () => {
         blockingReasons: [],
         nextCommands: [
           "atlas-loop artifacts health --session sess_handoff --daemon-url http://127.0.0.1:4317",
+          "atlas-loop session handoff --session sess_handoff --bundle ./atlas-loop-handoffs/sess_handoff --viewer-base-url http://127.0.0.1:5173 --daemon-url http://127.0.0.1:4317",
           "atlas-loop evidence report --session sess_handoff --daemon-url http://127.0.0.1:4317",
           "atlas-loop evidence export --session sess_handoff --out ./atlas-loop-evidence/sess_handoff --daemon-url http://127.0.0.1:4317",
           "atlas-loop events export --session sess_handoff --out ./atlas-loop-events/sess_handoff.json --daemon-url http://127.0.0.1:4317",

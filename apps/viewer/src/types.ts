@@ -207,6 +207,7 @@ export interface ApiEnvelope<T> {
 export interface ViewerParams {
   daemonUrl: string;
   sessionId: string;
+  viewerBaseUrl?: string;
 }
 
 export type HealthState = "checking" | "online" | "offline";
