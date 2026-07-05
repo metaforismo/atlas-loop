@@ -22,7 +22,7 @@ export interface ValidationReport {
 }
 
 const requiredSessionDirs = ["screenshots", "logs", "metadata"] as const;
-const actionKinds = new Set(["tap", "typeText", "swipe", "edgeGesture", "screenshot", "install", "launch", "wait"]);
+const actionKinds = new Set(["tap", "typeText", "swipe", "edgeGesture", "tapElement", "assertVisible", "screenshot", "install", "launch", "wait"]);
 const sessionStatuses = new Set<Session["status"]>([
   "created",
   "booting",

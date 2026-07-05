@@ -1167,7 +1167,11 @@ function sendJson<T>(response: ServerResponse, statusCode: number, envelope: Api
 }
 
 function normalizeError(error: unknown, fallback: AtlasLoopErrorCode = "COMMAND_FAILED"): AtlasLoopError {
-  if (isAtlasLoopError(error)) return error;
+  if (isAtlasLoopError(error)) {
+    // Materialize a plain object: Error subclasses carry message as a
+    // non-enumerable property, which spread-based rethrows would drop.
+    return { code: error.code, message: error.message, retryable: error.retryable, details: error.details };
+  }
   if (error instanceof Error) {
     return atlasError(fallback, error.message, { name: error.name });
   }

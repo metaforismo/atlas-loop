@@ -19,6 +19,14 @@ final class AtlasDriverRunnerTests: XCTestCase {
         try server.start()
         defer { server.stop() }
 
+        // The runner app is backgrounded as soon as /target foregrounds the app
+        // under automation; without an active keep-alive the simulator can
+        // suspend this process after a short idle gap, silently closing the
+        // listener while the host-side xcodebuild keeps waiting.
+        let keepAlive = DriverKeepAlive()
+        keepAlive.start()
+        defer { keepAlive.stop() }
+
         // Serve until an explicit shutdown. The timeout is a safety backstop so a
         // forgotten runner does not survive for weeks; the daemon always shuts the
         // runner down (or kills the xcodebuild child) long before this fires.

@@ -176,7 +176,22 @@ export class XcuitestRunnerManager {
     } catch {
       // The exit watcher and kill below handle a runner that no longer responds.
     }
+    this.terminateHandle(handle);
+  }
+
+  private terminateHandle(handle: RunnerHandle): void {
+    handle.alive = false;
     handle.process.kill("SIGTERM");
+    // xcodebuild sometimes ignores SIGTERM while it waits on testmanagerd;
+    // escalate so restarts never race a zombie test session.
+    const killTimer = setTimeout(() => {
+      try {
+        handle.process.kill("SIGKILL");
+      } catch {
+        // Already gone.
+      }
+    }, 3_000);
+    killTimer.unref?.();
   }
 
   async close(): Promise<void> {
@@ -306,7 +321,10 @@ export class XcuitestRunnerManager {
         signal: AbortSignal.timeout(this.requestTimeoutMs)
       });
     } catch (error) {
-      handle.alive = false;
+      // The in-simulator runner can die while its host-side xcodebuild keeps
+      // waiting; terminate the child too so the next ensureRunner starts clean
+      // instead of stacking a second test session onto the device.
+      this.terminateHandle(handle);
       throw new XcuitestClientError(
         atlasError("DRIVER_UNAVAILABLE", `driver runner is not reachable: ${error instanceof Error ? error.message : String(error)}`, {
           stderrTail: handle.stderrTail,

@@ -33,7 +33,10 @@ private struct CheckoutRootView: View {
                         path.append(.cart)
                     }
                 case .cart:
-                    CartView(cartLine: cartLine) {
+                    // Pass a binding: navigationDestination closures can capture
+                    // stale @State when the push happens in the same update as
+                    // the state change (real tap-driven checkout exposed this).
+                    CartView(cartLine: $cartLine) {
                         path.append(.shipping)
                     }
                 case .shipping:
@@ -42,7 +45,7 @@ private struct CheckoutRootView: View {
                     }
                 case .paymentReview:
                     PaymentReviewView(
-                        cartLine: cartLine,
+                        cartLine: $cartLine,
                         shippingDetails: ShippingDetails.fixture,
                         paymentMethod: PaymentMethod.fixture
                     ) {
@@ -329,7 +332,7 @@ private struct ProductDetailView: View {
 }
 
 private struct CartView: View {
-    let cartLine: CartLine?
+    @Binding var cartLine: CartLine?
     let onContinue: () -> Void
 
     var body: some View {
@@ -392,7 +395,7 @@ private struct ShippingView: View {
 }
 
 private struct PaymentReviewView: View {
-    let cartLine: CartLine?
+    @Binding var cartLine: CartLine?
     let shippingDetails: ShippingDetails
     let paymentMethod: PaymentMethod
     let onPlaceOrder: () -> Void

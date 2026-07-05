@@ -12,6 +12,10 @@ runtime dependencies.
 ## What Works In V1
 
 - Local daemon bound to `127.0.0.1`.
+- Headless real input through the `xcuitest` driver runner backend
+  (`--input-backend xcuitest`): coordinate taps, swipes, typing, and element
+  actions (`tap-element`, `assert-visible`) with no Simulator window or
+  Accessibility permission, proven by a tap-driven checkout smoke.
 - CLI commands for session lifecycle, app build/install/launch, tap/type/swipe,
   screenshots, and viewer startup.
 - Local MCP-compatible stdio server exposing the same runtime controls.
@@ -426,12 +430,25 @@ with a clear `SKIP` message when macOS, Xcode, `simctl`, a booted Simulator, or
 source paths are unavailable. Set `ATLAS_LOOP_SMOKE_REQUIRE=1` in a dedicated
 Simulator environment to turn those skips into failures.
 
-Primitive coordinate input is available through the CLI, MCP, daemon, and native
-helper protocol. A full checkout-by-tap smoke is still host-gated: the v1 CGEvent
-backend needs a visible Simulator window, Accessibility permission, and a host
+Real input has two backends. The default `cgevent` backend remains host-gated:
+it needs a visible Simulator window, Accessibility permission, and a host
 configuration where posted macOS events are actually consumed by the guest app.
-The demo route proof is a launch-argument proof path, not evidence that HID
-input succeeded.
+The `xcuitest` backend drives the app headlessly through a repo-owned XCUITest
+driver runner (no window, no Accessibility permission) and supports element
+actions (`tap-element`, `assert-visible`) in addition to coordinates.
+
+The real proof path is the checkout-by-tap smoke:
+
+```bash
+ATLAS_LOOP_SMOKE_INPUT_BACKEND=xcuitest npm run smoke:ios
+```
+
+It taps through the demo checkout (catalog → product-detail → cart → shipping
+→ payment-review → confirmation) with per-step accessibility assertions and
+screenshots, then verifies that every input-action artifact records
+`inputBackend: "xcuitest"`. Set `ATLAS_LOOP_SMOKE_UDID` to pin a specific
+booted simulator. The launch-argument demo route proof still exists for the
+cgevent lane, but it is a fixture shortcut, not input evidence.
 
 Native helper protocol compatibility can be checked without a booted Simulator:
 

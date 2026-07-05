@@ -1034,6 +1034,67 @@ describe("daemon xcuitest backend wiring", () => {
     });
   });
 
+  it("self-heals once when the driver runner dies mid-session and re-targets the app", async () => {
+    const log: FakeManagerLog = { ensured: [], targets: [], actions: [], closed: false };
+    let restarts = -1;
+    let failedOnce = false;
+    const manager = {
+      ensureRunner: async (udid: string) => {
+        log.ensured.push(udid);
+        restarts += 1;
+        return { udid, port: 4711, alive: true, restarts, xctestrunPath: "/dd/AtlasDriverRunner_sim.xctestrun" };
+      },
+      setTarget: async (udid: string, bundleId: string) => {
+        log.targets.push({ udid, bundleId });
+        return { bundleId };
+      },
+      performAction: async (udid: string, action: Record<string, any>) => {
+        log.actions.push({ udid, action });
+        if (!failedOnce) {
+          failedOnce = true;
+          throw { code: "DRIVER_UNAVAILABLE", message: "driver runner is not reachable", retryable: true };
+        }
+        return { healed: true };
+      },
+      close: async () => {
+        log.closed = true;
+      }
+    };
+
+    const artifactRoot = await mkdtemp(join(tmpdir(), "atlas-loop-xcuitest-heal-"));
+    tempDirs.push(artifactRoot);
+    const daemon = await startDaemonServer({
+      port: 0,
+      artifactRoot,
+      simulator: fakeSimulator(),
+      xcuitestManagerFactory: () => manager as never
+    });
+    startedDaemons.push(daemon);
+
+    const created = await requestJson<Record<string, any>>(daemon.url, "/sessions", {
+      method: "POST",
+      body: JSON.stringify({ simulator: { udid: "SIM-HEAL" }, inputBackend: "xcuitest" })
+    });
+    await requestJson(daemon.url, `/sessions/${created.id}/launch`, {
+      method: "POST",
+      body: JSON.stringify({ bundleId: "app.atlasloop.CommerceDemo" })
+    });
+    const result = await requestJson<Record<string, any>>(daemon.url, `/sessions/${created.id}/actions`, {
+      method: "POST",
+      body: JSON.stringify({ action: { kind: "tapElement", identifier: "cart.continue" } })
+    });
+
+    expect(result.ok).toBe(true);
+    expect(log.actions).toHaveLength(2);
+    // The target is re-sent because the second ensureRunner reports a new generation.
+    expect(log.targets).toEqual([
+      { udid: "SIM-HEAL", bundleId: "app.atlasloop.CommerceDemo" },
+      { udid: "SIM-HEAL", bundleId: "app.atlasloop.CommerceDemo" }
+    ]);
+    const metadataText = JSON.parse(await readFile(result.artifacts[0].path, "utf8"));
+    expect(metadataText).toMatchObject({ runnerRestarts: 1, driverData: { healed: true } });
+  });
+
   it("resolves a booted simulator udid when the session only has a name", async () => {
     const log: FakeManagerLog = { ensured: [], targets: [], actions: [], closed: false };
     const artifactRoot = await mkdtemp(join(tmpdir(), "atlas-loop-xcuitest-udid-"));
