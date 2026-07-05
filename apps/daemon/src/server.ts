@@ -186,6 +186,7 @@ async function handleRequest(state: DaemonState, request: IncomingMessage, respo
 
   try {
     const url = new URL(request.url ?? "/", `http://${request.headers.host ?? `${state.host}:${state.port}`}`);
+    const baseUrl = `${url.protocol}//${url.host}`;
     const rawParts = url.pathname.split("/").filter(Boolean).map(decodeURIComponent);
     const parts = rawParts[0] === "v1" ? rawParts.slice(1) : rawParts;
 
@@ -233,7 +234,11 @@ async function handleRequest(state: DaemonState, request: IncomingMessage, respo
 
     if (request.method === "GET" && parts.length === 3 && parts[2] === "summary") {
       const sessionState = await resolveReadableSessionState(state, sessionId);
-      sendJson(response, 200, { ok: true, data: await getSessionSummary(sessionState) });
+      const summary = await getSessionSummary(sessionState);
+      if (summary.artifacts.latestScreenshot) {
+        summary.artifacts.latestScreenshot = artifactWithContentUrl(baseUrl, summary.artifacts.latestScreenshot);
+      }
+      sendJson(response, 200, { ok: true, data: summary });
       return;
     }
 
@@ -290,7 +295,7 @@ async function handleRequest(state: DaemonState, request: IncomingMessage, respo
 
     if (request.method === "GET" && parts.length === 3 && parts[2] === "artifacts") {
       const sessionState = await resolveReadableSessionState(state, sessionId);
-      sendJson(response, 200, { ok: true, data: sessionState.artifacts });
+      sendJson(response, 200, { ok: true, data: sessionState.artifacts.map((artifact) => artifactWithContentUrl(baseUrl, artifact)) });
       return;
     }
 
@@ -302,7 +307,13 @@ async function handleRequest(state: DaemonState, request: IncomingMessage, respo
 
     if (request.method === "GET" && parts.length === 4 && parts[2] === "artifacts" && parts[3] === "latest-screenshot") {
       const sessionState = await resolveReadableSessionState(state, sessionId);
-      sendJson(response, 200, { ok: true, data: await latestScreenshot(sessionState) });
+      sendJson(response, 200, { ok: true, data: artifactWithContentUrl(baseUrl, await latestScreenshot(sessionState)) });
+      return;
+    }
+
+    if (request.method === "GET" && parts.length === 5 && parts[2] === "artifacts" && parts[4] === "content") {
+      const sessionState = await resolveReadableSessionState(state, sessionId);
+      await sendArtifactContent(request, response, sessionState, parts[3]);
       return;
     }
 
@@ -840,6 +851,91 @@ function countArtifactsByType(artifacts: ArtifactRef[]): Partial<Record<Artifact
     counts[artifact.type] = (counts[artifact.type] ?? 0) + 1;
     return counts;
   }, {});
+}
+
+function artifactWithContentUrl(baseUrl: string, artifact: ArtifactRef): ArtifactRef {
+  return {
+    ...artifact,
+    url: `${baseUrl}/v1/sessions/${encodeURIComponent(artifact.sessionId)}/artifacts/${encodeURIComponent(artifact.id)}/content`
+  };
+}
+
+type ByteRange = { start: number; end: number };
+
+function parseByteRange(header: string | undefined, size: number): ByteRange | "invalid" | undefined {
+  if (!header) return undefined;
+  const match = /^bytes=(\d*)-(\d*)$/.exec(header.trim());
+  if (!match || (!match[1] && !match[2])) return "invalid";
+  if (size === 0) return "invalid";
+
+  if (!match[1]) {
+    const suffixLength = Number(match[2]);
+    if (!Number.isInteger(suffixLength) || suffixLength <= 0) return "invalid";
+    return { start: Math.max(0, size - suffixLength), end: size - 1 };
+  }
+
+  const start = Number(match[1]);
+  const end = match[2] ? Number(match[2]) : size - 1;
+  if (!Number.isInteger(start) || !Number.isInteger(end) || start > end || start >= size) return "invalid";
+  return { start, end: Math.min(end, size - 1) };
+}
+
+async function sendArtifactContent(
+  request: IncomingMessage,
+  response: ServerResponse,
+  sessionState: SessionState,
+  artifactId: string
+): Promise<void> {
+  const artifact = sessionState.artifacts.find((entry) => entry.id === artifactId);
+  if (!artifact) {
+    throw atlasError("NOT_FOUND", `artifact ${artifactId} not found for session ${sessionState.session.id}`);
+  }
+
+  const safePath = await resolveContainedArtifactPath(sessionState.layout, artifact.type, artifact.path);
+  if (!safePath) {
+    throw atlasError("NOT_FOUND", `artifact ${artifactId} content is unavailable for session ${sessionState.session.id}`);
+  }
+
+  const info = await stat(safePath);
+  if (!info.isFile()) {
+    throw atlasError("NOT_FOUND", `artifact ${artifactId} content is not a regular file`);
+  }
+
+  const mediaType = typeof artifact.metadata?.mediaType === "string" ? artifact.metadata.mediaType : "application/octet-stream";
+  const range = parseByteRange(request.headers.range, info.size);
+
+  if (range === "invalid") {
+    response.writeHead(416, {
+      "content-range": `bytes */${info.size}`,
+      "accept-ranges": "bytes",
+      "cache-control": "no-store"
+    });
+    response.end();
+    return;
+  }
+
+  const headers: Record<string, string | number> = {
+    "content-type": mediaType,
+    "accept-ranges": "bytes",
+    "cache-control": "no-store"
+  };
+
+  if (range) {
+    response.writeHead(206, {
+      ...headers,
+      "content-length": range.end - range.start + 1,
+      "content-range": `bytes ${range.start}-${range.end}/${info.size}`
+    });
+  } else {
+    response.writeHead(200, { ...headers, "content-length": info.size });
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    createReadStream(safePath, range ? { start: range.start, end: range.end } : undefined)
+      .on("error", reject)
+      .on("end", resolve)
+      .pipe(response);
+  });
 }
 
 async function sendLatestScreenshotImage(response: ServerResponse, sessionState: SessionState): Promise<void> {

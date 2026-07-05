@@ -2105,6 +2105,16 @@ h2 {
   min-width: 0;
 }
 
+.artifact-preview-image {
+  display: block;
+  width: 100%;
+  max-height: 220px;
+  object-fit: contain;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
+  background: rgba(0, 0, 0, 0.35);
+}
+
 .artifact-type {
   display: inline-flex;
   align-items: center;

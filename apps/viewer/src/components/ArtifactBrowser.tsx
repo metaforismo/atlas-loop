@@ -112,6 +112,10 @@ export function ArtifactDetails({ artifact }: { artifact: ArtifactRef | undefine
         </div>
       </div>
 
+      {href && artifactKind(artifact) === "screenshot" ? (
+        <img className="artifact-preview-image" src={href} alt={`Preview of ${artifactDisplayName(artifact)}`} loading="lazy" />
+      ) : null}
+
       <div className="artifact-detail-summary" aria-label="Artifact quick facts">
         <div>
           <span>Created</span>

@@ -738,6 +738,137 @@ describe("daemon session summary", () => {
   });
 });
 
+describe("daemon artifact content route", () => {
+  async function daemonWithScreenshot(): Promise<{ daemon: StartedDaemon; sessionId: string; artifact: Record<string, any> }> {
+    const artifactRoot = await mkdtemp(join(tmpdir(), "atlas-loop-content-"));
+    tempDirs.push(artifactRoot);
+    const daemon = await startDaemonServer({
+      port: 0,
+      artifactRoot,
+      simulator: fakeSimulator()
+    });
+    startedDaemons.push(daemon);
+
+    const created = await requestJson<{ id: string }>(daemon.url, "/sessions", {
+      method: "POST",
+      body: JSON.stringify({ simulator: { name: "iPhone 16" } })
+    });
+    const screenshotResult = await requestJson<Record<string, any>>(daemon.url, `/sessions/${created.id}/screenshot`, {
+      method: "POST",
+      body: JSON.stringify({ reason: "content-test" })
+    });
+
+    return { daemon, sessionId: created.id, artifact: screenshotResult.artifacts[0] };
+  }
+
+  it("streams full artifact content with media type and range advertisement", async () => {
+    const { daemon, sessionId, artifact } = await daemonWithScreenshot();
+
+    const response = await fetch(`${daemon.url}/v1/sessions/${sessionId}/artifacts/${artifact.id}/content`);
+    const body = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("image/png");
+    expect(response.headers.get("accept-ranges")).toBe("bytes");
+    expect(response.headers.get("content-length")).toBe("8");
+    expect(body).toBe("fake png");
+  });
+
+  it("serves a single byte range with 206 and content-range", async () => {
+    const { daemon, sessionId, artifact } = await daemonWithScreenshot();
+
+    const response = await fetch(`${daemon.url}/v1/sessions/${sessionId}/artifacts/${artifact.id}/content`, {
+      headers: { range: "bytes=0-3" }
+    });
+    const body = await response.text();
+
+    expect(response.status).toBe(206);
+    expect(response.headers.get("content-range")).toBe("bytes 0-3/8");
+    expect(response.headers.get("content-length")).toBe("4");
+    expect(body).toBe("fake");
+  });
+
+  it("serves a suffix byte range from the end of the file", async () => {
+    const { daemon, sessionId, artifact } = await daemonWithScreenshot();
+
+    const response = await fetch(`${daemon.url}/v1/sessions/${sessionId}/artifacts/${artifact.id}/content`, {
+      headers: { range: "bytes=-3" }
+    });
+    const body = await response.text();
+
+    expect(response.status).toBe(206);
+    expect(response.headers.get("content-range")).toBe("bytes 5-7/8");
+    expect(body).toBe("png");
+  });
+
+  it("rejects unsatisfiable ranges with 416", async () => {
+    const { daemon, sessionId, artifact } = await daemonWithScreenshot();
+
+    const response = await fetch(`${daemon.url}/v1/sessions/${sessionId}/artifacts/${artifact.id}/content`, {
+      headers: { range: "bytes=100-200" }
+    });
+
+    expect(response.status).toBe(416);
+    expect(response.headers.get("content-range")).toBe("bytes */8");
+  });
+
+  it("returns 404 for an unknown artifact id", async () => {
+    const { daemon, sessionId } = await daemonWithScreenshot();
+
+    const response = await fetch(`${daemon.url}/v1/sessions/${sessionId}/artifacts/artifact_missing/content`);
+    const envelope = await response.json() as { ok: boolean; error?: { code?: string } };
+
+    expect(response.status).toBe(404);
+    expect(envelope).toMatchObject({ ok: false, error: { code: "NOT_FOUND" } });
+  });
+
+  it("rejects artifacts whose path escapes the session directory", async () => {
+    const { daemon, sessionId, artifact } = await daemonWithScreenshot();
+
+    const outsidePath = join(tmpdir(), "atlas-loop-escape.png");
+    await writeFile(outsidePath, Buffer.from("outside"));
+    tempDirs.push(outsidePath);
+    const sessionDir = artifact.path.slice(0, artifact.path.indexOf(sessionId) + sessionId.length);
+    const manifestPath = join(sessionDir, "manifest.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    manifest.artifacts[0].path = outsidePath;
+    await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
+    const actionsPath = join(sessionDir, "actions.jsonl");
+    const rewrittenActions = (await readFile(actionsPath, "utf8"))
+      .split(/\r?\n/)
+      .map((line) => (line.trim() ? line.replaceAll(artifact.path, outsidePath) : line))
+      .join("\n");
+    await writeFile(actionsPath, rewrittenActions);
+
+    const restarted = await startDaemonServer({
+      port: 0,
+      artifactRoot: sessionDir.slice(0, sessionDir.lastIndexOf("/")),
+      simulator: fakeSimulator()
+    });
+    startedDaemons.push(restarted);
+
+    const response = await fetch(`${restarted.url}/v1/sessions/${sessionId}/artifacts/${manifest.artifacts[0].id}/content`);
+
+    expect(response.status).toBe(404);
+  });
+
+  it("populates artifact url on list, latest-screenshot, and summary responses", async () => {
+    const { daemon, sessionId, artifact } = await daemonWithScreenshot();
+
+    const listed = await requestJson<Array<Record<string, any>>>(daemon.url, `/v1/sessions/${sessionId}/artifacts`);
+    const latest = await requestJson<Record<string, any>>(daemon.url, `/v1/sessions/${sessionId}/artifacts/latest-screenshot`);
+    const summary = await requestJson<Record<string, any>>(daemon.url, `/v1/sessions/${sessionId}/summary`);
+    const expectedUrl = `${daemon.url}/v1/sessions/${sessionId}/artifacts/${artifact.id}/content`;
+
+    expect(listed[0].url).toBe(expectedUrl);
+    expect(latest.url).toBe(expectedUrl);
+    expect(summary.artifacts.latestScreenshot.url).toBe(expectedUrl);
+
+    const manifestOnDisk = JSON.parse(await readFile(join(listed[0].path, "..", "..", "manifest.json"), "utf8"));
+    expect(manifestOnDisk.artifacts[0].url).toBeUndefined();
+  });
+});
+
 async function requestJson<T>(baseUrl: string, path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(`${baseUrl}${path}`, {
     ...init,
