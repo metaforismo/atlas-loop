@@ -122,6 +122,7 @@ The preferred operator shortcut is:
 
 ```sh
 atlas-loop session handoff --session latest
+atlas-loop session handoff --session latest --format markdown --out artifacts/handoffs/<session-id>.md
 ```
 
 It aligns with the same local-first contract as the multi-command flow:
@@ -133,6 +134,8 @@ It aligns with the same local-first contract as the multi-command flow:
 - Point to a local viewer URL, without requiring a hosted dashboard.
 - Include next commands for local report, evidence export, and raw event export
   when the evidence needs to be packaged separately or handed to another agent.
+- Optionally persist the selected JSON or Markdown handoff output to a local
+  path with `--out`.
 - Avoid mutating disk-backed sessions and avoid uploading, committing, or
   sharing artifacts.
 

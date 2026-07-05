@@ -194,6 +194,73 @@ export async function buildSessionHandoff(
   };
 }
 
+export function buildSessionHandoffMarkdownNote(handoff: SessionHandoff): string {
+  const lines = [
+    "# Atlas Loop Session Handoff",
+    "",
+    "Local-only handoff note. No cloud, auth, or share links are required.",
+    "",
+    "## Session",
+    `- Resolved session: ${code(handoff.sessionId)}`,
+    `- Requested session: ${code(handoff.requestedSessionId)}`,
+    `- Status: ${code(handoff.status)}`,
+    `- Ready: ${yesNo(handoff.ready)}`,
+    `- Can mutate live session: ${yesNo(handoff.canMutate)}`,
+    "",
+    "## Local Access",
+    `- Daemon URL: ${handoff.daemonUrl}`,
+    `- Viewer URL: ${handoff.viewerUrl}`,
+    `- Viewer base URL: ${handoff.viewerBaseUrl}`,
+    "",
+    "## Artifacts",
+    `- Artifact directory: ${handoff.artifactDir ? code(handoff.artifactDir) : "none"}`,
+    `- Storage: ${code(handoff.storage.source)} (artifact-backed: ${yesNo(handoff.storage.artifactBacked)}, warnings: ${handoff.storage.warningCount})`,
+    `- Latest screenshot: ${handoff.latestScreenshotPath ? code(handoff.latestScreenshotPath) : "none"}`,
+    `- Artifact health: ${formatHandoffArtifactHealth(handoff.artifactHealth)}`
+  ];
+
+  if (handoff.artifactHealth?.target) {
+    lines.push(`- Artifact health target: ${code(handoff.artifactHealth.target)}`);
+  }
+
+  lines.push("", "## Latest Runtime");
+  if (handoff.latestAction) {
+    lines.push(
+      `- Latest action: ${code(handoff.latestAction.actionId)} (${handoff.latestAction.ok ? "passed" : "failed"})`,
+      `- Action started: ${handoff.latestAction.startedAt}`,
+      `- Action ended: ${handoff.latestAction.endedAt}`,
+      `- Action artifacts: ${handoff.latestAction.artifactCount}`
+    );
+    if (handoff.latestAction.error) {
+      lines.push(`- Action error: ${formatHandoffError(handoff.latestAction.error)}`);
+    }
+  } else {
+    lines.push("- Latest action: none");
+  }
+
+  if (handoff.latestError) {
+    lines.push(`- Latest error: ${formatHandoffError(handoff.latestError)}`);
+  } else {
+    lines.push("- Latest error: none");
+  }
+
+  lines.push("", "## Blockers");
+  if (handoff.blockingReasons.length > 0) {
+    for (const reason of handoff.blockingReasons) lines.push(`- ${markdownText(reason)}`);
+  } else {
+    lines.push("- none");
+  }
+
+  lines.push("", "## Next Commands");
+  if (handoff.nextCommands.length > 0) {
+    lines.push("```sh", ...handoff.nextCommands, "```");
+  } else {
+    lines.push("- none");
+  }
+
+  return `${lines.join("\n")}\n`;
+}
+
 export function evidenceReportDataFromSessionSummary(
   summary: SessionSummary,
   params: {
@@ -541,6 +608,17 @@ function buildHandoffViewerUrl(params: { daemonUrl: string; sessionId: string; v
   return `${params.viewerBaseUrl}?daemonUrl=${encodeURIComponent(params.daemonUrl)}&sessionId=${encodeURIComponent(params.sessionId)}`;
 }
 
+function formatHandoffArtifactHealth(health: SessionHandoffArtifactHealth | null): string {
+  if (!health) return "unavailable";
+  const summary = health.summary;
+  return `${health.ok ? "ok" : "failed"} (${health.source}, sessions: ${summary.sessionCount}, errors: ${summary.errorCount}, warnings: ${summary.warningCount}, issues: ${summary.issueCount})`;
+}
+
+function formatHandoffError(error: AtlasLoopError): string {
+  const codePart = firstString(error.code) ? `${markdownText(error.code)}: ` : "";
+  return `${codePart}${markdownText(error.message)}`;
+}
+
 function isLiveSessionStatus(status: string): boolean {
   return status !== "ended" && status !== "failed" && status !== "unknown";
 }
@@ -613,4 +691,20 @@ function toTimestamp(value: string | undefined): number {
 
 function code(value: string): string {
   return `\`${value.replaceAll("`", "\\`")}\``;
+}
+
+function yesNo(value: boolean): "yes" | "no" {
+  return value ? "yes" : "no";
+}
+
+function markdownText(value: string): string {
+  return value
+    .replace(/\s+/g, " ")
+    .trim()
+    .replaceAll("\\", "\\\\")
+    .replaceAll("`", "\\`")
+    .replaceAll("*", "\\*")
+    .replaceAll("_", "\\_")
+    .replaceAll("[", "\\[")
+    .replaceAll("]", "\\]");
 }

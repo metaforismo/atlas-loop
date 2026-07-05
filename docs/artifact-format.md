@@ -270,6 +270,8 @@ atlas-loop session ready --session latest
 atlas-loop artifacts health --session latest
 atlas-loop evidence report --session latest --out artifacts/reports/<session-id>.md
 atlas-loop evidence export --session latest --out artifacts/exports/<session-id>
+atlas-loop events export --session latest --out artifacts/events/<session-id>.json
+atlas-loop session handoff --session latest --format markdown --out artifacts/handoffs/<session-id>.md
 ```
 
 Reports and exports are local files. They should not be committed by default,

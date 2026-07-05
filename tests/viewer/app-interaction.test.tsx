@@ -222,8 +222,28 @@ describe("viewer app interactions", () => {
       expect(getButtonByAriaLabel("Copy compact local handoff note")).toBeTruthy();
       expect(getButtonByAriaLabel("Copy all handoff next steps")).toBeTruthy();
       expect(getButtonByAriaLabel("Copy read-only local daemon command snippets")).toBeTruthy();
+      expect(getByRoleName("region", "Read-only local command preview")).toBeTruthy();
       return panel;
     }, "ready handoff copy controls");
+
+    const commandPreview = getByRoleName<HTMLElement>("region", "Read-only local command preview");
+    expect(commandPreview.textContent).toContain(
+      `atlas-loop events export --session '${SESSION_ID}' --out './atlas-loop-events/${SESSION_ID}.json' --daemon-url '${DAEMON_URL}'`
+    );
+    expect(commandPreview.textContent).toContain("+6 more lines: daemon checks");
+    expect(commandPreview.textContent).not.toContain(`curl -fsS '${DAEMON_URL}/v1/sessions/${SESSION_ID}/summary'`);
+
+    const overflowToggle = getButtonByAriaLabel("Show 6 overflow read-only command lines");
+    expect(overflowToggle.getAttribute("aria-expanded")).toBe("false");
+
+    await click(overflowToggle);
+
+    await waitFor(() => {
+      expect(overflowToggle.getAttribute("aria-expanded")).toBe("true");
+      expect(commandPreview.textContent).toContain(`curl -fsS '${DAEMON_URL}/v1/sessions/${SESSION_ID}/summary'`);
+      expect(getByRoleName("region", "Expanded read-only handoff command lines")).toBeTruthy();
+      return true;
+    }, "expanded handoff command preview");
 
     await click(getButtonByAriaLabel("Copy compact local handoff note"));
 
@@ -399,6 +419,25 @@ function getByAriaLabel<T extends Element = Element>(label: string): T {
   const element = [...document.querySelectorAll("[aria-label]")].find((candidate) => candidate.getAttribute("aria-label") === label);
   if (!element) throw new Error(`Element with aria-label "${label}" was not found.`);
   return element as T;
+}
+
+function getByRoleName<T extends HTMLElement = HTMLElement>(role: string, name: string): T {
+  const selector = role === "region" ? `[role="${role}"], section[aria-labelledby]` : `[role="${role}"]`;
+  const element = [...document.querySelectorAll<HTMLElement>(selector)].find((candidate) => accessibleName(candidate).includes(name));
+  if (!element) throw new Error(`Element with role "${role}" and name "${name}" was not found.`);
+  return element as T;
+}
+
+function accessibleName(element: Element): string {
+  const label = element.getAttribute("aria-label");
+  if (label) return label;
+  const labelledBy = element.getAttribute("aria-labelledby");
+  if (!labelledBy) return element.textContent ?? "";
+  return labelledBy
+    .split(/\s+/)
+    .map((id) => document.getElementById(id)?.textContent ?? "")
+    .join(" ")
+    .trim();
 }
 
 function getButtonByText(rootElement: ParentNode, text: string): HTMLButtonElement {

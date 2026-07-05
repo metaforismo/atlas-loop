@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildEvidenceMarkdownReport,
   buildSessionHandoff,
+  buildSessionHandoffMarkdownNote,
   DaemonClient,
   evidenceReportDataFromSessionSummary,
   type SessionSummary
@@ -352,6 +353,17 @@ describe("DaemonClient", () => {
         "atlas-loop viewer url --session sess_handoff --viewer-base-url http://127.0.0.1:5173 --daemon-url http://127.0.0.1:4317"
       ]
     });
+
+    const note = buildSessionHandoffMarkdownNote(handoff);
+    expect(note).toContain("# Atlas Loop Session Handoff");
+    expect(note).toContain("- Resolved session: `sess_handoff`");
+    expect(note).toContain("- Requested session: `latest`");
+    expect(note).toContain("- Ready: yes");
+    expect(note).toContain("- Storage: `disk` (artifact-backed: yes, warnings: 0)");
+    expect(note).toContain("- Latest screenshot: `/tmp/atlas-loop/sess-handoff/screenshots/latest.png`");
+    expect(note).toContain("- Artifact health: ok (disk, sessions: 1, errors: 0, warnings: 0, issues: 0)");
+    expect(note).toContain("- Latest action: `act_1` (passed)");
+    expect(note).toContain("atlas-loop events export --session sess_handoff --out ./atlas-loop-events/sess_handoff.json --daemon-url http://127.0.0.1:4317");
   });
 
   it("keeps handoffs structured when artifact health is unavailable", async () => {
@@ -374,11 +386,22 @@ describe("DaemonClient", () => {
           screenshots: "/tmp/atlas-loop/sess-no-health/screenshots"
         },
         artifacts: { total: 0, byType: {} },
-        events: { total: 0 },
+        events: {
+          total: 2,
+          latestAction: {
+            actionId: "act_bad",
+            ok: false,
+            startedAt: "2026-07-04T12:00:08.000Z",
+            endedAt: "2026-07-04T12:00:09.000Z",
+            artifactCount: 0,
+            error: { code: "HID_FAILED", message: "tap failed\n*target moved*" }
+          },
+          latestError: { code: "COMMAND_FAILED", message: "trace broke\n_retry needed_" }
+        },
         storage: { source: "memory", artifactBacked: false, warnings: [] }
       }),
       getSessionArtifactHealth: async () => {
-        throw new Error("health endpoint unavailable");
+        throw new Error("health endpoint unavailable\nwith *markdown*");
       }
     }, {
       sessionId: "latest",
@@ -392,8 +415,19 @@ describe("DaemonClient", () => {
       canMutate: true,
       hasScreenshot: false,
       ready: false,
-      blockingReasons: ["artifact health unavailable: health endpoint unavailable"]
+      blockingReasons: expect.arrayContaining([
+        "latest action failed: tap failed\n*target moved*",
+        "latest error: trace broke\n_retry needed_",
+        "artifact health unavailable: health endpoint unavailable\nwith *markdown*"
+      ])
     });
+
+    const note = buildSessionHandoffMarkdownNote(handoff);
+    expect(note).toContain("- Action error: HID\\_FAILED: tap failed \\*target moved\\*");
+    expect(note).toContain("- Latest error: COMMAND\\_FAILED: trace broke \\_retry needed\\_");
+    expect(note).toContain("- latest action failed: tap failed \\*target moved\\*");
+    expect(note).toContain("- artifact health unavailable: health endpoint unavailable with \\*markdown\\*");
+    expect(note).not.toContain("tap failed\n*target moved*");
   });
 
   it("builds paste-ready Markdown evidence reports from session summaries", () => {

@@ -457,6 +457,8 @@ describe("CLI agent workflow helpers", () => {
     const originalLog = console.log;
     const logged: string[] = [];
     const requestedPaths: string[] = [];
+    const handoffJsonPath = join(tempDir, "handoffs", "handoff.json");
+    let writtenJson = "";
     const latestScreenshot: ArtifactRef = {
       id: "artifact_handoff",
       sessionId: "sess_handoff_cli",
@@ -492,6 +494,17 @@ describe("CLI agent workflow helpers", () => {
     try {
       process.chdir(tempDir);
       await expect(main(["session", "handoff", "--session", "latest", "--viewer-base-url", "http://127.0.0.1:5176/"])).resolves.toBe(0);
+      await expect(main([
+        "session",
+        "handoff",
+        "--session",
+        "latest",
+        "--out",
+        handoffJsonPath,
+        "--viewer-base-url",
+        "http://127.0.0.1:5176/"
+      ])).resolves.toBe(0);
+      writtenJson = await readFile(handoffJsonPath, "utf8");
     } finally {
       process.chdir(originalCwd);
       console.log = originalLog;
@@ -500,6 +513,8 @@ describe("CLI agent workflow helpers", () => {
     }
 
     expect(requestedPaths).toEqual([
+      "/sessions/latest/summary",
+      "/sessions/sess_handoff_cli/artifacts/health",
       "/sessions/latest/summary",
       "/sessions/sess_handoff_cli/artifacts/health"
     ]);
@@ -524,6 +539,192 @@ describe("CLI agent workflow helpers", () => {
       ])
     });
     expect(JSON.parse(logged[0]).nextCommands).not.toContain(`atlas-loop screenshot --session sess_handoff_cli --reason handoff --daemon-url ${daemonUrl}`);
+    expect(JSON.parse(logged[1])).toMatchObject({
+      ok: true,
+      format: "json",
+      handoffPath: handoffJsonPath,
+      sessionId: "sess_handoff_cli",
+      requestedSessionId: "latest",
+      ready: false,
+      localOnly: true,
+      uploaded: false
+    });
+    expect(JSON.parse(writtenJson)).toMatchObject({
+      sessionId: "sess_handoff_cli",
+      requestedSessionId: "latest",
+      nextCommands: expect.arrayContaining([
+        `atlas-loop events export --session sess_handoff_cli --out ./atlas-loop-events/sess_handoff_cli.json --daemon-url ${daemonUrl}`
+      ])
+    });
+  });
+
+  it("prints Markdown session handoffs and writes selected output locally", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "atlas-loop-cli-handoff-md-"));
+    const originalCwd = process.cwd();
+    const originalLog = console.log;
+    const logged: string[] = [];
+    const requestedPaths: string[] = [];
+    const handoffPath = join(tempDir, "handoffs", "handoff.md");
+    const latestError = { code: "HID_FAILED" as const, message: "tap failed" };
+    const latestScreenshot: ArtifactRef = {
+      id: "artifact_handoff_md",
+      sessionId: "sess_handoff_md",
+      type: "screenshot",
+      path: "/tmp/atlas-loop/sess-handoff-md/screenshots/latest.png",
+      createdAt: "2026-07-04T12:00:00.000Z"
+    };
+    const server = await startSessionHandoffDaemon((requestPath) => {
+      requestedPaths.push(requestPath);
+      if (requestPath === "/sessions/latest/summary") {
+        return {
+          ok: true,
+          data: sessionSummary("sess_handoff_md", {
+            artifactDir: "/tmp/atlas-loop/sess-handoff-md",
+            latestScreenshot,
+            storage: {
+              source: "memory",
+              artifactBacked: false,
+              warnings: [{ path: "/tmp/atlas-loop/sess-handoff-md/trace.jsonl", message: "trace warning" }]
+            },
+            latestAction: {
+              actionId: "act_handoff_md",
+              ok: false,
+              startedAt: "2026-07-04T12:00:01.000Z",
+              endedAt: "2026-07-04T12:00:01.100Z",
+              artifactCount: 1,
+              error: latestError
+            },
+            latestError
+          })
+        };
+      }
+      if (requestPath === "/sessions/sess_handoff_md/artifacts/health") {
+        return {
+          ok: true,
+          data: artifactHealth("sess_handoff_md", "sess_handoff_md", false, {
+            errorCount: 1,
+            warningCount: 2,
+            issueCount: 3
+          })
+        };
+      }
+      return {
+        ok: false,
+        status: 404,
+        error: { code: "NOT_FOUND", message: `unexpected route ${requestPath}` }
+      };
+    });
+    const daemonUrl = `http://127.0.0.1:${server.port}`;
+    let writtenNote = "";
+
+    await writeFile(join(tempDir, "atlas-loop.config.json"), JSON.stringify({ daemonUrl }, null, 2));
+    console.log = (value?: unknown) => {
+      logged.push(String(value));
+    };
+
+    try {
+      process.chdir(tempDir);
+      await expect(main([
+        "session",
+        "handoff",
+        "--session",
+        "latest",
+        "--format",
+        "markdown",
+        "--viewer-base-url",
+        "http://127.0.0.1:5177/"
+      ])).resolves.toBe(0);
+      await expect(main([
+        "session",
+        "handoff",
+        "--session",
+        "latest",
+        "--format",
+        "markdown",
+        "--out",
+        handoffPath,
+        "--viewer-base-url",
+        "http://127.0.0.1:5177/"
+      ])).resolves.toBe(0);
+      writtenNote = await readFile(handoffPath, "utf8");
+    } finally {
+      process.chdir(originalCwd);
+      console.log = originalLog;
+      await server.close();
+      await rm(tempDir, { recursive: true, force: true });
+    }
+
+    expect(logged[0]).toContain("# Atlas Loop Session Handoff");
+    expect(logged[0]).toContain("- Resolved session: `sess_handoff_md`");
+    expect(logged[0]).toContain("- Requested session: `latest`");
+    expect(logged[0]).toContain("- Status: `running`");
+    expect(logged[0]).toContain("- Ready: no");
+    expect(logged[0]).toContain(`- Daemon URL: ${daemonUrl}`);
+    expect(logged[0]).toContain(`- Viewer URL: http://127.0.0.1:5177?daemonUrl=${encodeURIComponent(daemonUrl)}&sessionId=sess_handoff_md`);
+    expect(logged[0]).toContain("- Artifact directory: `/tmp/atlas-loop/sess-handoff-md`");
+    expect(logged[0]).toContain("- Storage: `memory` (artifact-backed: no, warnings: 1)");
+    expect(logged[0]).toContain("- Latest screenshot: `/tmp/atlas-loop/sess-handoff-md/screenshots/latest.png`");
+    expect(logged[0]).toContain("- Artifact health: failed (daemon, sessions: 1, errors: 1, warnings: 2, issues: 3)");
+    expect(logged[0]).toContain("- Latest action: `act_handoff_md` (failed)");
+    expect(logged[0]).toContain("- Action error: HID\\_FAILED: tap failed");
+    expect(logged[0]).toContain("- Latest error: HID\\_FAILED: tap failed");
+    expect(logged[0]).toContain("- artifact health failed: 1 errors, 2 warnings");
+    expect(logged[0]).toContain(`atlas-loop events export --session sess_handoff_md --out ./atlas-loop-events/sess_handoff_md.json --daemon-url ${daemonUrl}`);
+    expect(logged[0]).toContain(`atlas-loop screenshot --session sess_handoff_md --reason handoff --daemon-url ${daemonUrl}`);
+
+    expect(JSON.parse(logged[1])).toMatchObject({
+      ok: true,
+      format: "markdown",
+      handoffPath,
+      sessionId: "sess_handoff_md",
+      requestedSessionId: "latest",
+      ready: false,
+      localOnly: true,
+      uploaded: false
+    });
+    expect(writtenNote).toBe(`${logged[0]}\n`);
+    expect(requestedPaths).toEqual([
+      "/sessions/latest/summary",
+      "/sessions/sess_handoff_md/artifacts/health",
+      "/sessions/latest/summary",
+      "/sessions/sess_handoff_md/artifacts/health"
+    ]);
+  });
+
+  it("rejects malformed handoff format flags before reading the daemon", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "atlas-loop-cli-handoff-format-"));
+    const originalCwd = process.cwd();
+    const requestedPaths: string[] = [];
+    const server = await startSessionHandoffDaemon((requestPath) => {
+      requestedPaths.push(requestPath);
+      return {
+        ok: false,
+        status: 500,
+        error: { code: "UNEXPECTED_DAEMON_READ", message: requestPath }
+      };
+    });
+    const daemonUrl = `http://127.0.0.1:${server.port}`;
+
+    await writeFile(join(tempDir, "atlas-loop.config.json"), JSON.stringify({ daemonUrl }, null, 2));
+
+    try {
+      process.chdir(tempDir);
+      await expect(main([
+        "session",
+        "handoff",
+        "--session",
+        "latest",
+        "--format",
+        "--out",
+        "handoff.md"
+      ])).rejects.toThrow("--format must be json or markdown");
+    } finally {
+      process.chdir(originalCwd);
+      await server.close();
+      await rm(tempDir, { recursive: true, force: true });
+    }
+
+    expect(requestedPaths).toEqual([]);
   });
 
   it("prints and writes Markdown evidence reports", async () => {

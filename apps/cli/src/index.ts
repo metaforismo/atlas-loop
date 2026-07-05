@@ -10,11 +10,13 @@ import { loadConfig } from "@atlas-loop/config";
 import {
   buildEvidenceMarkdownReport,
   buildSessionHandoff,
+  buildSessionHandoffMarkdownNote,
   type CompactEvidenceSummary,
   DaemonClient,
   DaemonClientError,
   evidenceReportDataFromSessionSummary,
   type EvidenceReportData,
+  type SessionHandoff,
   type SessionSummary
 } from "@atlas-loop/daemon-client";
 import { startDaemonServer } from "../../daemon/src/server.ts";
@@ -202,11 +204,13 @@ export async function main(args: Args): Promise<number> {
       return 0;
     }
     if (subcommand === "handoff") {
-      printJson(await buildSessionHandoff(client, {
+      const format = handoffFormat(flags);
+      const handoff = await buildSessionHandoff(client, {
         sessionId: requireFlag(flags, "session"),
         daemonUrl,
         viewerBaseUrl: stringFlag(flags, "viewer-base-url")
-      }));
+      });
+      await outputSessionHandoff(handoff, flags, format);
       return 0;
     }
     if (subcommand === "stop" || subcommand === "end") {
@@ -517,6 +521,33 @@ async function outputEvidenceReport(evidence: EvidenceReportData, flags: Map<str
   });
 }
 
+async function outputSessionHandoff(handoff: SessionHandoff, flags: Map<string, string | boolean>, format: "json" | "markdown"): Promise<void> {
+  const output = format === "markdown"
+    ? buildSessionHandoffMarkdownNote(handoff)
+    : `${JSON.stringify(handoff, null, 2)}\n`;
+  const outPath = stringFlag(flags, "out");
+  if (!outPath) {
+    console.log(output.trimEnd());
+    return;
+  }
+
+  const handoffPath = resolveLocalPath(outPath, "handoff out path");
+  await mkdir(dirname(handoffPath), { recursive: true });
+  await writeFile(handoffPath, output, "utf8");
+  printJson({
+    ok: true,
+    format,
+    handoffPath,
+    sessionId: handoff.sessionId,
+    requestedSessionId: handoff.requestedSessionId,
+    ready: handoff.ready,
+    viewerUrl: handoff.viewerUrl,
+    latestScreenshotPath: handoff.latestScreenshotPath,
+    localOnly: true,
+    uploaded: false
+  });
+}
+
 export async function exportLocalEvidence(
   client: Pick<EvidenceClient, "getSessionSummary">,
   params: { sessionId: string; outDir: string }
@@ -741,6 +772,15 @@ function configurationFlag(flags: Map<string, string | boolean>): "Debug" | "Rel
   throw new Error("--configuration must be Debug or Release");
 }
 
+function handoffFormat(flags: Map<string, string | boolean>): "json" | "markdown" {
+  const rawValue = flags.get("format");
+  if (rawValue === undefined) return "json";
+  if (typeof rawValue !== "string" || rawValue.length === 0) throw new Error("--format must be json or markdown");
+  const value = rawValue;
+  if (value === "json" || value === "markdown") return value;
+  throw new Error("--format must be json or markdown");
+}
+
 function normalizeEventLimit(value: number | undefined, label: string): number | undefined {
   if (value === undefined) return undefined;
   if (!Number.isInteger(value) || value < 0) throw new Error(`${label} must be a non-negative integer`);
@@ -799,7 +839,7 @@ Usage:
   atlas-loop session latest
   atlas-loop session status --session <id|latest>
   atlas-loop session ready --session <id|latest>
-  atlas-loop session handoff --session <id|latest>
+  atlas-loop session handoff --session <id|latest> [--format json|markdown] [--out handoff.md]
   atlas-loop session stop --session <id|latest>
   atlas-loop build --session <id|latest> --project <path> --scheme <scheme>
   atlas-loop install --session <id|latest> --app <path.app>

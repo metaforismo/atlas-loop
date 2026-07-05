@@ -164,6 +164,22 @@ describe("viewer presentation helpers", () => {
     expect(brief.copyPayloads.find((payload) => payload.id === "commands")?.value).toContain(
       "curl -fsS 'http://127.0.0.1:4317/v1/sessions/sess_1/summary'"
     );
+    expect(brief.commandPreview).toMatchObject({
+      label: "Read-only local command preview",
+      hiddenLineCount: 6,
+      totalLineCount: 11
+    });
+    expect(brief.commandPreview?.visibleLines).toEqual(
+      expect.arrayContaining([
+        "atlas-loop events export --session 'sess_1' --out './atlas-loop-events/sess_1.json' --daemon-url 'http://127.0.0.1:4317'"
+      ])
+    );
+    expect(brief.commandPreview?.hiddenLines).toEqual(
+      expect.arrayContaining([
+        "curl -fsS 'http://127.0.0.1:4317/healthz'",
+        "curl -fsS 'http://127.0.0.1:4317/v1/sessions/sess_1/summary'"
+      ])
+    );
   });
 
   it("marks the handoff brief waiting while session, screenshot, and health data are still loading", () => {
