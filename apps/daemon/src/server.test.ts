@@ -869,6 +869,33 @@ describe("daemon artifact content route", () => {
   });
 });
 
+describe("daemon element action groundwork", () => {
+  it("rejects tapElement cleanly while no element-capable backend is wired", async () => {
+    const artifactRoot = await mkdtemp(join(tmpdir(), "atlas-loop-element-reject-"));
+    tempDirs.push(artifactRoot);
+    const daemon = await startDaemonServer({
+      port: 0,
+      artifactRoot,
+      simulator: fakeSimulator()
+    });
+    startedDaemons.push(daemon);
+
+    const created = await requestJson<{ id: string }>(daemon.url, "/sessions", {
+      method: "POST",
+      body: JSON.stringify({ simulator: { name: "iPhone 16" } })
+    });
+    const result = await requestJson<Record<string, any>>(daemon.url, `/sessions/${created.id}/actions`, {
+      method: "POST",
+      body: JSON.stringify({ action: { kind: "tapElement", identifier: "cart.continue" } })
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: "INVALID_REQUEST", message: expect.stringContaining("unsupported action kind: tapElement") }
+    });
+  });
+});
+
 describe("daemon events stream", () => {
   it("streams existing and newly appended trace events over SSE", async () => {
     const artifactRoot = await mkdtemp(join(tmpdir(), "atlas-loop-sse-"));

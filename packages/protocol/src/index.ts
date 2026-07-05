@@ -27,6 +27,8 @@ export interface AppRef {
   appPath?: string;
 }
 
+export type InputBackendKind = "cgevent" | "xcuitest";
+
 export interface Session {
   id: string;
   schemaVersion: "atlas-loop.session.v1";
@@ -39,6 +41,7 @@ export interface Session {
   artifactDir: string;
   viewerUrl?: string;
   backend?: string;
+  inputBackend?: InputBackendKind;
   error?: AtlasLoopError;
 }
 
@@ -54,6 +57,8 @@ export type ActionKind =
   | "typeText"
   | "swipe"
   | "edgeGesture"
+  | "tapElement"
+  | "assertVisible"
   | "screenshot"
   | "install"
   | "launch"
@@ -92,6 +97,18 @@ export interface EdgeGestureAction extends BaseAction {
   durationMs: number;
 }
 
+export interface TapElementAction extends BaseAction {
+  kind: "tapElement";
+  identifier: string;
+  timeoutMs?: number;
+}
+
+export interface AssertVisibleAction extends BaseAction {
+  kind: "assertVisible";
+  identifier: string;
+  timeoutMs?: number;
+}
+
 export interface ScreenshotAction extends BaseAction {
   kind: "screenshot";
   reason?: string;
@@ -119,6 +136,8 @@ export type Action =
   | TypeTextAction
   | SwipeAction
   | EdgeGestureAction
+  | TapElementAction
+  | AssertVisibleAction
   | ScreenshotAction
   | InstallAction
   | LaunchAction
@@ -161,6 +180,8 @@ export type AtlasLoopErrorCode =
   | "INSTALL_FAILED"
   | "LAUNCH_FAILED"
   | "HID_FAILED"
+  | "ELEMENT_NOT_FOUND"
+  | "DRIVER_UNAVAILABLE"
   | "ACTION_TIMEOUT"
   | "ARTIFACT_WRITE_FAILED"
   | "INVALID_REQUEST"
@@ -229,6 +250,7 @@ export interface CreateSessionRequest {
   simulator?: SimulatorRef;
   artifactRoot?: string;
   viewer?: boolean;
+  inputBackend?: InputBackendKind;
 }
 
 export interface BuildRequest {
@@ -258,6 +280,8 @@ export type ActionInput =
   | Omit<TypeTextAction, "id" | "sessionId" | "createdAt" | "sequence">
   | Omit<SwipeAction, "id" | "sessionId" | "createdAt" | "sequence">
   | Omit<EdgeGestureAction, "id" | "sessionId" | "createdAt" | "sequence">
+  | Omit<TapElementAction, "id" | "sessionId" | "createdAt" | "sequence">
+  | Omit<AssertVisibleAction, "id" | "sessionId" | "createdAt" | "sequence">
   | Omit<ScreenshotAction, "id" | "sessionId" | "createdAt" | "sequence">
   | Omit<WaitAction, "id" | "sessionId" | "createdAt" | "sequence">;
 
@@ -307,6 +331,15 @@ export function validateActionInput(action: ActionInput): void {
       if (!["left", "right", "top", "bottom"].includes(action.edge)) throw new Error("edgeGesture edge is invalid");
       if (!Number.isFinite(action.distance) || action.distance < 0 || action.distance > 1) throw new Error("edgeGesture distance must be 0..1");
       if (!Number.isFinite(action.durationMs) || action.durationMs < 0) throw new Error("edgeGesture duration must be non-negative");
+      return;
+    case "tapElement":
+    case "assertVisible":
+      if (typeof action.identifier !== "string" || !action.identifier.trim()) {
+        throw new Error(`${action.kind} requires a non-empty accessibility identifier`);
+      }
+      if (action.timeoutMs !== undefined && (!Number.isFinite(action.timeoutMs) || action.timeoutMs < 0)) {
+        throw new Error(`${action.kind} timeout must be non-negative`);
+      }
       return;
     case "screenshot":
       return;

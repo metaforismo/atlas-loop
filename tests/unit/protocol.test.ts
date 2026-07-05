@@ -12,6 +12,27 @@ describe("protocol action validation", () => {
     expect(() => validateActionInput({ kind: "wait", durationMs: -1 })).toThrow(/non-negative/);
   });
 
+  it("validates element actions: identifier required, timeout non-negative", () => {
+    expect(() => validateActionInput({ kind: "tapElement", identifier: "cart.continue" })).not.toThrow();
+    expect(() => validateActionInput({ kind: "assertVisible", identifier: "confirmation", timeoutMs: 5000 })).not.toThrow();
+    expect(() => validateActionInput({ kind: "tapElement", identifier: "" })).toThrow(/non-empty accessibility identifier/);
+    expect(() => validateActionInput({ kind: "tapElement", identifier: "   " })).toThrow(/non-empty accessibility identifier/);
+    expect(() => validateActionInput({ kind: "assertVisible", identifier: "confirmation", timeoutMs: -1 })).toThrow(/timeout must be non-negative/);
+    expect(() => validateActionInput({ kind: "assertVisible", identifier: "confirmation", timeoutMs: Number.NaN })).toThrow(/timeout must be non-negative/);
+  });
+
+  it("materializes element actions with session metadata", () => {
+    const action = materializeAction("session_123", 3, { kind: "tapElement", identifier: "product-detail.add-to-cart", timeoutMs: 4000 });
+
+    expect(action).toMatchObject({
+      kind: "tapElement",
+      sessionId: "session_123",
+      sequence: 3,
+      identifier: "product-detail.add-to-cart",
+      timeoutMs: 4000
+    });
+  });
+
   it("materializes validated inputs with stable session metadata", () => {
     const action = materializeAction("session_123", 7, { kind: "wait", durationMs: 250 });
 

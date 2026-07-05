@@ -1117,6 +1117,8 @@ function artifactRefsFromError(error: unknown): ArtifactRef[] {
 function statusForError(error: AtlasLoopError): number {
   if (error.code === "NOT_FOUND") return 404;
   if (error.code === "INVALID_REQUEST") return 400;
+  if (error.code === "ELEMENT_NOT_FOUND") return 400;
+  if (error.code === "DRIVER_UNAVAILABLE") return 503;
   if (error.code === "ACTION_TIMEOUT") return 504;
   return 500;
 }
