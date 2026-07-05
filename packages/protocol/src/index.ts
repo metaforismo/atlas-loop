@@ -244,6 +244,8 @@ export type TraceEvent =
   | { type: "action.started"; at: string; action: Action }
   | { type: "action.completed"; at: string; result: ActionResult }
   | { type: "artifact.created"; at: string; artifact: ArtifactRef }
+  | { type: "video.started"; at: string; sessionId: string; path: string }
+  | { type: "video.stopped"; at: string; sessionId: string; artifactId?: string; error?: AtlasLoopError }
   | { type: "error"; at: string; sessionId?: string; error: AtlasLoopError };
 
 export interface CreateSessionRequest {
@@ -251,6 +253,8 @@ export interface CreateSessionRequest {
   artifactRoot?: string;
   viewer?: boolean;
   inputBackend?: InputBackendKind;
+  /** Start a session-long video recording immediately (explicit opt-in). */
+  record?: boolean;
 }
 
 export interface BuildRequest {

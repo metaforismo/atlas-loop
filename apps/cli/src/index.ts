@@ -204,7 +204,8 @@ export async function main(args: Args): Promise<number> {
           udid: stringFlag(flags, "udid")
         },
         viewer: booleanFlag(flags, "viewer"),
-        inputBackend: inputBackendFlag(flags)
+        inputBackend: inputBackendFlag(flags),
+        record: booleanFlag(flags, "record")
       });
       printJson(session);
       return 0;
@@ -328,6 +329,16 @@ export async function main(args: Args): Promise<number> {
 
   if (command === "screenshot") {
     printJson(await client.screenshot(requireFlag(flags, "session"), stringFlag(flags, "reason")));
+    return 0;
+  }
+
+  if (command === "recording" && subcommand === "start") {
+    printJson(await client.startRecording(requireFlag(flags, "session")));
+    return 0;
+  }
+
+  if (command === "recording" && subcommand === "stop") {
+    printJson(await client.stopRecording(requireFlag(flags, "session")));
     return 0;
   }
 
@@ -1118,7 +1129,9 @@ function printHelp(): void {
 Usage:
   atlas-loop doctor
   atlas-loop daemon start --port 4317
-  atlas-loop session start --simulator "iPhone 16" [--viewer] [--input-backend cgevent|xcuitest]
+  atlas-loop session start --simulator "iPhone 16" [--viewer] [--input-backend cgevent|xcuitest] [--record]
+  atlas-loop recording start --session <id|latest>
+  atlas-loop recording stop --session <id|latest>
   atlas-loop session list [--json]
   atlas-loop session history [--limit 20]
   atlas-loop session latest

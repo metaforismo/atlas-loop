@@ -49,7 +49,7 @@ import {
   type TraceEvent
 } from "@atlas-loop/protocol";
 import { parseTraceLine } from "@atlas-loop/traces";
-import { createSimulator } from "@atlas-loop/simulator";
+import { createSimulator, type RecordingHandle } from "@atlas-loop/simulator";
 import { validateArtifactTarget, type ValidationReport } from "../../../scripts/verify-artifacts.ts";
 import { XcuitestRunnerManager } from "@atlas-loop/xcuitest-client";
 import { createCgEventBackend } from "./backends/cgevent.ts";
@@ -83,6 +83,7 @@ interface SessionState {
   sequence: number;
   source: "memory" | "disk";
   warnings: PersistedSessionWarning[];
+  recording?: { handle: RecordingHandle; path: string; startedAt: string };
 }
 
 interface DaemonState {
@@ -126,6 +127,7 @@ interface SessionSummary {
     artifactBacked: boolean;
     warnings: PersistedSessionWarning[];
   };
+  recording: { active: boolean; startedAt: string; path: string } | null;
 }
 
 interface SessionArtifactHealth {
@@ -308,6 +310,18 @@ async function handleRequest(state: DaemonState, request: IncomingMessage, respo
       return;
     }
 
+    if (request.method === "POST" && parts.length === 4 && parts[2] === "recording" && parts[3] === "start") {
+      const sessionState = resolveActiveSessionState(state, sessionId);
+      sendJson(response, 200, { ok: true, data: await startSessionRecording(state, sessionState) });
+      return;
+    }
+
+    if (request.method === "POST" && parts.length === 4 && parts[2] === "recording" && parts[3] === "stop") {
+      const sessionState = resolveActiveSessionState(state, sessionId);
+      sendJson(response, 200, { ok: true, data: artifactWithContentUrl(baseUrl, await stopSessionRecording(sessionState)) });
+      return;
+    }
+
     if (request.method === "POST" && parts.length === 3 && parts[2] === "screenshot") {
       const sessionState = resolveActiveSessionState(state, sessionId);
       const body = await readJsonBody<{ reason?: string }>(request);
@@ -384,7 +398,83 @@ async function createSession(state: DaemonState, request: CreateSessionRequest):
   await writeSession(layout, session);
   await writeManifest(layout, []);
   await recordTrace(layout, { type: "session.created", at, session });
+  if (request.record) {
+    await startSessionRecording(state, sessionState);
+  }
   return session;
+}
+
+async function startSessionRecording(
+  state: DaemonState,
+  sessionState: SessionState
+): Promise<{ active: boolean; startedAt: string; path: string }> {
+  if (sessionState.recording) {
+    throw atlasError("INVALID_REQUEST", `session ${sessionState.session.id} is already recording`);
+  }
+
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const outputPath = join(sessionState.layout.videoDir, `${stamp}.mp4`);
+  const handle = state.simulator.startRecordVideo({
+    simulator: sessionState.session.simulator,
+    outputPath
+  });
+  const recording = { handle, path: outputPath, startedAt: handle.startedAt };
+  sessionState.recording = recording;
+  await recordTrace(sessionState.layout, {
+    type: "video.started",
+    at: handle.startedAt,
+    sessionId: sessionState.session.id,
+    path: outputPath
+  });
+
+  // Surface recorder deaths (unbootable device, disk full, ...) as evidence
+  // instead of leaving a silently dead recording behind.
+  handle.done.catch(async (error) => {
+    if (sessionState.recording?.handle !== handle) return;
+    sessionState.recording = undefined;
+    await recordTrace(sessionState.layout, {
+      type: "video.stopped",
+      at: nowIso(),
+      sessionId: sessionState.session.id,
+      error: normalizeError(error)
+    }).catch(() => undefined);
+  });
+
+  return { active: true, startedAt: handle.startedAt, path: outputPath };
+}
+
+async function stopSessionRecording(sessionState: SessionState): Promise<ArtifactRef> {
+  const recording = sessionState.recording;
+  if (!recording) {
+    throw atlasError("INVALID_REQUEST", `session ${sessionState.session.id} has no active recording`);
+  }
+  sessionState.recording = undefined;
+
+  try {
+    await recording.handle.stop();
+  } catch (error) {
+    const atlasLoopError = normalizeError(error);
+    await recordTrace(sessionState.layout, {
+      type: "video.stopped",
+      at: nowIso(),
+      sessionId: sessionState.session.id,
+      error: atlasLoopError
+    }).catch(() => undefined);
+    throw atlasLoopError;
+  }
+
+  const artifact = await artifactFromPath(sessionState.layout, "video", recording.path, {
+    videoStartedAt: recording.startedAt,
+    videoEndedAt: nowIso()
+  });
+  const stored = await addArtifact(sessionState, artifact);
+  await recordTrace(sessionState.layout, {
+    type: "video.stopped",
+    at: nowIso(),
+    sessionId: sessionState.session.id,
+    artifactId: stored.id
+  });
+  return stored;
 }
 
 async function resolveReadableSessionState(state: DaemonState, sessionId: string): Promise<SessionState> {
@@ -884,7 +974,10 @@ async function getSessionSummary(sessionState: SessionState): Promise<SessionSum
       source: sessionState.source,
       artifactBacked: true,
       warnings: sessionState.warnings
-    }
+    },
+    recording: sessionState.recording
+      ? { active: true, startedAt: sessionState.recording.startedAt, path: sessionState.recording.path }
+      : null
   };
 }
 
@@ -1170,6 +1263,13 @@ async function readEvents(sessionState: SessionState): Promise<TraceEvent[]> {
 }
 
 async function setStatus(sessionState: SessionState, status: SessionStatus): Promise<Session> {
+  if ((status === "ended" || status === "failed") && sessionState.recording) {
+    try {
+      await stopSessionRecording(sessionState);
+    } catch {
+      // The stop failure is already recorded as a video.stopped trace event.
+    }
+  }
   const from = sessionState.session.status;
   sessionState.session = {
     ...sessionState.session,
