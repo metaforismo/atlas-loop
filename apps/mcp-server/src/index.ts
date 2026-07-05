@@ -42,6 +42,7 @@ interface McpDaemonClient {
   listArtifacts(sessionId: string): Promise<unknown>;
   latestScreenshot(sessionId: string): Promise<Partial<ArtifactRef>>;
   endSession(sessionId: string): Promise<unknown>;
+  getAtlasMap?(rebuild?: boolean): Promise<unknown>;
   startRecording?(sessionId: string): Promise<unknown>;
   stopRecording?(sessionId: string): Promise<unknown>;
   build(sessionId: string, request: unknown): Promise<unknown>;
@@ -186,6 +187,14 @@ export const tools = [
     inputSchema: eventExportSchema()
   },
   { name: "atlas.performAction", description: "Perform tap/type/swipe/tapElement/assertVisible/wait/screenshot action.", inputSchema: performActionSchema() },
+  {
+    name: "atlas.getMap",
+    description: "Return the Atlas screen map derived from local session evidence: screens, transitions, and observing sessions.",
+    inputSchema: objectSchema([], {
+      rebuild: { type: "boolean", description: "Force a rebuild instead of serving the cached map." },
+      summaryOnly: { type: "boolean", description: "Return a compact summary instead of the full map." }
+    })
+  },
   { name: "atlas.startRecording", description: "Start a local session video recording (saved under the session's video/ directory).", inputSchema: sessionIdSchema() },
   { name: "atlas.stopRecording", description: "Stop the active session video recording and register the local video artifact.", inputSchema: sessionIdSchema() },
   { name: "atlas.takeScreenshot", description: "Capture a screenshot artifact.", inputSchema: objectSchema(["sessionId"], { ...sessionIdProperty(), reason: { type: "string" } }) },
@@ -359,6 +368,34 @@ async function callTool(name: string, args: Record<string, unknown>, runtime: To
       });
     case "atlas.endSession":
       return client.endSession(requireString(args, "sessionId"));
+    case "atlas.getMap": {
+      if (!client.getAtlasMap) throw new Error("daemon client does not support getAtlasMap");
+      const view = (await client.getAtlasMap(args.rebuild === true)) as {
+        source?: string;
+        map?: { generatedAt?: string; sessions?: unknown[]; screens?: Array<Record<string, unknown>>; transitions?: Array<Record<string, unknown>> };
+        warnings?: unknown[];
+      };
+      if (args.summaryOnly === true && view?.map) {
+        return {
+          source: view.source,
+          generatedAt: view.map.generatedAt,
+          sessions: view.map.sessions?.length ?? 0,
+          screens: (view.map.screens ?? []).map((screen) => ({
+            id: screen.id,
+            screenId: screen.screenId,
+            screenshotCount: screen.screenshotCount,
+            sessionIds: screen.sessionIds
+          })),
+          transitions: (view.map.transitions ?? []).length,
+          topTransitions: (view.map.transitions ?? []).slice(0, 10).map((transition) => ({
+            id: transition.id,
+            count: transition.count
+          })),
+          warnings: view.warnings ?? []
+        };
+      }
+      return view;
+    }
     case "atlas.startRecording": {
       if (!client.startRecording) throw new Error("daemon client does not support startRecording");
       return client.startRecording(requireString(args, "sessionId"));

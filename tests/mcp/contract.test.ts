@@ -503,6 +503,42 @@ describe("MCP contract documentation", () => {
     });
   });
 
+  it("returns the atlas map through the daemon client with optional summary", async () => {
+    const view = {
+      source: "cache",
+      map: {
+        schemaVersion: "atlas-loop.atlas-map.v1",
+        generatedAt: "2026-07-05T12:00:00.000Z",
+        sessions: [{ sessionId: "sess_map" }],
+        screens: [{ id: "screen_abc", screenshotCount: 3, sessionIds: ["sess_map"] }],
+        transitions: [{ id: "__launch__->screen_abc#launch:app.demo", count: 2 }]
+      },
+      warnings: []
+    };
+    const rebuilds: boolean[] = [];
+    const client = {
+      getAtlasMap: async (rebuild?: boolean) => {
+        rebuilds.push(Boolean(rebuild));
+        return view;
+      }
+    } as never;
+
+    const full = await callToolWithEnvelope("atlas.getMap", {}, { client });
+    const summary = await callToolWithEnvelope("atlas.getMap", { rebuild: true, summaryOnly: true }, { client });
+
+    expect(full).toMatchObject({ ok: true, data: { source: "cache", map: { schemaVersion: "atlas-loop.atlas-map.v1" } } });
+    expect(summary).toMatchObject({
+      ok: true,
+      data: {
+        sessions: 1,
+        transitions: 1,
+        screens: [{ id: "screen_abc", screenshotCount: 3 }],
+        topTransitions: [{ id: "__launch__->screen_abc#launch:app.demo", count: 2 }]
+      }
+    });
+    expect(rebuilds).toEqual([false, true]);
+  });
+
   it("normalizes MCP build and launch requests before forwarding them", async () => {
     const forwarded: Array<{ method: string; sessionId: string; request: unknown }> = [];
 

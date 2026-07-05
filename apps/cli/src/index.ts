@@ -29,7 +29,8 @@ import {
   type SessionSummary
 } from "@atlas-loop/daemon-client";
 import { startDaemonServer } from "../../daemon/src/server.ts";
-import type { ActionInput, ArtifactRef, TraceEvent } from "@atlas-loop/protocol";
+import type { ActionInput, ArtifactRef, AtlasMap, TraceEvent } from "@atlas-loop/protocol";
+import { deriveAtlasMap, loadHashCache, saveHashCache } from "@atlas-loop/atlas-map";
 import { validateArtifactTarget, type ValidationReport } from "../../../scripts/verify-artifacts.ts";
 
 export { verifySessionHandoffBundle };
@@ -329,6 +330,48 @@ export async function main(args: Args): Promise<number> {
 
   if (command === "screenshot") {
     printJson(await client.screenshot(requireFlag(flags, "session"), stringFlag(flags, "reason")));
+    return 0;
+  }
+
+  if (command === "map" && subcommand === "build") {
+    const config = await loadConfig();
+    const artifactRoot = stringFlag(flags, "artifact-root") ?? config.artifactRoot;
+    const atlasDir = resolve(artifactRoot, "..", "atlas");
+    const outPath = stringFlag(flags, "out") ?? join(atlasDir, "map.json");
+    const cachePath = join(atlasDir, "hash-cache.json");
+
+    const hashCache = await loadHashCache(cachePath);
+    const derivation = await deriveAtlasMap({
+      artifactRoot,
+      sessionIds: csvFlag(flags, "sessions"),
+      threshold: numberFlag(flags, "threshold"),
+      hashCache
+    });
+    await mkdir(dirname(outPath), { recursive: true });
+    await saveHashCache(cachePath, derivation.hashCache);
+    await writeFile(outPath, `${JSON.stringify(derivation.map, null, 2)}\n`, "utf8");
+
+    printJson(
+      booleanFlag(flags, "json")
+        ? derivation.map
+        : { ...atlasMapSummary(derivation.map), mapPath: resolve(outPath), warnings: derivation.warnings }
+    );
+    return 0;
+  }
+
+  if (command === "map" && subcommand === "show") {
+    const config = await loadConfig();
+    const artifactRoot = stringFlag(flags, "artifact-root") ?? config.artifactRoot;
+    const mapPath = stringFlag(flags, "map") ?? join(resolve(artifactRoot, "..", "atlas"), "map.json");
+
+    let map: AtlasMap;
+    try {
+      map = JSON.parse(await readFile(mapPath, "utf8")) as AtlasMap;
+    } catch {
+      throw new Error(`no atlas map found at ${mapPath}; run: atlas-loop map build`);
+    }
+
+    printJson(booleanFlag(flags, "json") ? map : { ...atlasMapSummary(map), mapPath: resolve(mapPath) });
     return 0;
   }
 
@@ -972,6 +1015,23 @@ function numberFlagRequired(flags: Map<string, string | boolean>, name: string):
   return value;
 }
 
+function atlasMapSummary(map: AtlasMap): Record<string, unknown> {
+  return {
+    schemaVersion: map.schemaVersion,
+    generatedAt: map.generatedAt,
+    hashThreshold: map.hashThreshold,
+    sessions: map.sessions.length,
+    screens: map.screens.map((screen) => ({
+      id: screen.id,
+      screenId: screen.screenId,
+      screenshots: screen.screenshotCount,
+      sessions: screen.sessionIds.length
+    })),
+    transitions: map.transitions.length,
+    topTransitions: map.transitions.slice(0, 10).map((transition) => ({ id: transition.id, count: transition.count }))
+  };
+}
+
 function inputBackendFlag(flags: Map<string, string | boolean>): "cgevent" | "xcuitest" | undefined {
   const value = stringFlag(flags, "input-backend");
   if (value === undefined) return undefined;
@@ -1132,6 +1192,8 @@ Usage:
   atlas-loop session start --simulator "iPhone 16" [--viewer] [--input-backend cgevent|xcuitest] [--record]
   atlas-loop recording start --session <id|latest>
   atlas-loop recording stop --session <id|latest>
+  atlas-loop map build [--sessions id,id] [--threshold 10] [--out artifacts/atlas/map.json] [--json]
+  atlas-loop map show [--json]
   atlas-loop session list [--json]
   atlas-loop session history [--limit 20]
   atlas-loop session latest

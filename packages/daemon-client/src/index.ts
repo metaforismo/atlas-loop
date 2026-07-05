@@ -430,6 +430,12 @@ export class DaemonClient {
     return this.requestData("POST", `/sessions/${encodeURIComponent(sessionId)}/end`, "ended session");
   }
 
+  getAtlasMap(rebuild = false): Promise<unknown> {
+    return rebuild
+      ? this.requestData("POST", "/atlas/map/rebuild", "atlas map")
+      : this.requestData("GET", "/atlas/map", "atlas map");
+  }
+
   startRecording(sessionId: string): Promise<{ active: boolean; startedAt: string; path: string }> {
     return this.requestData("POST", `/sessions/${encodeURIComponent(sessionId)}/recording/start`, "recording status");
   }
