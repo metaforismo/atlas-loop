@@ -2105,6 +2105,71 @@ h2 {
   min-width: 0;
 }
 
+.replay-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, transparent);
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.replay-video {
+  width: 100%;
+  max-height: 300px;
+  border-radius: 10px;
+  background: #000;
+}
+
+.replay-marker-strip {
+  position: relative;
+  height: 18px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.replay-marker {
+  position: absolute;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  background: var(--accent);
+  transform: translate(-50%, -50%);
+  cursor: pointer;
+  transition: transform 160ms ease;
+}
+
+.replay-marker.tone-good {
+  background: var(--good);
+}
+
+.replay-marker.tone-bad {
+  background: var(--bad);
+}
+
+.replay-marker.active,
+.replay-marker:hover {
+  transform: translate(-50%, -50%) scale(1.45);
+}
+
+.replay-current {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-height: 18px;
+  font-size: 12px;
+  color: color-mix(in srgb, currentColor 75%, transparent);
+}
+
+.replay-current strong {
+  font-size: 12px;
+}
+
 .artifact-preview-image {
   display: block;
   width: 100%;
