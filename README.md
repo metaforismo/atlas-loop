@@ -117,6 +117,19 @@ when the handoff needs a local JSON file with filter metadata, counts, and raw
 events. Event exports are local files only; they do not upload or mutate the
 session.
 
+Use session history when an agent or reviewer needs a local evidence index
+across active daemon sessions and persisted artifact-backed sessions:
+
+```bash
+curl -s "http://127.0.0.1:4317/v1/sessions/history?limit=20"
+npm run cli -- session history --limit 20
+```
+
+`/v1/sessions/history`, `atlas-loop session history`, its `session hist` alias,
+and MCP `atlas.listSessionHistory` return structured local evidence history.
+They do not create cloud storage, provenance signing, hosted audit trails, or
+team sharing.
+
 ## Agent Handoff Quick Path
 
 For an agent-to-operator handoff, keep the daemon and viewer local, resolve the
@@ -184,6 +197,7 @@ atlas-loop doctor
 atlas-loop daemon start --port 4317
 atlas-loop session start --simulator "iPhone 16" --viewer
 atlas-loop session list
+atlas-loop session history [--limit 20]
 atlas-loop session latest
 atlas-loop session status --session latest
 atlas-loop session ready --session latest
@@ -234,8 +248,10 @@ runtime calls, including `atlas.createSession`, `atlas.performAction`,
 `atlas.listArtifacts`, `atlas.getArtifactPath`,
 `atlas.getLatestScreenshotPath`, `atlas.getArtifactHealth`, and
 `atlas.getViewerUrl`, forward to the local daemon at `ATLAS_LOOP_DAEMON_URL` or
-`http://127.0.0.1:4317` by default. `atlas.listEvents` returns structured,
-read-only trace events for agent handoffs and audits. `atlas.exportEvents`
+`http://127.0.0.1:4317` by default. `atlas.listSessionHistory` returns the
+daemon's local evidence history across active and persisted sessions, with an
+optional `limit`. `atlas.listEvents` returns structured, read-only trace events
+for agent handoffs and audits. `atlas.exportEvents`
 writes the same filtered event view to a caller-chosen local JSON file and
 returns the file metadata.
 `atlas.getArtifactHealth` validates the daemon-resolved local artifact
@@ -320,6 +336,7 @@ After a daemon restart, read-only routes can discover sessions from
 
 ```bash
 npm run cli -- session list
+npm run cli -- session history --limit 20
 npm run cli -- session status --session latest
 npm run cli -- session ready --session latest
 npm run cli -- artifacts path --session <session-id>

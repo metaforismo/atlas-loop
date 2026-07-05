@@ -219,6 +219,25 @@ describe("viewer app interactions", () => {
     }, "copy id confirmation");
   });
 
+  it("renders compact evidence chips from session history rows", async () => {
+    await act(async () => root?.render(<App />));
+
+    const evidence = await waitFor(() => {
+      const group = getByAriaLabel<HTMLElement>(`Evidence for ${SESSION_ID}`);
+      expect(group.textContent).toContain("mem");
+      expect(group.textContent).toContain("2");
+      expect(group.textContent).toContain("pass");
+      return group;
+    }, "session history evidence chips");
+
+    expect(getByAriaLabel<HTMLElement>("Evidence source memory").closest(".session-evidence-chips")).toBe(evidence);
+    expect(getByAriaLabel<HTMLElement>("Artifact count 2").textContent).toContain("2");
+    expect(getByAriaLabel<HTMLElement>("Event count 1").textContent).toContain("1");
+    expect(getByAriaLabel<HTMLElement>("Warning count 0").textContent).toContain("0");
+    expect(getByAriaLabel<HTMLElement>("Latest screenshot available").textContent).toContain("yes");
+    expect(getByAriaLabel<HTMLElement>("Latest action passed").textContent).toContain("pass");
+  });
+
   it("copies local agent handoff notes and next steps", async () => {
     await act(async () => root?.render(<App />));
 
@@ -377,6 +396,37 @@ async function fetchResponse(input: RequestInfo | URL): Promise<Response> {
   const pathname = url.pathname;
 
   if (pathname === "/healthz") return new Response("", { status: 200 });
+  if (pathname === "/v1/sessions/history") {
+    expect(url.searchParams.get("limit")).toBeNull();
+    return jsonResponse({
+      schemaVersion: "atlas-loop.session-history.v1",
+      generatedAt: "2026-07-05T10:00:00.000Z",
+      total: 1,
+      count: 1,
+      limit: 30,
+      sessions: [
+        {
+          sessionId: SESSION_ID,
+          session,
+          storage: { source: "memory", artifactBacked: true, warningCount: 0 },
+          artifacts: {
+            total: artifacts.length,
+            byType: { screenshot: 1, log: 1 },
+            latestScreenshotPath: screenshotArtifact.path,
+            latestScreenshotId: screenshotArtifact.id,
+            latestScreenshotCreatedAt: screenshotArtifact.createdAt
+          },
+          events: {
+            total: 1,
+            latestAction: { actionId: "act_checkout", ok: true, artifactCount: 1 }
+          },
+          canMutate: true,
+          hasScreenshot: true,
+          ready: true
+        }
+      ]
+    });
+  }
   if (pathname === "/v1/sessions") return jsonResponse({ sessions: [session] });
   if (pathname === `/v1/sessions/${SESSION_ID}`) return jsonResponse(session);
   if (pathname === `/v1/sessions/${SESSION_ID}/summary`) return jsonResponse(summary);

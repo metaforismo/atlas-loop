@@ -250,6 +250,89 @@ describe("CLI agent workflow helpers", () => {
     });
   });
 
+  it("prints session history and alias results through the configured daemon URL", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "atlas-loop-cli-history-"));
+    const originalCwd = process.cwd();
+    const originalLog = console.log;
+    const logged: string[] = [];
+    const requestedPaths: string[] = [];
+    const historyForPath = (requestPath: string) => ({
+      schemaVersion: "atlas-loop.session-history.v1",
+      generatedAt: "2026-07-05T10:00:00.000Z",
+      total: 1,
+      count: 1,
+      limit: requestPath.endsWith("limit=2") ? 2 : 1,
+      sessions: [
+        {
+          session: {
+            id: "sess_history",
+            schemaVersion: "atlas-loop.session.v1",
+            platform: "ios-simulator",
+            status: "ended",
+            createdAt: "2026-07-04T09:00:00.000Z",
+            updatedAt: "2026-07-04T09:00:01.000Z",
+            simulator: {},
+            artifactDir: "/tmp/atlas-loop/sess_history"
+          },
+          sessionId: "sess_history",
+          status: "ended",
+          createdAt: "2026-07-04T09:00:00.000Z",
+          updatedAt: "2026-07-04T09:00:01.000Z",
+          artifactDir: "/tmp/atlas-loop/sess_history",
+          storage: { source: "disk", artifactBacked: true, warningCount: 0 },
+          artifacts: { total: 0, byType: {} },
+          events: { total: 0 },
+          canMutate: false,
+          hasScreenshot: false,
+          ready: false
+        }
+      ]
+    });
+    const server = await startSessionHandoffDaemon((requestPath) => {
+      requestedPaths.push(requestPath);
+      if (/^\/sessions\/history\?limit=\d+$/.test(requestPath)) {
+        return { ok: true, data: historyForPath(requestPath) };
+      }
+      return {
+        ok: false,
+        status: 404,
+        error: { code: "NOT_FOUND", message: `unexpected route ${requestPath}` }
+      };
+    });
+    const daemonUrl = `http://127.0.0.1:${server.port}`;
+
+    await writeFile(join(tempDir, "atlas-loop.config.json"), JSON.stringify({ daemonUrl }, null, 2));
+    console.log = (value?: unknown) => {
+      logged.push(String(value));
+    };
+
+    try {
+      process.chdir(tempDir);
+      await expect(main(["session", "history", "--limit", "2"])).resolves.toBe(0);
+      await expect(main(["session", "hist", "--limit", "1"])).resolves.toBe(0);
+    } finally {
+      process.chdir(originalCwd);
+      console.log = originalLog;
+      await server.close();
+      await rm(tempDir, { recursive: true, force: true });
+    }
+
+    expect(requestedPaths).toEqual([
+      "/sessions/history?limit=2",
+      "/sessions/history?limit=1"
+    ]);
+    expect(JSON.parse(logged[0])).toMatchObject({
+      schemaVersion: "atlas-loop.session-history.v1",
+      limit: 2,
+      sessions: [expect.objectContaining({ sessionId: "sess_history" })]
+    });
+    expect(JSON.parse(logged[1])).toMatchObject({
+      schemaVersion: "atlas-loop.session-history.v1",
+      limit: 1,
+      sessions: [expect.objectContaining({ sessionId: "sess_history" })]
+    });
+  });
+
   it("prints filtered daemon events with configured URL and stable JSON metadata", async () => {
     const tempDir = await mkdtemp(join(tmpdir(), "atlas-loop-cli-events-"));
     const originalCwd = process.cwd();
@@ -434,6 +517,13 @@ describe("CLI agent workflow helpers", () => {
   });
 
   it("rejects invalid event limits before daemon I/O", async () => {
+    await expect(main([
+      "session",
+      "history",
+      "--limit",
+      "-1"
+    ])).rejects.toThrow("--limit must be a non-negative integer");
+
     await expect(main([
       "events",
       "list",

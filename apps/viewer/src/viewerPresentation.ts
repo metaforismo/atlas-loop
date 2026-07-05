@@ -7,6 +7,7 @@ import type {
   HealthState,
   ScreenshotState,
   Session,
+  SessionHistoryItem,
   SessionListItem,
   SessionStatus,
   SessionSummary,
@@ -55,6 +56,17 @@ export interface TimelineFilterState {
 export interface LatestSessionEmptyState {
   title: string;
   detail: string;
+}
+
+export type SessionEvidenceChipId = "source" | "artifacts" | "events" | "warnings" | "screenshot" | "action";
+
+export interface SessionEvidenceChip {
+  id: SessionEvidenceChipId;
+  label: string;
+  value: string;
+  tone: UiTone;
+  title: string;
+  ariaLabel: string;
 }
 
 export interface ArtifactHealthIssuePreview {
@@ -544,12 +556,93 @@ export function sessionUpdatedAt(session: SessionListItem | undefined): string |
   return session?.updatedAt ?? session?.createdAt;
 }
 
-export function sortSessionList(sessions: SessionListItem[]): SessionListItem[] {
+export function sortSessionList<T extends SessionListItem>(sessions: T[]): T[] {
   return [...sessions].sort((a, b) => {
     const byTime = sessionSortTime(b) - sessionSortTime(a);
     if (byTime !== 0) return byTime;
     return a.id.localeCompare(b.id);
   });
+}
+
+export function sessionEvidenceChips(session: SessionHistoryItem | undefined): SessionEvidenceChip[] {
+  if (!session) return [];
+
+  const chips: SessionEvidenceChip[] = [];
+  const source = session.storage?.source;
+  if (source) {
+    chips.push({
+      id: "source",
+      label: "src",
+      value: compactStorageSource(source),
+      tone: source === "memory" ? "good" : "neutral",
+      title: `Source: ${source}`,
+      ariaLabel: `Evidence source ${source}`
+    });
+  }
+
+  if (session.artifacts?.total !== undefined) {
+    chips.push({
+      id: "artifacts",
+      label: "A",
+      value: formatCompactCount(session.artifacts.total),
+      tone: "neutral",
+      title: `Artifacts: ${session.artifacts.total}`,
+      ariaLabel: `Artifact count ${session.artifacts.total}`
+    });
+  }
+
+  if (session.events?.total !== undefined) {
+    chips.push({
+      id: "events",
+      label: "E",
+      value: formatCompactCount(session.events.total),
+      tone: "neutral",
+      title: `Events: ${session.events.total}`,
+      ariaLabel: `Event count ${session.events.total}`
+    });
+  }
+
+  const warningCount = session.storage?.warningCount ?? session.storage?.warnings?.length;
+  if (warningCount !== undefined) {
+    chips.push({
+      id: "warnings",
+      label: "W",
+      value: formatCompactCount(warningCount),
+      tone: warningCount > 0 ? "warn" : "neutral",
+      title: `Warnings: ${warningCount}`,
+      ariaLabel: `Warning count ${warningCount}`
+    });
+  }
+
+  const hasScreenshot = sessionHasLatestScreenshot(session);
+  if (hasScreenshot !== undefined) {
+    chips.push({
+      id: "screenshot",
+      label: "shot",
+      value: hasScreenshot ? "yes" : "none",
+      tone: hasScreenshot ? "good" : "neutral",
+      title: `Latest screenshot: ${hasScreenshot ? "available" : "not available"}`,
+      ariaLabel: `Latest screenshot ${hasScreenshot ? "available" : "not available"}`
+    });
+  }
+
+  const latestAction = session.events?.latestAction;
+  if (latestAction?.ok !== undefined) {
+    chips.push({
+      id: "action",
+      label: "act",
+      value: latestAction.ok ? "pass" : "fail",
+      tone: latestAction.ok ? "good" : "bad",
+      title: latestAction.ok
+        ? latestActionTitle("Latest action passed", latestAction.artifactCount)
+        : latestAction.error?.message
+          ? `Latest action failed: ${latestAction.error.message}`
+          : "Latest action failed",
+      ariaLabel: latestAction.ok ? "Latest action passed" : "Latest action failed"
+    });
+  }
+
+  return chips;
 }
 
 export function eventModeTone(mode: "connecting" | "sse" | "polling"): UiTone {
@@ -714,6 +807,36 @@ function sessionSortTime(session: SessionListItem): number {
   if (!date) return 0;
   const timestamp = new Date(date).getTime();
   return Number.isNaN(timestamp) ? 0 : timestamp;
+}
+
+function compactStorageSource(source: string): string {
+  if (source === "memory") return "mem";
+  if (source === "disk") return "disk";
+  return source.length > 5 ? `${source.slice(0, 5)}` : source;
+}
+
+function formatCompactCount(value: number): string {
+  if (value > 999) return "999+";
+  return String(value);
+}
+
+function sessionHasLatestScreenshot(session: SessionHistoryItem): boolean | undefined {
+  if (session.hasScreenshot !== undefined) return session.hasScreenshot;
+  if (
+    session.artifacts?.latestScreenshot ||
+    session.artifacts?.latestScreenshotId ||
+    session.artifacts?.latestScreenshotPath ||
+    session.artifacts?.latestScreenshotCreatedAt
+  ) {
+    return true;
+  }
+  return undefined;
+}
+
+function latestActionTitle(prefix: string, artifactCount: number | undefined): string {
+  if (artifactCount === undefined) return prefix;
+  const artifactLabel = artifactCount === 1 ? "1 artifact" : `${artifactCount} artifacts`;
+  return `${prefix}, ${artifactLabel}`;
 }
 
 function agentHandoffIdentifiers(input: AgentHandoffInput, resolvedSessionId: string | undefined): AgentHandoffIdentifier[] {

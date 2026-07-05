@@ -27,6 +27,7 @@ describe("MCP contract documentation", () => {
   it("publishes agent-friendly artifact and viewer helper tools", () => {
     expect(tools.map((tool) => tool.name)).toEqual(expect.arrayContaining([
       "atlas.getLatestSession",
+      "atlas.listSessionHistory",
       "atlas.sessionReady",
       "atlas.getSessionHandoff",
       "atlas.listEvents",
@@ -42,6 +43,7 @@ describe("MCP contract documentation", () => {
       "atlas.exportEvidence"
     ]));
     expect(tools.find((tool) => tool.name === "atlas.listSessions")?.description).toContain("active and persisted");
+    expect(tools.find((tool) => tool.name === "atlas.listSessionHistory")?.description).toContain("local evidence history");
   });
 
   it("publishes concrete input schemas for agent-authored runtime calls", () => {
@@ -50,6 +52,7 @@ describe("MCP contract documentation", () => {
     const action = schemaFor("atlas.performAction");
     const ready = schemaFor("atlas.sessionReady");
     const handoff = schemaFor("atlas.getSessionHandoff");
+    const sessionHistory = schemaFor("atlas.listSessionHistory");
     const listEvents = schemaFor("atlas.listEvents");
     const exportEvents = schemaFor("atlas.exportEvents");
     const verifyArtifacts = schemaFor("atlas.verifyArtifacts");
@@ -91,6 +94,14 @@ describe("MCP contract documentation", () => {
         daemonUrl: { type: "string" },
         viewerBaseUrl: { type: "string" }
       }
+    });
+    expect(sessionHistory).toMatchObject({
+      required: [],
+      properties: {
+        limit: { type: "integer", minimum: 0 },
+        daemonUrl: { type: "string" }
+      },
+      additionalProperties: false
     });
     expect(listEvents).toMatchObject({
       required: ["sessionId"],
@@ -170,6 +181,57 @@ describe("MCP contract documentation", () => {
     expect(result).toEqual({
       ok: true,
       data: { id: "sess_latest", requested: "latest" }
+    });
+  });
+
+  it("returns local session history through the structured MCP envelope", async () => {
+    const calls: Array<{ limit?: number }> = [];
+    const history = {
+      schemaVersion: "atlas-loop.session-history.v1",
+      generatedAt: "2026-07-05T10:00:00.000Z",
+      total: 1,
+      count: 1,
+      limit: 2,
+      sessions: [
+        {
+          session: {
+            id: "sess_history",
+            schemaVersion: "atlas-loop.session.v1",
+            platform: "ios-simulator",
+            status: "ended",
+            createdAt: "2026-07-04T09:00:00.000Z",
+            updatedAt: "2026-07-04T09:00:01.000Z",
+            simulator: {},
+            artifactDir: "/tmp/atlas-loop/sess_history"
+          },
+          sessionId: "sess_history",
+          status: "ended",
+          createdAt: "2026-07-04T09:00:00.000Z",
+          updatedAt: "2026-07-04T09:00:01.000Z",
+          artifactDir: "/tmp/atlas-loop/sess_history",
+          storage: { source: "disk", artifactBacked: true, warningCount: 0 },
+          artifacts: { total: 0, byType: {} },
+          events: { total: 0 },
+          canMutate: false,
+          hasScreenshot: false,
+          ready: false
+        }
+      ]
+    };
+
+    const result = await callToolWithEnvelope("atlas.listSessionHistory", { limit: 2 }, {
+      client: {
+        listSessionHistory: async (request: { limit?: number }) => {
+          calls.push(request);
+          return history;
+        }
+      } as never
+    });
+
+    expect(calls).toEqual([{ limit: 2 }]);
+    expect(result).toEqual({
+      ok: true,
+      data: history
     });
   });
 
@@ -638,6 +700,63 @@ describe("MCP contract documentation", () => {
     } finally {
       await server.close();
     }
+  });
+
+  it("uses configured daemon URL for default MCP session history clients", async () => {
+    const requestedPaths: string[] = [];
+    const history = {
+      schemaVersion: "atlas-loop.session-history.v1",
+      localOnly: true,
+      entries: [
+        { sessionId: "sess_history", status: "ended", storage: { source: "disk" } }
+      ]
+    };
+    const server = await startFakeMcpHistoryDaemon((requestPath) => {
+      requestedPaths.push(requestPath);
+      return history;
+    });
+    const daemonUrl = `http://127.0.0.1:${server.port}`;
+
+    try {
+      const result = await callToolWithEnvelope("atlas.listSessionHistory", {
+        limit: 2
+      }, {
+        loadConfig: async () => ({ daemonUrl })
+      });
+
+      expect(requestedPaths).toEqual(["/sessions/history?limit=2"]);
+      expect(result).toEqual({
+        ok: true,
+        data: history
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("rejects invalid session history limits without calling the daemon client", async () => {
+    const calls: Array<{ limit?: number }> = [];
+
+    for (const limit of [-1, 1.5, "2"]) {
+      const result = await callToolWithEnvelope("atlas.listSessionHistory", { limit }, {
+        client: {
+          listSessionHistory: async (request: { limit?: number }) => {
+            calls.push(request);
+            return {};
+          }
+        } as never
+      });
+
+      expect(result).toEqual({
+        ok: false,
+        error: {
+          code: "INVALID_REQUEST",
+          message: "limit must be a non-negative integer"
+        }
+      });
+    }
+
+    expect(calls).toEqual([]);
   });
 
   it("rejects invalid event limits without calling the daemon client", async () => {
@@ -1373,6 +1492,34 @@ async function startFakeMcpEventsDaemon(eventsForPath: (requestPath: string) => 
   await new Promise<void>((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("fake MCP events daemon did not bind a TCP port");
+
+  return {
+    port: address.port,
+    close: () => closeServer(server)
+  };
+}
+
+async function startFakeMcpHistoryDaemon(historyForPath: (requestPath: string) => unknown): Promise<{
+  port: number;
+  close: () => Promise<void>;
+}> {
+  const server = createServer((request, response) => {
+    if (request.method !== "GET" || !request.url || !/^\/sessions\/history(\?limit=\d+)?$/.test(request.url)) {
+      response.writeHead(404, { "content-type": "application/json" });
+      response.end(JSON.stringify({
+        ok: false,
+        error: { code: "NOT_FOUND", message: `unexpected route ${request.method} ${request.url}` }
+      }));
+      return;
+    }
+
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({ ok: true, data: historyForPath(request.url) }));
+  });
+
+  await new Promise<void>((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("fake MCP history daemon did not bind a TCP port");
 
   return {
     port: address.port,

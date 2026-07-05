@@ -481,6 +481,182 @@ describe("daemon session summary", () => {
     expect(sessions.filter((session) => session.id === created.id)).toHaveLength(1);
   });
 
+  it("returns ordered history for active memory and persisted disk sessions with limits", async () => {
+    const artifactRoot = await mkdtemp(join(tmpdir(), "atlas-loop-history-"));
+    tempDirs.push(artifactRoot);
+    const firstDaemon = await startDaemonServer({
+      port: 0,
+      artifactRoot,
+      simulator: fakeSimulator()
+    });
+    startedDaemons.push(firstDaemon);
+
+    const persisted = await requestJson<{ id: string; artifactDir: string }>(firstDaemon.url, "/sessions", {
+      method: "POST",
+      body: JSON.stringify({ simulator: { name: "iPhone 16" } })
+    });
+    await requestJson(firstDaemon.url, `/sessions/${persisted.id}/screenshot`, {
+      method: "POST",
+      body: JSON.stringify({ reason: "history-disk" })
+    });
+    await firstDaemon.close();
+    startedDaemons.splice(startedDaemons.indexOf(firstDaemon), 1);
+    await rewriteSessionTimes(persisted.artifactDir, {
+      createdAt: "2001-01-01T00:00:00.000Z",
+      updatedAt: "2001-01-01T00:00:00.000Z"
+    });
+
+    const secondDaemon = await startDaemonServer({
+      port: 0,
+      artifactRoot,
+      simulator: fakeSimulator()
+    });
+    startedDaemons.push(secondDaemon);
+    const active = await requestJson<{ id: string }>(secondDaemon.url, "/sessions", {
+      method: "POST",
+      body: JSON.stringify({ simulator: { name: "iPhone 17" } })
+    });
+    await requestJson(secondDaemon.url, `/sessions/${active.id}/launch`, {
+      method: "POST",
+      body: JSON.stringify({ bundleId: "com.example.History" })
+    });
+    await requestJson(secondDaemon.url, `/sessions/${active.id}/screenshot`, {
+      method: "POST",
+      body: JSON.stringify({ reason: "history-memory" })
+    });
+
+    const history = await requestJson<Record<string, any>>(secondDaemon.url, "/v1/sessions/history");
+    const limited = await requestJson<Record<string, any>>(secondDaemon.url, "/sessions/history?limit=1");
+    const emptyLimit = await requestJson<Record<string, any>>(secondDaemon.url, "/sessions/history?limit=0");
+
+    expect(history).toMatchObject({
+      schemaVersion: "atlas-loop.session-history.v1",
+      total: 2,
+      count: 2,
+      limit: null
+    });
+    expect(history.generatedAt).toEqual(expect.any(String));
+    expect(history.sessions.map((entry: Record<string, any>) => entry.sessionId)).toEqual([active.id, persisted.id]);
+    expect(history.sessions[0]).toMatchObject({
+      session: { id: active.id, status: "running" },
+      sessionId: active.id,
+      status: "running",
+      storage: { source: "memory", artifactBacked: true, warningCount: 0 },
+      artifacts: { total: 3, byType: { log: 1, metadata: 1, screenshot: 1 } },
+      events: { total: expect.any(Number), latestAction: { ok: true, artifactCount: 1 } },
+      canMutate: true,
+      hasScreenshot: true,
+      ready: true
+    });
+    expect(history.sessions[0].artifacts.latestScreenshotPath).toContain(active.id);
+    expect(history.sessions[1]).toMatchObject({
+      session: { id: persisted.id, status: "created" },
+      sessionId: persisted.id,
+      status: "created",
+      createdAt: "2001-01-01T00:00:00.000Z",
+      updatedAt: "2001-01-01T00:00:00.000Z",
+      storage: { source: "disk", artifactBacked: true, warningCount: 0 },
+      artifacts: { total: 1, byType: { screenshot: 1 } },
+      canMutate: false,
+      hasScreenshot: true,
+      ready: false
+    });
+    expect(history.sessions[1].artifacts.latestScreenshotPath).toContain(persisted.id);
+    expect(limited).toMatchObject({
+      total: 2,
+      count: 1,
+      limit: 1,
+      sessions: [expect.objectContaining({ sessionId: active.id })]
+    });
+    expect(emptyLimit).toMatchObject({
+      total: 2,
+      count: 0,
+      limit: 0,
+      sessions: []
+    });
+  }, 15_000);
+
+  it("rejects malformed history limits", async () => {
+    const artifactRoot = await mkdtemp(join(tmpdir(), "atlas-loop-history-invalid-limit-"));
+    tempDirs.push(artifactRoot);
+    const daemon = await startDaemonServer({
+      port: 0,
+      artifactRoot,
+      simulator: fakeSimulator()
+    });
+    startedDaemons.push(daemon);
+
+    for (const limit of ["-1", "abc", "1.5"]) {
+      const response = await fetch(`${daemon.url}/v1/sessions/history?limit=${encodeURIComponent(limit)}`);
+      const envelope = await response.json() as { ok: boolean; error?: { code?: string; message?: string } };
+
+      expect(response.status).toBe(400);
+      expect(envelope).toMatchObject({
+        ok: false,
+        error: {
+          code: "INVALID_REQUEST",
+          message: "limit must be a non-negative integer"
+        }
+      });
+    }
+  });
+
+  it("handles limit zero and legacy action traces without artifact arrays", async () => {
+    const artifactRoot = await mkdtemp(join(tmpdir(), "atlas-loop-history-legacy-trace-"));
+    tempDirs.push(artifactRoot);
+    const daemon = await startDaemonServer({
+      port: 0,
+      artifactRoot,
+      simulator: fakeSimulator()
+    });
+    startedDaemons.push(daemon);
+
+    const created = await requestJson<{ id: string; artifactDir: string }>(daemon.url, "/sessions", {
+      method: "POST",
+      body: JSON.stringify({ simulator: { name: "iPhone 16" } })
+    });
+    await writeFile(
+      join(created.artifactDir, "trace.jsonl"),
+      `${JSON.stringify({
+        type: "action.completed",
+        at: "2026-07-04T09:00:03.000Z",
+        result: {
+          actionId: "act_legacy",
+          ok: true,
+          startedAt: "2026-07-04T09:00:02.000Z",
+          endedAt: "2026-07-04T09:00:03.000Z"
+        }
+      })}\n`,
+      { flag: "a" }
+    );
+
+    const emptyLimit = await requestJson<Record<string, any>>(daemon.url, "/v1/sessions/history?limit=0");
+    const history = await requestJson<Record<string, any>>(daemon.url, "/v1/sessions/history?limit=1");
+
+    expect(emptyLimit).toMatchObject({
+      total: 1,
+      count: 0,
+      limit: 0,
+      sessions: []
+    });
+    expect(history).toMatchObject({
+      total: 1,
+      count: 1,
+      sessions: [
+        expect.objectContaining({
+          sessionId: created.id,
+          events: expect.objectContaining({
+            latestAction: expect.objectContaining({
+              actionId: "act_legacy",
+              ok: true,
+              artifactCount: 0
+            })
+          })
+        })
+      ]
+    });
+  });
+
   it("records HID success metadata as durable evidence", async () => {
     const artifactRoot = await mkdtemp(join(tmpdir(), "atlas-loop-hid-success-"));
     tempDirs.push(artifactRoot);
@@ -571,6 +747,15 @@ async function requestJson<T>(baseUrl: string, path: string, init: RequestInit =
   const envelope = await response.json() as { ok: boolean; data?: T; error?: unknown };
   expect(envelope.ok).toBe(true);
   return envelope.data as T;
+}
+
+async function rewriteSessionTimes(
+  artifactDir: string,
+  times: { createdAt: string; updatedAt: string }
+): Promise<void> {
+  const sessionPath = join(artifactDir, "session.json");
+  const session = JSON.parse(await readFile(sessionPath, "utf8"));
+  await writeFile(sessionPath, JSON.stringify({ ...session, ...times }, null, 2));
 }
 
 function fakeSimulator(): SimulatorApi {

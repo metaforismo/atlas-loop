@@ -47,6 +47,59 @@ export interface SessionListItem {
   platform?: string;
 }
 
+export interface SessionHistoryStorageEvidence {
+  source?: "memory" | "disk" | string;
+  artifactBacked?: boolean;
+  warningCount?: number;
+  warnings?: Array<{ path?: string; message: string }>;
+}
+
+export interface SessionHistoryArtifactEvidence {
+  total?: number;
+  byType?: Partial<Record<ArtifactType, number>>;
+  latestScreenshot?: ArtifactRef;
+  latestScreenshotId?: string;
+  latestScreenshotPath?: string;
+  latestScreenshotCreatedAt?: string;
+}
+
+export interface SessionHistoryActionEvidence {
+  actionId?: string;
+  ok?: boolean;
+  startedAt?: string;
+  endedAt?: string;
+  artifactCount?: number;
+  artifacts?: ArtifactRef[];
+  error?: AtlasLoopError;
+}
+
+export interface SessionHistoryEventEvidence {
+  total?: number;
+  latestAction?: SessionHistoryActionEvidence;
+  latestError?: AtlasLoopError;
+}
+
+export interface SessionHistoryItem extends SessionListItem {
+  sessionId?: string;
+  session?: Session;
+  storage?: SessionHistoryStorageEvidence;
+  artifacts?: SessionHistoryArtifactEvidence;
+  events?: SessionHistoryEventEvidence;
+  canMutate?: boolean;
+  hasScreenshot?: boolean;
+  ready?: boolean;
+  blockingReasons?: string[];
+}
+
+export interface SessionHistoryResult {
+  schemaVersion?: string;
+  generatedAt?: string;
+  total?: number;
+  count?: number;
+  limit?: number | null;
+  sessions: SessionHistoryItem[];
+}
+
 export interface Session extends SessionListItem {
   schemaVersion?: string;
   status: SessionStatus;
