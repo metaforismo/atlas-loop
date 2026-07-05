@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -789,7 +790,9 @@ describe("CLI agent workflow helpers", () => {
     let handoffJson: any;
     let eventsJson: any;
     let handoffMarkdown = "";
+    let readme = "";
     let evidenceReport = "";
+    let expectedIntegrity: any;
 
     await writeFile(join(tempDir, "atlas-loop.config.json"), JSON.stringify({ daemonUrl }, null, 2));
     console.log = (value?: unknown) => {
@@ -813,7 +816,15 @@ describe("CLI agent workflow helpers", () => {
       handoffJson = JSON.parse(await readFile(join(bundleDir, "handoff.json"), "utf8"));
       eventsJson = JSON.parse(await readFile(join(bundleDir, "events.json"), "utf8"));
       handoffMarkdown = await readFile(join(bundleDir, "handoff.md"), "utf8");
+      readme = await readFile(join(bundleDir, "README.md"), "utf8");
       evidenceReport = await readFile(join(bundleDir, "evidence-report.md"), "utf8");
+      expectedIntegrity = {
+        handoffJson: await fileIntegrity(join(bundleDir, "handoff.json")),
+        handoffMarkdown: await fileIntegrity(join(bundleDir, "handoff.md")),
+        readme: await fileIntegrity(join(bundleDir, "README.md")),
+        eventsJson: await fileIntegrity(join(bundleDir, "events.json")),
+        evidenceReport: await fileIntegrity(join(bundleDir, "evidence-report.md"))
+      };
     } finally {
       process.chdir(originalCwd);
       console.log = originalLog;
@@ -843,6 +854,7 @@ describe("CLI agent workflow helpers", () => {
       warnings: []
     });
     expect(output.files).toEqual(manifest.files);
+    expect(output.integrity).toEqual(manifest.integrity);
     expect(manifest).toMatchObject({
       schemaVersion: "atlas-loop.handoff-bundle.v1",
       sessionId: "sess_bundle",
@@ -857,11 +869,14 @@ describe("CLI agent workflow helpers", () => {
         manifest: join(bundleDir, "manifest.json"),
         handoffJson: join(bundleDir, "handoff.json"),
         handoffMarkdown: join(bundleDir, "handoff.md"),
+        readme: join(bundleDir, "README.md"),
         eventsJson: join(bundleDir, "events.json"),
         evidenceReport: join(bundleDir, "evidence-report.md")
       },
       warnings: []
     });
+    expect(manifest.integrity).toEqual(expectedIntegrity);
+    expect(manifest.integrity).not.toHaveProperty("manifest");
     expect(handoffJson).toMatchObject({
       sessionId: "sess_bundle",
       requestedSessionId: "latest",
@@ -870,6 +885,19 @@ describe("CLI agent workflow helpers", () => {
     expect(handoffJson).not.toHaveProperty("localOnly");
     expect(handoffMarkdown).toContain("# Atlas Loop Session Handoff");
     expect(handoffMarkdown).toContain("- Resolved session: `sess_bundle`");
+    expect(readme).toContain("# Atlas Loop Handoff Bundle");
+    expect(readme).toContain("Nothing in this directory is uploaded.");
+    expect(readme).toContain("- Resolved session: `sess_bundle`");
+    expect(readme).toContain("- Requested session: `latest`");
+    expect(readme).toContain(`- Viewer URL: http://127.0.0.1:5176?daemonUrl=${encodeURIComponent(daemonUrl)}&sessionId=sess_bundle`);
+    expect(readme).toContain(`- Artifact directory: \`${artifactDir}\``);
+    expect(readme).toContain("- `manifest.json`: bundle metadata and integrity");
+    expect(readme).toContain("- `handoff.json`: structured handoff JSON");
+    expect(readme).toContain("- `handoff.md`: Markdown handoff note");
+    expect(readme).toContain("- `README.md`: local bundle instructions");
+    expect(readme).toContain("- `events.json`: exported daemon events");
+    expect(readme).toContain("- `evidence-report.md`: Markdown evidence report");
+    expect(readme).not.toContain("## Warnings");
     expect(eventsJson).toMatchObject({
       schemaVersion: "atlas-loop.events-export.v1",
       requestedSessionId: "sess_bundle",
@@ -932,6 +960,8 @@ describe("CLI agent workflow helpers", () => {
     let output: any;
     let manifest: any;
     let handoffJson: any;
+    let readme = "";
+    let expectedIntegrity: any;
 
     await writeFile(join(tempDir, "atlas-loop.config.json"), JSON.stringify({ daemonUrl }, null, 2));
     await mkdir(bundleDir, { recursive: true });
@@ -954,6 +984,12 @@ describe("CLI agent workflow helpers", () => {
       output = JSON.parse(logged[0]);
       manifest = JSON.parse(await readFile(join(bundleDir, "manifest.json"), "utf8"));
       handoffJson = JSON.parse(await readFile(join(bundleDir, "handoff.json"), "utf8"));
+      readme = await readFile(join(bundleDir, "README.md"), "utf8");
+      expectedIntegrity = {
+        handoffJson: await fileIntegrity(join(bundleDir, "handoff.json")),
+        handoffMarkdown: await fileIntegrity(join(bundleDir, "handoff.md")),
+        readme: await fileIntegrity(join(bundleDir, "README.md"))
+      };
       await expect(readFile(join(bundleDir, "events.json"), "utf8")).rejects.toThrow();
       await expect(readFile(join(bundleDir, "evidence-report.md"), "utf8")).rejects.toThrow();
     } finally {
@@ -977,12 +1013,27 @@ describe("CLI agent workflow helpers", () => {
       manifest: join(bundleDir, "manifest.json"),
       handoffJson: join(bundleDir, "handoff.json"),
       handoffMarkdown: join(bundleDir, "handoff.md"),
+      readme: join(bundleDir, "README.md"),
       eventsJson: null,
       evidenceReport: null
     });
+    expect(manifest.integrity).toEqual(expectedIntegrity);
+    expect(manifest.integrity).not.toHaveProperty("manifest");
+    expect(manifest.integrity).not.toHaveProperty("eventsJson");
+    expect(manifest.integrity).not.toHaveProperty("evidenceReport");
     expect(manifest.warnings).toHaveLength(2);
     expect(manifest.warnings[0]).toContain("events.json");
     expect(manifest.warnings[1]).toContain("evidence-report.md");
+    expect(readme).toContain("- Resolved session: `sess_bundle_partial`");
+    expect(readme).toContain("- Requested session: `latest`");
+    expect(readme).toContain("Nothing in this directory is uploaded.");
+    expect(readme).toContain("## Warnings");
+    expect(readme).toContain("events.json unavailable");
+    expect(readme).toContain("evidence-report.md unavailable");
+    expect(readme).not.toContain("- `events.json`: exported daemon events");
+    expect(readme).not.toContain("- `evidence-report.md`: Markdown evidence report");
+    expect(output.files).toEqual(manifest.files);
+    expect(output.integrity).toEqual(manifest.integrity);
     expect(output.warnings).toEqual(manifest.warnings);
   });
 
@@ -1643,6 +1694,14 @@ function closeServer(server: Server): Promise<void> {
       else resolveClose();
     });
   });
+}
+
+async function fileIntegrity(filePath: string): Promise<{ sha256: string; sizeBytes: number }> {
+  const contents = await readFile(filePath);
+  return {
+    sha256: createHash("sha256").update(contents).digest("hex"),
+    sizeBytes: contents.byteLength
+  };
 }
 
 function sessionSummary(

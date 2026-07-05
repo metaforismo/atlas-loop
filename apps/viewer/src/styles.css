@@ -991,6 +991,7 @@ h2 {
 }
 
 .handoff-banner strong,
+.handoff-bundle-output-head strong,
 .handoff-signal strong,
 .handoff-notices > strong,
 .handoff-next > strong {
@@ -1065,6 +1066,83 @@ h2 {
 
 .handoff-copy-status.failed {
   color: var(--bad);
+}
+
+.handoff-bundle-output {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  border-top: 1px solid rgba(91, 111, 128, 0.34);
+  border-bottom: 1px solid rgba(91, 111, 128, 0.28);
+  border-left: 3px solid rgba(107, 211, 157, 0.68);
+  padding: 8px 8px 8px 9px;
+  background: rgba(8, 12, 17, 0.46);
+}
+
+.handoff-bundle-output-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.handoff-bundle-output-head strong {
+  color: var(--soft);
+  text-transform: uppercase;
+}
+
+.handoff-bundle-output-head span {
+  flex: 0 0 auto;
+  color: var(--good);
+  font-size: 10px;
+  font-weight: 760;
+  text-transform: uppercase;
+}
+
+.handoff-bundle-output p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.handoff-bundle-output dl {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+}
+
+.handoff-bundle-output dl div {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 6px;
+  min-width: 0;
+}
+
+.handoff-bundle-output dt,
+.handoff-bundle-output dd {
+  min-width: 0;
+  margin: 0;
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.handoff-bundle-output dt {
+  color: var(--muted);
+  font-weight: 760;
+  text-transform: uppercase;
+}
+
+.handoff-bundle-output code {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--soft);
+  font-family: "SF Mono", SFMono-Regular, ui-monospace, Menlo, Consolas, monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .handoff-command-preview {

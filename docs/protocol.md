@@ -139,8 +139,10 @@ also compose handoff state from `session ready`, `artifacts health`, the viewer
 URL, optional evidence report/export commands, and a raw `events export` file
 for exact trace JSON. CLI callers can request `--format markdown` or persist
 either selected format with `--out`. They can also request `--bundle <dir>` to
-write `handoff.json`, `handoff.md`, optional `events.json`, optional
-`evidence-report.md`, and `manifest.json` with
-`schemaVersion: "atlas-loop.handoff-bundle.v1"`. The bundle is still derived
-local state; no handoff field should imply cloud sharing, hosted
-authentication, Android support, or a remote viewer in v1.
+write `handoff.json`, `handoff.md`, `README.md`, optional `events.json`,
+optional `evidence-report.md`, and `manifest.json` with
+`schemaVersion: "atlas-loop.handoff-bundle.v1"`. The manifest includes
+local-only provenance plus SHA-256/size integrity for generated non-manifest
+files. The bundle is still derived local state; no handoff field should imply
+cloud sharing, hosted authentication, Android support, or a remote viewer in
+v1.

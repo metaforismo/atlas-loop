@@ -117,6 +117,14 @@ export interface AgentHandoffCommandPreview {
   totalLineCount: number;
 }
 
+export interface AgentHandoffBundleSummary {
+  label: string;
+  directory: string;
+  manifestPath: string;
+  command: string;
+  detail: string;
+}
+
 export interface AgentHandoffBrief {
   readiness: AgentHandoffReadiness;
   title: string;
@@ -129,6 +137,7 @@ export interface AgentHandoffBrief {
   notices: AgentHandoffNotice[];
   nextSteps: string[];
   copyPayloads: AgentHandoffCopyPayload[];
+  bundleSummary: AgentHandoffBundleSummary | undefined;
   commandPreview: AgentHandoffCommandPreview | undefined;
 }
 
@@ -468,6 +477,7 @@ export function buildAgentHandoffBrief(input: AgentHandoffInput): AgentHandoffBr
   const identifiers = agentHandoffIdentifiers(input, resolvedSessionId);
   const nextSteps = agentHandoffNextSteps(input, readiness, latestAction, notices);
   const visibleNotices = notices.slice(0, 6);
+  const bundleSummary = agentHandoffBundleSummary(input, resolvedSessionId);
   const copyPayloads = agentHandoffCopyPayloads(
     input,
     readiness,
@@ -476,7 +486,8 @@ export function buildAgentHandoffBrief(input: AgentHandoffInput): AgentHandoffBr
     latestScreenshot,
     latestAction,
     notices,
-    nextSteps
+    nextSteps,
+    bundleSummary
   );
   const commandPreview = agentHandoffCommandPreview(copyPayloads.find((payload) => payload.id === "commands")?.value);
 
@@ -492,6 +503,7 @@ export function buildAgentHandoffBrief(input: AgentHandoffInput): AgentHandoffBr
     notices: visibleNotices,
     nextSteps,
     copyPayloads,
+    bundleSummary,
     commandPreview
   };
 }
@@ -862,14 +874,23 @@ function agentHandoffCopyPayloads(
   latestScreenshot: AgentHandoffSnapshot,
   latestAction: AgentHandoffActionSummary,
   notices: AgentHandoffNotice[],
-  nextSteps: string[]
+  nextSteps: string[],
+  bundleSummary: AgentHandoffBundleSummary | undefined
 ): AgentHandoffCopyPayload[] {
   return [
     {
       id: "note",
       label: "Copy note",
       ariaLabel: "Copy compact local handoff note",
-      value: agentHandoffNote(readiness, identifiers, latestScreenshot, latestAction, notices, nextSteps)
+      value: agentHandoffNote(
+        readiness,
+        identifiers,
+        latestScreenshot,
+        latestAction,
+        notices,
+        nextSteps,
+        bundleSummary
+      )
     },
     {
       id: "nextSteps",
@@ -892,17 +913,26 @@ function agentHandoffNote(
   latestScreenshot: AgentHandoffSnapshot,
   latestAction: AgentHandoffActionSummary,
   notices: AgentHandoffNotice[],
-  nextSteps: string[]
+  nextSteps: string[],
+  bundleSummary: AgentHandoffBundleSummary | undefined
 ): string {
   const noticeLines = notices.length > 0
     ? notices.map((notice) => `- ${notice.title}: ${notice.detail}${notice.path ? ` (${notice.path})` : ""}`)
     : ["- none"];
+  const bundleLines = bundleSummary
+    ? [
+        `Bundle directory: ${bundleSummary.directory}`,
+        `Bundle manifest: ${bundleSummary.manifestPath}`,
+        `Bundle detail: ${bundleSummary.detail}`
+      ]
+    : [];
 
   return [
     "Atlas Loop handoff",
     `Status: ${readinessLabel(readiness)}`,
     `Readiness: ${agentHandoffTitle(readiness)} - ${agentHandoffDetail(readiness)}`,
     ...identifiers.map((identifier) => `${identifier.label}: ${identifier.value}`),
+    ...bundleLines,
     `Screenshot: ${latestScreenshot.path} (${latestScreenshot.source}) - ${latestScreenshot.detail}`,
     `Action: ${latestAction.label} - ${latestAction.error ?? latestAction.detail}`,
     "Blockers/warnings:",
@@ -912,14 +942,25 @@ function agentHandoffNote(
   ].join("\n");
 }
 
+function agentHandoffBundleSummary(input: AgentHandoffInput, resolvedSessionId: string | undefined): AgentHandoffBundleSummary | undefined {
+  if (!resolvedSessionId) return undefined;
+
+  const directory = `./atlas-loop-handoffs/${resolvedSessionId}`;
+  return {
+    label: "Bundle output",
+    directory,
+    manifestPath: `${directory}/manifest.json`,
+    command: agentHandoffBundleCommand(input, resolvedSessionId),
+    detail: "Local-only output; writes handoff.json, handoff.md, README.md, manifest.json, and optional exports."
+  };
+}
+
 function agentHandoffCommands(input: AgentHandoffInput, resolvedSessionId: string | undefined): string {
   const rawSessionId = resolvedSessionId ?? input.params.sessionId;
   const sessionId = encodeURIComponent(rawSessionId);
   const baseUrl = input.params.daemonUrl.replace(/\/+$/, "");
   const cliSession = shellSingleQuote(rawSessionId);
   const cliDaemon = shellSingleQuote(baseUrl);
-  const viewerBaseUrl = (input.params.viewerBaseUrl ?? "http://127.0.0.1:5173").replace(/\/+$/, "");
-  const cliViewerBaseUrl = shellSingleQuote(viewerBaseUrl);
   const endpoints = [
     `${baseUrl}/healthz`,
     `${baseUrl}/v1/sessions/${sessionId}`,
@@ -931,7 +972,7 @@ function agentHandoffCommands(input: AgentHandoffInput, resolvedSessionId: strin
   return [
     "# Local atlas-loop CLI handoff commands",
     `atlas-loop artifacts health --session ${cliSession} --daemon-url ${cliDaemon}`,
-    `atlas-loop session handoff --session ${cliSession} --bundle ${shellSingleQuote(`./atlas-loop-handoffs/${rawSessionId}`)} --viewer-base-url ${cliViewerBaseUrl} --daemon-url ${cliDaemon}`,
+    agentHandoffBundleCommand(input, rawSessionId),
     `atlas-loop evidence report --session ${cliSession} --daemon-url ${cliDaemon}`,
     `atlas-loop evidence export --session ${cliSession} --out ${shellSingleQuote(`./atlas-loop-evidence/${rawSessionId}`)} --daemon-url ${cliDaemon}`,
     `atlas-loop events export --session ${cliSession} --out ${shellSingleQuote(`./atlas-loop-events/${rawSessionId}.json`)} --daemon-url ${cliDaemon}`,
@@ -939,6 +980,19 @@ function agentHandoffCommands(input: AgentHandoffInput, resolvedSessionId: strin
     "# Read-only local daemon checks",
     ...endpoints.map((endpoint) => `curl -fsS ${shellSingleQuote(endpoint)}`)
   ].join("\n");
+}
+
+function agentHandoffBundleCommand(input: AgentHandoffInput, rawSessionId: string): string {
+  const baseUrl = input.params.daemonUrl.replace(/\/+$/, "");
+  const viewerBaseUrl = (input.params.viewerBaseUrl ?? "http://127.0.0.1:5173").replace(/\/+$/, "");
+
+  return [
+    "atlas-loop session handoff",
+    `--session ${shellSingleQuote(rawSessionId)}`,
+    `--bundle ${shellSingleQuote(`./atlas-loop-handoffs/${rawSessionId}`)}`,
+    `--viewer-base-url ${shellSingleQuote(viewerBaseUrl)}`,
+    `--daemon-url ${shellSingleQuote(baseUrl)}`
+  ].join(" ");
 }
 
 function agentHandoffCommandPreview(value: string | undefined): AgentHandoffCommandPreview | undefined {

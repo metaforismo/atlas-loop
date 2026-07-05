@@ -224,14 +224,24 @@ describe("viewer app interactions", () => {
       expect(getButtonByAriaLabel("Copy compact local handoff note")).toBeTruthy();
       expect(getButtonByAriaLabel("Copy all handoff next steps")).toBeTruthy();
       expect(getButtonByAriaLabel("Copy local handoff command snippets")).toBeTruthy();
+      expect(getByRoleName("region", "Bundle output")).toBeTruthy();
       expect(getByRoleName("region", "Local handoff command preview")).toBeTruthy();
       return panel;
     }, "ready handoff copy controls");
+
+    const bundleOutput = getByRoleName<HTMLElement>("region", "Bundle output");
+    const bundlePaths = getByAriaLabel<HTMLElement>("Bundle output paths");
+    expect(bundleOutput.textContent).toContain("local-only");
+    expect(bundleOutput.textContent).toContain("writes handoff.json");
+    expect(bundleOutput.textContent).not.toContain("read-only");
+    expect(bundlePaths.textContent).toContain(`./atlas-loop-handoffs/${SESSION_ID}`);
+    expect(bundlePaths.textContent).toContain(`./atlas-loop-handoffs/${SESSION_ID}/manifest.json`);
 
     const commandPreview = getByRoleName<HTMLElement>("region", "Local handoff command preview");
     const visibleCommandLines = getByRoleName<HTMLElement>("region", "Visible local handoff command lines");
     expect(commandPreview.textContent).toContain("6/12 lines");
     expect(commandPreview.textContent).toContain(handoffBundleCommand());
+    expect(commandPreview.textContent).toContain(`--viewer-base-url '${window.location.origin}'`);
     expect(commandPreview.textContent).toContain(
       `atlas-loop events export --session '${SESSION_ID}' --out './atlas-loop-events/${SESSION_ID}.json' --daemon-url '${DAEMON_URL}'`
     );
@@ -256,6 +266,8 @@ describe("viewer app interactions", () => {
     await waitFor(() => {
       expect(clipboardWriteText).toHaveBeenLastCalledWith(expect.stringContaining("Atlas Loop handoff"));
       expect(clipboardWriteText).toHaveBeenLastCalledWith(expect.stringContaining(`Session: ${SESSION_ID}`));
+      expect(clipboardWriteText).toHaveBeenLastCalledWith(expect.stringContaining(`Bundle directory: ./atlas-loop-handoffs/${SESSION_ID}`));
+      expect(clipboardWriteText).toHaveBeenLastCalledWith(expect.stringContaining(`Bundle manifest: ./atlas-loop-handoffs/${SESSION_ID}/manifest.json`));
       expect(clipboardWriteText).toHaveBeenLastCalledWith(expect.stringContaining("Blockers/warnings:\n- none"));
       expect(handoff.textContent).toContain("Handoff note copied.");
       return true;
