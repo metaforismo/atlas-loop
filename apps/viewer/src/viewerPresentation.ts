@@ -1305,3 +1305,76 @@ function replayMarkerLabel(action: ActionLike): string {
       return action.kind ?? "action";
   }
 }
+
+export interface ActionEvidencePair {
+  actionId: string;
+  kind: string;
+  label: string;
+  at: string;
+  ok?: boolean;
+  before?: ArtifactRef;
+  after?: ArtifactRef;
+  tap?: { x: number; y: number };
+}
+
+const EVIDENCE_PAIR_KINDS = new Set(["tap", "typeText", "swipe", "edgeGesture", "tapElement", "assertVisible"]);
+
+export function buildActionEvidencePairs(events: TraceEvent[], artifacts: ArtifactRef[]): ActionEvidencePair[] {
+  const screenshots = artifacts
+    .filter((artifact) => artifact.type === "screenshot")
+    .sort((left, right) => timestampMs(left.createdAt) - timestampMs(right.createdAt));
+
+  const resultOkByActionId = new Map<string, boolean>();
+  for (const event of events) {
+    if (event.type === "action.completed" && event.result?.actionId) {
+      resultOkByActionId.set(event.result.actionId, Boolean(event.result.ok));
+    }
+  }
+
+  const startedActions = events
+    .filter((event) => event.type === "action.started" && event.action?.id && EVIDENCE_PAIR_KINDS.has(event.action.kind))
+    .sort((left, right) => timestampMs(left.at) - timestampMs(right.at));
+
+  const pairs: ActionEvidencePair[] = [];
+  for (const event of startedActions) {
+    const action = event.action!;
+    const at = event.at ?? action.createdAt ?? "";
+    const after = screenshots.find(
+      (artifact) => artifact.metadata?.actionId === action.id && artifact.metadata?.role === "after"
+    );
+    const previousAfter = pairs.at(-1)?.after;
+    const before = previousAfter ?? nearestScreenshotBefore(screenshots, at);
+    const tap =
+      action.kind === "tap" && typeof action.x === "number" && typeof action.y === "number"
+        ? { x: action.x, y: action.y }
+        : undefined;
+
+    pairs.push({
+      actionId: action.id,
+      kind: action.kind,
+      label: actionEvidenceLabel(action),
+      at,
+      ok: resultOkByActionId.get(action.id),
+      before,
+      after,
+      tap
+    });
+  }
+
+  return pairs;
+}
+
+export function actionEvidenceLabel(action: ActionLike): string {
+  return replayMarkerLabel(action);
+}
+
+function nearestScreenshotBefore(sortedScreenshots: ArtifactRef[], at: string): ArtifactRef | undefined {
+  const atMs = timestampMs(at);
+  if (!atMs) return undefined;
+  let candidate: ArtifactRef | undefined;
+  for (const screenshot of sortedScreenshots) {
+    if (timestampMs(screenshot.createdAt) >= atMs) break;
+    candidate = screenshot;
+  }
+  return candidate;
+}

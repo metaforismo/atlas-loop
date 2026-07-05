@@ -2105,6 +2105,109 @@ h2 {
   min-width: 0;
 }
 
+.action-evidence-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.22);
+  border: 1px solid color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.action-evidence-head.tone-good {
+  border-color: color-mix(in srgb, var(--good) 40%, transparent);
+}
+
+.action-evidence-head.tone-bad {
+  border-color: color-mix(in srgb, var(--bad) 45%, transparent);
+}
+
+.action-evidence-nav {
+  display: flex;
+  gap: 4px;
+}
+
+.action-evidence-nav button {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  padding: 0;
+  line-height: 1;
+}
+
+.action-evidence-title {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.action-evidence-title strong {
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.action-evidence-title span {
+  font-size: 11px;
+  color: color-mix(in srgb, currentColor 65%, transparent);
+}
+
+.action-evidence-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.action-evidence-shot {
+  margin: 0;
+  min-width: 0;
+}
+
+.action-evidence-shot figcaption {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, currentColor 60%, transparent);
+  margin-bottom: 4px;
+}
+
+.action-evidence-frame {
+  position: relative;
+}
+
+.action-evidence-frame img {
+  display: block;
+  width: 100%;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 20%, transparent);
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.action-evidence-marker {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--warn);
+  background: color-mix(in srgb, var(--warn) 35%, transparent);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.action-evidence-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 90px;
+  border-radius: 8px;
+  border: 1px dashed color-mix(in srgb, var(--accent) 25%, transparent);
+  font-size: 11px;
+  color: color-mix(in srgb, currentColor 55%, transparent);
+}
+
 .replay-panel {
   display: flex;
   flex-direction: column;
