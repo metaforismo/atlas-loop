@@ -685,12 +685,14 @@ describe("daemon session summary", () => {
     expect(metadataArtifact.metadata).toMatchObject({
       actionId: result.actionId,
       actionKind: "tap",
-      operation: "hid-action",
-      hidAction: true,
+      operation: "input-action",
+      inputAction: true,
+      inputBackend: "cgevent",
       ok: true
     });
     expect(JSON.parse(metadataText)).toMatchObject({
-      schemaVersion: "atlas-loop.hid-action.v1",
+      schemaVersion: "atlas-loop.input-action.v1",
+      inputBackend: "cgevent",
       helperPath: "/tmp/atlas-loop/helper",
       helperTarget: "SIM-123",
       simulator: { udid: "SIM-123", name: "iPhone 16" },
@@ -729,7 +731,8 @@ describe("daemon session summary", () => {
       artifacts: [expect.objectContaining({ type: "metadata" })]
     });
     expect(metadata).toMatchObject({
-      schemaVersion: "atlas-loop.hid-action.v1",
+      schemaVersion: "atlas-loop.input-action.v1",
+      inputBackend: "cgevent",
       action: { kind: "tap", x: 0.1, y: 0.2 },
       result: { ok: false, error: { code: "HID_FAILED", message: "tap target rejected" } }
     });

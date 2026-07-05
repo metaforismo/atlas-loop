@@ -140,20 +140,24 @@ is present, the validator checks that the referenced file exists and remains
 inside the session directory as a regular file; absent proof references are not
 warnings or errors.
 
-## HID Action Metadata
+## Input Action Metadata
 
-Primitive HID actions (`tap`, `typeText`, `swipe`, and `edgeGesture`) write a
+Primitive input actions (`tap`, `typeText`, `swipe`, and `edgeGesture`) write a
 metadata artifact for both success and failure:
 
 ```text
-metadata/hid-action-<sequence>.json
+metadata/input-action-<sequence>.json
 ```
 
-The artifact uses `schemaVersion: "atlas-loop.hid-action.v1"` and records the
-helper path, selected backend, helper target string, Simulator metadata, attach
-options, materialized action, and final result/error. This is intentionally
-local diagnostic evidence; it does not claim that the Simulator guest consumed a
-host-posted event.
+The artifact uses `schemaVersion: "atlas-loop.input-action.v1"` and records the
+selected input backend (`inputBackend`, currently `cgevent`), backend detail
+such as the helper path, helper target string, and attach options, plus
+Simulator metadata, the materialized action, and the final result/error. This
+is intentionally local diagnostic evidence; for the CGEvent backend it does not
+claim that the Simulator guest consumed a host-posted event. Sessions persisted
+before this schema may still contain `metadata/hid-action-<sequence>.json`
+files with `schemaVersion: "atlas-loop.hid-action.v1"`; readers should accept
+both.
 
 ## Persisted Discovery
 

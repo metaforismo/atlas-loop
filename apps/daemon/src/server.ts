@@ -51,6 +51,8 @@ import {
 import { parseTraceLine } from "@atlas-loop/traces";
 import { createSimulator } from "@atlas-loop/simulator";
 import { validateArtifactTarget, type ValidationReport } from "../../../scripts/verify-artifacts.ts";
+import { createCgEventBackend } from "./backends/cgevent.ts";
+import type { InputAction, InputBackend } from "./backends/types.ts";
 
 export type SimulatorApi = ReturnType<typeof createSimulator>;
 
@@ -335,6 +337,9 @@ async function handleRequest(state: DaemonState, request: IncomingMessage, respo
 }
 
 async function createSession(state: DaemonState, request: CreateSessionRequest): Promise<Session> {
+  if (request.inputBackend && request.inputBackend !== "cgevent") {
+    throw atlasError("INVALID_REQUEST", `input backend ${request.inputBackend} is not available yet; only cgevent is wired`);
+  }
   const id = makeId("sess");
   const layout = await createSessionArtifacts(request.artifactRoot ?? state.config.artifactRoot, id);
   const at = nowIso();
@@ -348,7 +353,8 @@ async function createSession(state: DaemonState, request: CreateSessionRequest):
     simulator: request.simulator ?? {},
     artifactDir: layout.sessionPath,
     viewerUrl: request.viewer ? `/sessions/${id}/artifacts/latest-screenshot` : undefined,
-    backend: "local-daemon"
+    backend: "local-daemon",
+    inputBackend: request.inputBackend ?? "cgevent"
   };
   const sessionState: SessionState = { session, layout, artifacts: [], sequence: 0, source: "memory", warnings: [] };
   state.sessions.set(id, sessionState);
@@ -513,20 +519,28 @@ async function performAction(state: DaemonState, sessionState: SessionState, inp
       case "typeText":
       case "swipe":
       case "edgeGesture": {
-        const hid = state.hidClientFactory({ helperPath: state.config.hidHelperPath });
+        const backend = createInputBackend(state, sessionState.session);
+        const backendDetail = backend.describe(sessionState.session);
         try {
-          await hid.attach(simulatorAttachOptions(sessionState.session));
-          await hid.performAction(simulatorTarget(sessionState.session), action);
-          return [await recordHidActionMetadata(state, sessionState, action, { ok: true })];
+          const actionDetail = await backend.performAction(sessionState.session, action);
+          return [
+            await recordInputActionMetadata(sessionState, action, { ok: true }, backend.name, {
+              ...backendDetail,
+              ...actionDetail
+            })
+          ];
         } catch (error) {
           const atlasLoopError = normalizeError(error, "HID_FAILED");
-          const artifact = await recordHidActionMetadata(state, sessionState, action, {
-            ok: false,
-            error: atlasLoopError
-          });
+          const artifact = await recordInputActionMetadata(
+            sessionState,
+            action,
+            { ok: false, error: atlasLoopError },
+            backend.name,
+            backendDetail
+          );
           throw { ...atlasLoopError, artifacts: [artifact] };
         } finally {
-          hid.close();
+          await backend.close();
         }
       }
       default:
@@ -574,34 +588,41 @@ async function executeAction(
   }
 }
 
-async function recordHidActionMetadata(
-  state: DaemonState,
+function createInputBackend(state: DaemonState, session: Session): InputBackend {
+  void session;
+  return createCgEventBackend({
+    helperPath: state.config.hidHelperPath,
+    hidClientFactory: state.hidClientFactory
+  });
+}
+
+async function recordInputActionMetadata(
   sessionState: SessionState,
-  action: Extract<Action, { kind: "tap" | "typeText" | "swipe" | "edgeGesture" }>,
-  result: { ok: boolean; error?: AtlasLoopError }
+  action: InputAction,
+  result: { ok: boolean; error?: AtlasLoopError },
+  inputBackend: InputBackend["name"],
+  backendDetail: Record<string, unknown>
 ): Promise<ArtifactRef> {
-  const target = simulatorTarget(sessionState.session);
-  const attachOptions = simulatorAttachOptions(sessionState.session);
   const sequence = action.sequence ?? 0;
   const artifact = await writeMetadata(
     sessionState.layout,
-    `hid-action-${sequence || action.id}.json`,
+    `input-action-${sequence || action.id}.json`,
     {
-      schemaVersion: "atlas-loop.hid-action.v1",
+      schemaVersion: "atlas-loop.input-action.v1",
       sessionId: sessionState.session.id,
       createdAt: nowIso(),
-      helperPath: state.config.hidHelperPath,
+      inputBackend,
       backend: sessionState.session.backend ?? "local-daemon",
-      helperTarget: target,
       simulator: sessionState.session.simulator,
-      attachOptions,
+      ...backendDetail,
       action,
       result
     },
     {
       ...actionMetadata(action),
-      operation: "hid-action",
-      hidAction: true,
+      operation: "input-action",
+      inputAction: true,
+      inputBackend,
       ok: result.ok,
       backend: sessionState.session.backend ?? "local-daemon"
     }
@@ -1123,16 +1144,7 @@ function statusForError(error: AtlasLoopError): number {
   return 500;
 }
 
-function simulatorTarget(session: Session): string {
-  return session.simulator.udid ?? session.simulator.name ?? "booted";
-}
 
-function simulatorAttachOptions(session: Session): { appName: string; windowTitleContains?: string } {
-  return {
-    appName: "Simulator",
-    ...(session.simulator.name ? { windowTitleContains: session.simulator.name } : {})
-  };
-}
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
