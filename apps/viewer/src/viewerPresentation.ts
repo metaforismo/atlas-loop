@@ -1378,3 +1378,52 @@ function nearestScreenshotBefore(sortedScreenshots: ArtifactRef[], at: string): 
   }
   return candidate;
 }
+
+export interface MetricsSampleLike {
+  at: string;
+  cpuPercent: number;
+  rssBytes: number;
+}
+
+/**
+ * Maps a value series onto SVG polyline points. A single sample renders as a
+ * horizontal line; non-finite values are dropped; the vertical scale includes
+ * a small headroom so peaks do not touch the frame edge.
+ */
+export function buildSparklinePoints(values: number[], width: number, height: number): string {
+  const usable = values.filter((value) => Number.isFinite(value));
+  if (usable.length === 0) return "";
+
+  const max = Math.max(...usable, 0.000001) * 1.08;
+  const step = usable.length > 1 ? width / (usable.length - 1) : width;
+
+  if (usable.length === 1) {
+    const y = height - (usable[0] / max) * height;
+    return `0,${round2(y)} ${round2(width)},${round2(y)}`;
+  }
+
+  return usable
+    .map((value, index) => `${round2(index * step)},${round2(height - (value / max) * height)}`)
+    .join(" ");
+}
+
+/** Positions of action.started events on the sample time axis, as 0..1 fractions. */
+export function metricsMarkerFractions(samples: MetricsSampleLike[], events: TraceEvent[]): number[] {
+  if (samples.length < 2) return [];
+  const startMs = Date.parse(samples[0].at);
+  const endMs = Date.parse(samples[samples.length - 1].at);
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return [];
+
+  const fractions: number[] = [];
+  for (const event of events) {
+    if (event.type !== "action.started" || !event.at) continue;
+    const atMs = Date.parse(event.at);
+    if (!Number.isFinite(atMs) || atMs < startMs || atMs > endMs) continue;
+    fractions.push((atMs - startMs) / (endMs - startMs));
+  }
+  return fractions.sort((left, right) => left - right);
+}
+
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
+}

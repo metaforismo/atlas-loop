@@ -124,6 +124,33 @@ export async function fetchEvents(params: ViewerParams, signal?: AbortSignal): P
   return normalizeEventList(value);
 }
 
+export interface SessionMetricsLike {
+  active: boolean;
+  sampleCount: number;
+  samples: Array<{ at: string; cpuPercent: number; rssBytes: number }>;
+}
+
+export async function fetchSessionMetrics(params: ViewerParams, signal?: AbortSignal): Promise<SessionMetricsLike> {
+  const value = await fetchJson<{ active?: unknown; sampleCount?: unknown; samples?: unknown }>(
+    buildSessionUrl(params, "metrics"),
+    signal
+  );
+  const samples = Array.isArray(value?.samples)
+    ? value.samples.filter(
+        (sample): sample is { at: string; cpuPercent: number; rssBytes: number } =>
+          Boolean(sample) &&
+          typeof (sample as { at?: unknown }).at === "string" &&
+          typeof (sample as { cpuPercent?: unknown }).cpuPercent === "number" &&
+          typeof (sample as { rssBytes?: unknown }).rssBytes === "number"
+      )
+    : [];
+  return {
+    active: value?.active === true,
+    sampleCount: typeof value?.sampleCount === "number" ? value.sampleCount : samples.length,
+    samples
+  };
+}
+
 export async function performViewerAction(params: ViewerParams, draft: ViewerActionDraft, signal?: AbortSignal): Promise<ActionResultLike> {
   const request = buildViewerActionRequest(draft);
   const response = await fetch(buildSessionUrl(params, request.endpoint), {

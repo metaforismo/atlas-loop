@@ -25,6 +25,7 @@ import { EmptyState, ErrorNotice, MetricTile, StatusRow } from "./components/com
 import { EvidenceHealthPanel } from "./components/EvidenceHealthPanel.js";
 import { AgentHandoffPanel } from "./components/HandoffPanel.js";
 import { MetadataGrid, MetadataSkeleton, SummaryEvidence } from "./components/MetadataPanel.js";
+import { MetricsPanel } from "./components/MetricsPanel.js";
 import { ReplayPanel } from "./components/ReplayPanel.js";
 import { ScreenshotView } from "./components/ScreenshotView.js";
 import { SessionBrowserContent } from "./components/SessionBrowser.js";
@@ -385,6 +386,7 @@ export function App() {
           </div>
 
           {replayModel ? <ReplayPanel replay={replayModel} /> : null}
+          <MetricsPanel params={params} sessionStatus={session?.status} events={events} />
         </div>
       </section>
 
