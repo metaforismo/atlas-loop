@@ -19,6 +19,7 @@ import {
   type ViewerActionFormField,
   type ViewerActionFormState
 } from "./components/ActionPanel.js";
+import { ActionDetailPanel } from "./components/ActionDetailPanel.js";
 import { EmptyState, ErrorNotice, MetricTile, StatusRow } from "./components/common.js";
 import { EvidenceHealthPanel } from "./components/EvidenceHealthPanel.js";
 import { AgentHandoffPanel } from "./components/HandoffPanel.js";
@@ -31,6 +32,7 @@ import { formatTapCoordinate, type ScreenshotTapTarget } from "./screenshotGeome
 import type { ViewerParams } from "./types.js";
 import {
   artifactTypeOptions,
+  buildActionEvidencePairs,
   buildAgentHandoffBrief,
   buildVideoReplayModel,
   eventModeTone,
@@ -76,6 +78,7 @@ export function App() {
   const [timelineQuery, setTimelineQuery] = useState("");
   const [actionForm, setActionForm] = useState<ViewerActionFormState>(DEFAULT_ACTION_FORM);
   const [tapTarget, setTapTarget] = useState<ScreenshotTapTarget | undefined>();
+  const [selectedActionId, setSelectedActionId] = useState<string | undefined>();
 
   useEffect(() => {
     setDraft(params);
@@ -85,6 +88,7 @@ export function App() {
     setArtifactTypeFilter("all");
     setArtifactQuery("");
     setSelectedArtifactId(undefined);
+    setSelectedActionId(undefined);
     setTimelineFilter("all");
     setTimelineQuery("");
   }, [params.daemonUrl, params.sessionId]);
@@ -134,6 +138,7 @@ export function App() {
     [health, sessionSummary?.storage.source, session?.status]
   );
   const replayModel = useMemo(() => buildVideoReplayModel(artifacts, events), [artifacts, events]);
+  const actionEvidencePairs = useMemo(() => buildActionEvidencePairs(events, artifacts), [events, artifacts]);
   const handoffBrief = useMemo(
     () =>
       buildAgentHandoffBrief({
@@ -372,6 +377,7 @@ export function App() {
           </div>
           {session ? <MetadataGrid session={session} /> : <MetadataSkeleton />}
           {sessionSummary ? <SummaryEvidence summary={sessionSummary} /> : null}
+          <ActionDetailPanel pairs={actionEvidencePairs} selectedActionId={selectedActionId} onSelect={setSelectedActionId} />
           <AgentHandoffPanel brief={handoffBrief} />
           <EvidenceHealthPanel health={artifactHealth} status={artifactHealthStatus} error={artifactHealthError} />
           {session?.error ? <ErrorNotice message={session.error.message} compact /> : null}
@@ -516,13 +522,21 @@ export function App() {
                 </>
               );
 
-              return artifactId ? (
+              const timelineActionId = item.actionId;
+              return artifactId || timelineActionId ? (
                 <button
                   type="button"
                   className={`${cardClassName} timeline-card-button`}
                   key={item.id}
-                  onClick={() => selectArtifactFromTimeline(artifactId)}
-                  aria-label={`Select artifact ${artifactId} from timeline`}
+                  onClick={() => {
+                    if (timelineActionId) setSelectedActionId(timelineActionId);
+                    if (artifactId) selectArtifactFromTimeline(artifactId);
+                  }}
+                  aria-label={
+                    artifactId
+                      ? `Select artifact ${artifactId} from timeline`
+                      : `Select action ${timelineActionId} from timeline`
+                  }
                 >
                   {content}
                 </button>
