@@ -172,6 +172,49 @@ export interface AtlasLoopError {
   details?: Record<string, unknown>;
 }
 
+export type SessionHistoryStorageSource = "memory" | "disk";
+
+export type SessionHistoryLatestAction = Pick<ActionResult, "actionId" | "ok" | "startedAt" | "endedAt" | "error"> & {
+  artifactCount: number;
+};
+
+export interface SessionHistoryItem {
+  session: Session;
+  sessionId: string;
+  status: SessionStatus;
+  createdAt: string;
+  updatedAt: string;
+  artifactDir: string;
+  storage: {
+    source: SessionHistoryStorageSource;
+    artifactBacked: boolean;
+    warningCount: number;
+  };
+  artifacts: {
+    total: number;
+    byType: Partial<Record<ArtifactType, number>>;
+    latestScreenshotPath?: string;
+    latestScreenshotCreatedAt?: string;
+  };
+  events: {
+    total: number;
+    latestAction?: SessionHistoryLatestAction;
+    latestError?: AtlasLoopError;
+  };
+  canMutate: boolean;
+  hasScreenshot: boolean;
+  ready: boolean;
+}
+
+export interface SessionHistoryResult {
+  schemaVersion: "atlas-loop.session-history.v1";
+  generatedAt: string;
+  total: number;
+  count: number;
+  limit: number | null;
+  sessions: SessionHistoryItem[];
+}
+
 export type TraceEvent =
   | { type: "session.created"; at: string; session: Session }
   | { type: "session.statusChanged"; at: string; sessionId: string; from: SessionStatus; to: SessionStatus }

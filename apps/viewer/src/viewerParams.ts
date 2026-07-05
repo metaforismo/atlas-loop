@@ -58,6 +58,12 @@ export function buildSessionsUrl(daemonUrl: string): string {
   return `${normalizeDaemonUrl(daemonUrl)}/v1/sessions`;
 }
 
+export function buildSessionHistoryUrl(daemonUrl: string, limit?: number): string {
+  const url = new URL(`${normalizeDaemonUrl(daemonUrl)}/v1/sessions/history`);
+  if (limit !== undefined) url.searchParams.set("limit", String(Math.max(0, Math.trunc(limit))));
+  return url.toString();
+}
+
 export function buildSessionUrl(params: ViewerParams, suffix = ""): string {
   const session = encodeURIComponent(normalizeSessionId(params.sessionId));
   const cleanSuffix = suffix.startsWith("/") || suffix === "" ? suffix : `/${suffix}`;

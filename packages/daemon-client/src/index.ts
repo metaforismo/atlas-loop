@@ -11,6 +11,7 @@ import type {
   LaunchRequest,
   PerformActionRequest,
   Session,
+  SessionHistoryResult,
   TraceEvent
 } from "@atlas-loop/protocol";
 
@@ -396,6 +397,13 @@ export class DaemonClient {
 
   listSessions(): Promise<Session[]> {
     return this.requestData("GET", "/sessions", "session list");
+  }
+
+  listSessionHistory(options: { limit?: number } = {}): Promise<SessionHistoryResult> {
+    const path = options.limit === undefined
+      ? "/sessions/history"
+      : `/sessions/history?${new URLSearchParams({ limit: String(options.limit) }).toString()}`;
+    return this.requestData("GET", path, "session history");
   }
 
   createSession(request: CreateSessionRequest = {}): Promise<Session> {

@@ -2,12 +2,15 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildViewerActionRequest,
   fetchArtifactHealth,
+  fetchSessionHistory,
+  fetchSessions,
   markScreenshotFetchFailed,
   mergeScreenshotFetchResult,
   normalizeArtifactHealth,
   normalizeArtifactList,
   normalizeEventList,
   normalizeScreenshotPayload,
+  normalizeSessionHistory,
   normalizeSessionList,
   performViewerAction,
   screenshotArtifactIdentity,
@@ -235,6 +238,7 @@ describe("viewer api normalizers", () => {
     ).toEqual([
       {
         id: "session_1",
+        sessionId: "session_1",
         status: "running",
         createdAt: undefined,
         updatedAt: "2026-07-04T09:00:03.000Z",
@@ -247,6 +251,137 @@ describe("viewer api normalizers", () => {
         error: undefined
       }
     ]);
+  });
+
+  it("normalizes session history envelopes, wrapped lists, raw arrays, and raw objects", () => {
+    const historyItem = {
+      sessionId: "sess_history",
+      session: {
+        id: "sess_history",
+        status: "running",
+        createdAt: "2026-07-04T09:00:00.000Z",
+        updatedAt: "2026-07-04T09:00:08.000Z",
+        simulator: { name: "iPhone 16" },
+        app: { bundleId: "dev.atlas.loop" }
+      },
+      storage: { source: "memory", artifactBacked: true, warningCount: 0 },
+      artifacts: {
+        total: 2,
+        byType: { screenshot: 1, log: 1 },
+        latestScreenshotPath: "/tmp/atlas-loop/sess_history/screenshots/latest.png"
+      },
+      events: {
+        total: 7,
+        latestAction: { actionId: "act_1", ok: true, artifactCount: 1 }
+      },
+      canMutate: true,
+      hasScreenshot: true,
+      ready: true
+    };
+
+    expect(
+      normalizeSessionHistory({
+        schemaVersion: "atlas-loop.session-history.v1",
+        generatedAt: "2026-07-05T10:00:00.000Z",
+        total: 1,
+        count: 1,
+        limit: 30,
+        sessions: [historyItem]
+      })
+    ).toEqual([
+      expect.objectContaining({
+        id: "sess_history",
+        sessionId: "sess_history",
+        status: "running",
+        updatedAt: "2026-07-04T09:00:08.000Z",
+        storage: { source: "memory", artifactBacked: true, warningCount: 0, warnings: undefined },
+        artifacts: expect.objectContaining({ total: 2, latestScreenshotPath: "/tmp/atlas-loop/sess_history/screenshots/latest.png" }),
+        events: {
+          total: 7,
+          latestAction: {
+            actionId: "act_1",
+            ok: true,
+            artifactCount: 1,
+            artifacts: undefined,
+            endedAt: undefined,
+            error: undefined,
+            startedAt: undefined
+          },
+          latestError: undefined
+        },
+        canMutate: true,
+        hasScreenshot: true,
+        ready: true
+      })
+    ]);
+
+    expect(normalizeSessionHistory({ sessions: [historyItem] }).map((session) => session.id)).toEqual(["sess_history"]);
+    expect(normalizeSessionHistory([historyItem]).map((session) => session.id)).toEqual(["sess_history"]);
+    expect(normalizeSessionHistory({ id: "raw_session", status: "ended" })).toEqual([
+      expect.objectContaining({ id: "raw_session", status: "ended" })
+    ]);
+  });
+
+  it("prefers session history and falls back to the old sessions endpoint on a missing history route", async () => {
+    const history = {
+      schemaVersion: "atlas-loop.session-history.v1",
+      generatedAt: "2026-07-05T10:00:00.000Z",
+      total: 1,
+      count: 1,
+      limit: 12,
+      sessions: [
+        {
+          sessionId: "sess_history",
+          session: { id: "sess_history", status: "running", updatedAt: "2026-07-05T10:00:00.000Z" },
+          storage: { source: "disk", warningCount: 1 },
+          artifacts: { total: 4, latestScreenshotPath: "screenshots/latest.png" },
+          events: { total: 9, latestAction: { actionId: "act_last", ok: false, artifactCount: 0 } },
+          hasScreenshot: true
+        }
+      ]
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "http://127.0.0.1:4317/v1/sessions/history?limit=12") return jsonResponse(history);
+      if (url === "http://127.0.0.1:4317/v1/sessions/history") {
+        return new Response(JSON.stringify({ ok: false, error: { message: "route not found" } }), {
+          status: 500,
+          statusText: "Internal Server Error",
+          headers: { "content-type": "application/json" }
+        });
+      }
+      if (url === "http://127.0.0.1:4317/v1/sessions") {
+        return jsonResponse({ sessions: [{ id: "sess_legacy", status: "ended" }] });
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(fetchSessionHistory("http://127.0.0.1:4317", 12)).resolves.toEqual([
+      expect.objectContaining({
+        id: "sess_history",
+        status: "running",
+        storage: expect.objectContaining({ source: "disk", warningCount: 1 }),
+        artifacts: expect.objectContaining({ total: 4, latestScreenshotPath: "screenshots/latest.png" }),
+        events: expect.objectContaining({
+          total: 9,
+          latestAction: expect.objectContaining({ actionId: "act_last", ok: false, artifactCount: 0 })
+        }),
+        hasScreenshot: true
+      })
+    ]);
+
+    await expect(fetchSessions("http://127.0.0.1:4317")).resolves.toEqual([
+      expect.objectContaining({ id: "sess_legacy", status: "ended" })
+    ]);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:4317/v1/sessions/history",
+      expect.objectContaining({ cache: "no-store" })
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:4317/v1/sessions",
+      expect.objectContaining({ cache: "no-store" })
+    );
   });
 
   it("turns screenshot JSON payloads into displayable data URLs or daemon URLs", () => {
@@ -340,3 +475,10 @@ describe("viewer api normalizers", () => {
     expect(mergeScreenshotFetchResult(ready, empty, { hasStableArtifactKey: false })).toEqual(empty);
   });
 });
+
+function jsonResponse(data: unknown): Response {
+  return new Response(JSON.stringify({ ok: true, data }), {
+    status: 200,
+    headers: { "content-type": "application/json" }
+  });
+}

@@ -121,6 +121,22 @@ The summary includes:
 Consumers should treat the summary as derived state. If a field is absent, use
 the underlying session, artifacts, and trace endpoints for more detail.
 
+## Session History
+
+The daemon exposes `GET /v1/sessions/history` as the local evidence-history
+read model for active daemon sessions and persisted artifact-backed sessions.
+It accepts optional non-negative integer `limit` and returns the protocol
+`SessionHistoryResult` JSON. CLI callers can use
+`atlas-loop session history --limit 20` or the `session hist` alias; MCP callers
+can use `atlas.listSessionHistory`.
+
+Session history is broader than `GET /v1/sessions/:id/summary` because it is an
+index across sessions, but it is still local derived evidence. It should not be
+described as cloud storage, provenance signing, hosted audit logging, or team
+sharing. Consumers should ignore unknown future fields and use concrete
+session ids from the history result for summary, artifact, event, and viewer
+reads.
+
 ## Handoff Read Model
 
 The agent/operator handoff workflow is derived from the session summary rather

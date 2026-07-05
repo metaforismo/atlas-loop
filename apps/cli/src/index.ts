@@ -55,6 +55,11 @@ interface EventClient {
   events(sessionId: string): Promise<TraceEvent[]>;
 }
 
+interface SessionHistoryClient {
+  listSessionHistory?(params: { limit?: number }): Promise<unknown>;
+  request?<T>(method: string, path: string, body?: unknown): Promise<T>;
+}
+
 interface ArtifactHealthClient {
   getSessionArtifactHealth?(sessionId: string): Promise<ArtifactHealth>;
   getArtifactHealth?(sessionId: string): Promise<ArtifactHealth>;
@@ -205,6 +210,12 @@ export async function main(args: Args): Promise<number> {
     }
     if (subcommand === "list" || subcommand === "ls") {
       printJson(await client.listSessions());
+      return 0;
+    }
+    if (subcommand === "history" || subcommand === "hist") {
+      printJson(await listSessionHistory(client, {
+        limit: integerFlag(flags, "limit")
+      }));
       return 0;
     }
     if (subcommand === "latest") {
@@ -446,6 +457,17 @@ export async function exportSessionEvents(client: EventClient, params: EventExpo
   await mkdir(dirname(outPath), { recursive: true });
   await writeFile(outPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
   return payload;
+}
+
+async function listSessionHistory(client: SessionHistoryClient, params: { limit?: number }): Promise<unknown> {
+  const request = params.limit === undefined ? {} : { limit: params.limit };
+  if (typeof client.listSessionHistory === "function") {
+    return client.listSessionHistory(request);
+  }
+  if (typeof client.request === "function") {
+    return client.request("GET", sessionHistoryPath(params.limit));
+  }
+  throw new Error("daemon client does not support session history");
 }
 
 export async function buildEvidenceSummary(
@@ -923,6 +945,9 @@ function numberFlagRequired(flags: Map<string, string | boolean>, name: string):
 }
 
 function integerFlag(flags: Map<string, string | boolean>, name: string): number | undefined {
+  if (flags.has(name) && typeof flags.get(name) !== "string") {
+    throw new Error(`--${name} must be a non-negative integer`);
+  }
   const value = numberFlag(flags, name);
   if (value === undefined) return undefined;
   return normalizeEventLimit(value, `--${name}`);
@@ -1044,6 +1069,13 @@ function artifactHealthPath(sessionId: string): string {
   return `/sessions/${encodeURIComponent(sessionId)}/artifacts/health`;
 }
 
+function sessionHistoryPath(limit: number | undefined): string {
+  const params = new URLSearchParams();
+  if (limit !== undefined) params.set("limit", String(limit));
+  const query = params.toString();
+  return `/sessions/history${query ? `?${query}` : ""}`;
+}
+
 function trimTrailingSlash(value: string): string {
   return value.endsWith("/") ? value.slice(0, -1) : value;
 }
@@ -1056,6 +1088,7 @@ Usage:
   atlas-loop daemon start --port 4317
   atlas-loop session start --simulator "iPhone 16" [--viewer]
   atlas-loop session list [--json]
+  atlas-loop session history [--limit 20]
   atlas-loop session latest
   atlas-loop session status --session <id|latest>
   atlas-loop session ready --session <id|latest>

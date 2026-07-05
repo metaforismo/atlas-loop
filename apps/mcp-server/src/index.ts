@@ -30,6 +30,7 @@ interface JsonRpcRequest {
 interface McpDaemonClient {
   health(): Promise<unknown>;
   listSessions(): Promise<unknown>;
+  listSessionHistory?(params: { limit?: number }): Promise<unknown>;
   createSession(args: Record<string, unknown>): Promise<unknown>;
   getSession(sessionId: string): Promise<unknown>;
   getSessionSummary(sessionId: string): Promise<SessionSummary>;
@@ -145,6 +146,11 @@ interface EventExportResult extends EventListResult {
 export const tools = [
   { name: "atlas.health", description: "Check local daemon readiness.", inputSchema: objectSchema([]) },
   { name: "atlas.listSessions", description: "List active and persisted local iOS Simulator sessions.", inputSchema: objectSchema([]) },
+  {
+    name: "atlas.listSessionHistory",
+    description: "List local evidence history across active and persisted sessions.",
+    inputSchema: sessionHistorySchema()
+  },
   { name: "atlas.getLatestSession", description: "Return the newest readable session using the daemon latest alias.", inputSchema: objectSchema([]) },
   { name: "atlas.createSession", description: "Create a local iOS Simulator session.", inputSchema: createSessionSchema() },
   { name: "atlas.getSession", description: "Get a session by id.", inputSchema: sessionIdSchema() },
@@ -302,6 +308,8 @@ async function callTool(name: string, args: Record<string, unknown>, runtime: To
       return client.health();
     case "atlas.listSessions":
       return client.listSessions();
+    case "atlas.listSessionHistory":
+      return listSessionHistory(client, args);
     case "atlas.getLatestSession":
       return client.getSession("latest");
     case "atlas.createSession":
@@ -387,6 +395,21 @@ async function listEvents(client: Pick<McpDaemonClient, "events">, args: Record<
     count: selectedEvents.length,
     events: selectedEvents
   };
+}
+
+async function listSessionHistory(
+  client: Pick<McpDaemonClient, "listSessionHistory" | "request">,
+  args: Record<string, unknown>
+): Promise<unknown> {
+  const limit = optionalNonNegativeInteger(args, "limit");
+  const request = limit === undefined ? {} : { limit };
+  if (typeof client.listSessionHistory === "function") {
+    return client.listSessionHistory(request);
+  }
+  if (typeof client.request === "function") {
+    return client.request("GET", sessionHistoryPath(limit));
+  }
+  throw new Error("daemon client does not support session history");
 }
 
 async function exportEvents(client: Pick<McpDaemonClient, "events">, args: Record<string, unknown>): Promise<EventExportResult> {
@@ -779,6 +802,13 @@ function artifactHealthPath(sessionId: string): string {
   return `/sessions/${encodeURIComponent(sessionId)}/artifacts/health`;
 }
 
+function sessionHistoryPath(limit: number | undefined): string {
+  const params = new URLSearchParams();
+  if (limit !== undefined) params.set("limit", String(limit));
+  const query = params.toString();
+  return `/sessions/history${query ? `?${query}` : ""}`;
+}
+
 function isNotFoundError(error: unknown): boolean {
   if (error instanceof DaemonClientError) return error.code === "NOT_FOUND";
   return Boolean(
@@ -927,6 +957,13 @@ function evidenceExportSchema(): Record<string, unknown> {
   return objectSchema(["sessionId", "outDir"], {
     ...sessionIdProperty(),
     outDir: { type: "string", description: "Local directory where the export bundle will be written." }
+  });
+}
+
+function sessionHistorySchema(): Record<string, unknown> {
+  return objectSchema([], {
+    limit: { type: "integer", minimum: 0, description: "Return at most this many newest history entries." },
+    daemonUrl: { type: "string", description: "Optional daemon URL override." }
   });
 }
 

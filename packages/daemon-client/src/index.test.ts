@@ -53,6 +53,7 @@ describe("DaemonClient", () => {
     const cases: Array<{ dataLabel: string; call: (client: DaemonClient) => Promise<unknown> }> = [
       { dataLabel: "health", call: (client) => client.health() },
       { dataLabel: "session list", call: (client) => client.listSessions() },
+      { dataLabel: "session history", call: (client) => client.listSessionHistory() },
       { dataLabel: "created session", call: (client) => client.createSession() },
       { dataLabel: "session", call: (client) => client.getSession("sess_1") },
       { dataLabel: "session summary", call: (client) => client.getSessionSummary("sess_1") },
@@ -227,6 +228,36 @@ describe("DaemonClient", () => {
     });
     expect(calls[0].url).toBe("http://127.0.0.1:4317/sessions/latest/artifacts/health");
     expect(calls[0].init.method).toBe("GET");
+  });
+
+  it("requests session history with an optional encoded limit query", async () => {
+    const calls: Array<{ url: string; init: RequestInit }> = [];
+    const history = {
+      schemaVersion: "atlas-loop.session-history.v1",
+      generatedAt: "2026-07-05T10:00:00.000Z",
+      total: 1,
+      count: 1,
+      limit: null,
+      sessions: []
+    };
+    const client = new DaemonClient({
+      baseUrl: "http://127.0.0.1:4317/",
+      fetchImpl: async (url, init) => {
+        calls.push({ url: String(url), init: init ?? {} });
+        return new Response(JSON.stringify({ ok: true, data: history }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+    });
+
+    await expect(client.listSessionHistory()).resolves.toEqual(history);
+    await expect(client.listSessionHistory({ limit: 2 })).resolves.toEqual(history);
+
+    expect(calls).toEqual([
+      { url: "http://127.0.0.1:4317/sessions/history", init: { method: "GET" } },
+      { url: "http://127.0.0.1:4317/sessions/history?limit=2", init: { method: "GET" } }
+    ]);
   });
 
   it("builds agent-readable handoffs with artifact health and local next commands", async () => {

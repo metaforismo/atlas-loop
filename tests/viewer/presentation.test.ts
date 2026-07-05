@@ -13,6 +13,7 @@ import {
   healthTone,
   latestArtifactOfType,
   latestSessionEmptyState,
+  sessionEvidenceChips,
   sessionSignal,
   sessionTone,
   sessionUpdatedAt,
@@ -22,7 +23,7 @@ import {
   visibleArtifactHealth
 } from "../../apps/viewer/src/viewerPresentation.js";
 import type { AgentHandoffInput } from "../../apps/viewer/src/viewerPresentation.js";
-import type { ArtifactHealth, ArtifactRef, Session, SessionListItem, SessionSummary, TraceEvent } from "../../apps/viewer/src/types.js";
+import type { ArtifactHealth, ArtifactRef, Session, SessionHistoryItem, SessionListItem, SessionSummary, TraceEvent } from "../../apps/viewer/src/types.js";
 import type { TimelineItem } from "../../apps/viewer/src/timeline.js";
 
 describe("viewer presentation helpers", () => {
@@ -478,6 +479,47 @@ describe("viewer presentation helpers", () => {
     expect(sessionSignal(sessions[2])).toBe("Demo");
     expect(sessionSignal(sessions[0])).toBe("No simulator or app metadata");
     expect(sessionUpdatedAt(sessions[0])).toBe("2026-07-04T08:00:00.000Z");
+  });
+
+  it("formats session history evidence chips for compact rail rows", () => {
+    const sessions: SessionHistoryItem[] = [
+      {
+        id: "older-disk",
+        status: "ended",
+        updatedAt: "2026-07-04T08:00:00.000Z",
+        storage: { source: "disk", artifactBacked: true, warningCount: 2 },
+        artifacts: { total: 3 },
+        events: { total: 9, latestAction: { actionId: "act_old", ok: false, artifactCount: 0, error: { message: "tap missed" } } },
+        hasScreenshot: false
+      },
+      {
+        id: "newer-memory",
+        status: "running",
+        updatedAt: "2026-07-04T09:00:00.000Z",
+        storage: { source: "memory", artifactBacked: true, warningCount: 0 },
+        artifacts: { total: 12, latestScreenshotPath: "screenshots/latest.png" },
+        events: { total: 21, latestAction: { actionId: "act_new", ok: true, artifactCount: 1 } },
+        hasScreenshot: true
+      }
+    ];
+
+    expect(sortSessionList(sessions).map((session) => session.id)).toEqual(["newer-memory", "older-disk"]);
+    expect(sessionEvidenceChips(sessions[1]).map(({ id, value, tone, ariaLabel }) => ({ id, value, tone, ariaLabel }))).toEqual([
+      { id: "source", value: "mem", tone: "good", ariaLabel: "Evidence source memory" },
+      { id: "artifacts", value: "12", tone: "neutral", ariaLabel: "Artifact count 12" },
+      { id: "events", value: "21", tone: "neutral", ariaLabel: "Event count 21" },
+      { id: "warnings", value: "0", tone: "neutral", ariaLabel: "Warning count 0" },
+      { id: "screenshot", value: "yes", tone: "good", ariaLabel: "Latest screenshot available" },
+      { id: "action", value: "pass", tone: "good", ariaLabel: "Latest action passed" }
+    ]);
+    expect(sessionEvidenceChips(sessions[0]).map(({ id, value, tone }) => ({ id, value, tone }))).toEqual([
+      { id: "source", value: "disk", tone: "neutral" },
+      { id: "artifacts", value: "3", tone: "neutral" },
+      { id: "events", value: "9", tone: "neutral" },
+      { id: "warnings", value: "2", tone: "warn" },
+      { id: "screenshot", value: "none", tone: "neutral" },
+      { id: "action", value: "fail", tone: "bad" }
+    ]);
   });
 
   it("finds the newest artifact of a type from the sorted artifact list", () => {

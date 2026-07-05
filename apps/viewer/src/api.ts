@@ -1,12 +1,19 @@
 import type {
   ActionResultLike,
   ApiEnvelope,
+  AtlasLoopError,
   ArtifactHealth,
   ArtifactHealthIssue,
   ArtifactHealthReport,
   ArtifactRef,
+  ArtifactType,
   ScreenshotState,
   Session,
+  SessionHistoryActionEvidence,
+  SessionHistoryArtifactEvidence,
+  SessionHistoryEventEvidence,
+  SessionHistoryItem,
+  SessionHistoryStorageEvidence,
   SessionListItem,
   SessionSummary,
   TraceEvent,
@@ -15,7 +22,7 @@ import type {
   ViewerNumericInput,
   ViewerParams
 } from "./types.js";
-import { buildSessionsUrl, buildSessionUrl, normalizeDaemonUrl } from "./viewerParams.js";
+import { buildSessionHistoryUrl, buildSessionsUrl, buildSessionUrl, normalizeDaemonUrl } from "./viewerParams.js";
 
 export class ApiError extends Error {
   readonly status?: number;
@@ -84,7 +91,18 @@ export async function fetchSessionSummary(params: ViewerParams, signal?: AbortSi
   return fetchJson<SessionSummary>(buildSessionUrl(params, "summary"), signal);
 }
 
-export async function fetchSessions(daemonUrl: string, signal?: AbortSignal): Promise<SessionListItem[]> {
+export async function fetchSessionHistory(daemonUrl: string, limit?: number, signal?: AbortSignal): Promise<SessionHistoryItem[]> {
+  const value = await fetchJson<unknown>(buildSessionHistoryUrl(daemonUrl, limit), signal);
+  return normalizeSessionHistory(value);
+}
+
+export async function fetchSessions(daemonUrl: string, signal?: AbortSignal): Promise<SessionHistoryItem[]> {
+  try {
+    return await fetchSessionHistory(daemonUrl, undefined, signal);
+  } catch (error) {
+    if (!(error instanceof ApiError)) throw error;
+  }
+
   const value = await fetchJson<unknown>(buildSessionsUrl(daemonUrl), signal);
   return normalizeSessionList(value);
 }
@@ -297,16 +315,28 @@ export function normalizeArtifactList(value: unknown): ArtifactRef[] {
   return list.filter(isArtifactRef);
 }
 
+export function normalizeSessionHistory(value: unknown): SessionHistoryItem[] {
+  return sessionListValues(value)
+    .map(normalizeSessionListItem)
+    .filter((session): session is SessionHistoryItem => Boolean(session));
+}
+
 export function normalizeSessionList(value: unknown): SessionListItem[] {
+  return normalizeSessionHistory(value);
+}
+
+function sessionListValues(value: unknown): unknown[] {
   const list = Array.isArray(value)
     ? value
     : value && typeof value === "object" && Array.isArray((value as { sessions?: unknown[] }).sessions)
       ? (value as { sessions: unknown[] }).sessions
       : value && typeof value === "object" && Array.isArray((value as { items?: unknown[] }).items)
         ? (value as { items: unknown[] }).items
+        : value && typeof value === "object" && !Array.isArray(value)
+          ? [value]
         : [];
 
-  return list.map(normalizeSessionListItem).filter((session): session is SessionListItem => Boolean(session));
+  return list;
 }
 
 export function normalizeEventList(value: unknown): TraceEvent[] {
@@ -450,6 +480,14 @@ function nonNegativeInteger(value: unknown): number | undefined {
   return Math.trunc(number);
 }
 
+function firstNonNegativeInteger(...values: unknown[]): number | undefined {
+  for (const value of values) {
+    const normalized = nonNegativeInteger(value);
+    if (normalized !== undefined) return normalized;
+  }
+  return undefined;
+}
+
 function normalizeArtifactHealthIssues(value: unknown): ArtifactHealthIssue[] {
   if (!Array.isArray(value)) return [];
 
@@ -536,31 +574,180 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
 
-function normalizeSessionListItem(value: unknown): SessionListItem | undefined {
+function normalizeSessionListItem(value: unknown): SessionHistoryItem | undefined {
   if (typeof value === "string" && value.trim()) return { id: value.trim() };
   if (!value || typeof value !== "object") return undefined;
 
   const record = value as Record<string, unknown>;
-  const id = firstString(record.id, record.sessionId);
+  const embeddedSession = objectOrUndefined<Session>(record.session);
+  const id = firstString(record.id, record.sessionId, embeddedSession?.id);
   if (!id) return undefined;
 
-  return {
+  const artifacts = normalizeSessionHistoryArtifacts(record);
+  const events = normalizeSessionHistoryEvents(record);
+  const hasScreenshot = booleanOrUndefined(record.hasScreenshot)
+    ?? (artifacts?.latestScreenshot || artifacts?.latestScreenshotId || artifacts?.latestScreenshotPath ? true : undefined);
+  const session: SessionHistoryItem = {
     id,
-    status: firstString(record.status, record.state),
-    createdAt: firstString(record.createdAt, record.startedAt),
-    updatedAt: firstString(record.updatedAt, record.lastUpdatedAt, record.lastActivityAt, record.lastEventAt),
-    simulator: objectOrUndefined(record.simulator),
-    app: objectOrUndefined(record.app),
-    artifactDir: firstString(record.artifactDir, record.artifactsDir),
-    viewerUrl: firstString(record.viewerUrl),
-    backend: firstString(record.backend),
-    platform: firstString(record.platform),
-    error: objectOrUndefined(record.error)
+    status: firstString(record.status, record.state, embeddedSession?.status),
+    createdAt: firstString(record.createdAt, record.startedAt, embeddedSession?.createdAt),
+    updatedAt: firstString(
+      record.updatedAt,
+      record.lastUpdatedAt,
+      record.lastActivityAt,
+      record.lastEventAt,
+      embeddedSession?.updatedAt,
+      embeddedSession?.createdAt
+    ),
+    simulator: objectOrUndefined(record.simulator) ?? embeddedSession?.simulator,
+    app: objectOrUndefined(record.app) ?? embeddedSession?.app,
+    artifactDir: firstString(record.artifactDir, record.artifactsDir, embeddedSession?.artifactDir),
+    viewerUrl: firstString(record.viewerUrl, embeddedSession?.viewerUrl),
+    backend: firstString(record.backend, embeddedSession?.backend),
+    platform: firstString(record.platform, embeddedSession?.platform),
+    error: objectOrUndefined(record.error) ?? embeddedSession?.error
   };
+
+  const sessionId = firstString(record.sessionId);
+  if (sessionId) session.sessionId = sessionId;
+  if (embeddedSession) session.session = embeddedSession;
+
+  const storage = normalizeSessionHistoryStorage(record);
+  if (storage) session.storage = storage;
+  if (artifacts) session.artifacts = artifacts;
+  if (events) session.events = events;
+  if (hasScreenshot !== undefined) session.hasScreenshot = hasScreenshot;
+  const canMutate = booleanOrUndefined(record.canMutate);
+  if (canMutate !== undefined) session.canMutate = canMutate;
+  const ready = booleanOrUndefined(record.ready);
+  if (ready !== undefined) session.ready = ready;
+  const blockingReasons = normalizeStringList(record.blockingReasons);
+  if (blockingReasons.length > 0) session.blockingReasons = blockingReasons;
+
+  return session;
 }
 
 function objectOrUndefined<T extends object>(value: unknown): T | undefined {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as T) : undefined;
+}
+
+function booleanOrUndefined(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function normalizeStringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+}
+
+function normalizeSessionHistoryStorage(record: Record<string, unknown>): SessionHistoryStorageEvidence | undefined {
+  const storageRecord = objectOrUndefined<Record<string, unknown>>(record.storage);
+  const warnings = normalizeStorageWarnings(storageRecord?.warnings ?? record.warnings);
+  const source = firstString(storageRecord?.source, record.storageSource, record.source);
+  const artifactBacked = booleanOrUndefined(storageRecord?.artifactBacked ?? record.artifactBacked);
+  const warningCount = firstNonNegativeInteger(storageRecord?.warningCount, record.warningCount, warnings.length > 0 ? warnings.length : undefined);
+
+  if (!source && artifactBacked === undefined && warningCount === undefined && warnings.length === 0) return undefined;
+
+  return {
+    source,
+    artifactBacked,
+    warningCount,
+    warnings: warnings.length > 0 ? warnings : undefined
+  };
+}
+
+function normalizeStorageWarnings(value: unknown): Array<{ path?: string; message: string }> {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((warning) => {
+      if (typeof warning === "string" && warning.trim()) return { message: warning.trim() };
+      if (!warning || typeof warning !== "object" || Array.isArray(warning)) return undefined;
+      const record = warning as Record<string, unknown>;
+      const message = firstString(record.message, record.detail, record.error);
+      const path = firstString(record.path, record.file, record.target);
+      if (!message && !path) return undefined;
+      return { path, message: message ?? path! };
+    })
+    .filter((warning): warning is { path?: string; message: string } => Boolean(warning));
+}
+
+function normalizeSessionHistoryArtifacts(record: Record<string, unknown>): SessionHistoryArtifactEvidence | undefined {
+  const artifactsValue = record.artifacts;
+  const artifactArray = Array.isArray(artifactsValue) ? artifactsValue.filter(isArtifactRef) : undefined;
+  const artifactsRecord = objectOrUndefined<Record<string, unknown>>(artifactsValue);
+  const latestScreenshotFromRecord = artifactsRecord ? artifactsRecord.latestScreenshot : undefined;
+  const latestScreenshot = isArtifactRef(latestScreenshotFromRecord)
+    ? latestScreenshotFromRecord
+    : artifactArray?.find((artifact) => artifact.type === "screenshot");
+  const byType = objectOrUndefined<Partial<Record<ArtifactType, number>>>(artifactsRecord?.byType);
+  const total = firstNonNegativeInteger(artifactsRecord?.total, record.artifactCount, record.artifactsCount, artifactArray?.length);
+  const latestScreenshotId = firstString(artifactsRecord?.latestScreenshotId, record.latestScreenshotId, latestScreenshot?.id);
+  const latestScreenshotPath = firstString(artifactsRecord?.latestScreenshotPath, record.latestScreenshotPath, latestScreenshot?.path);
+  const latestScreenshotCreatedAt = firstString(
+    artifactsRecord?.latestScreenshotCreatedAt,
+    record.latestScreenshotCreatedAt,
+    latestScreenshot?.createdAt
+  );
+
+  if (
+    total === undefined &&
+    !byType &&
+    !latestScreenshot &&
+    !latestScreenshotId &&
+    !latestScreenshotPath &&
+    !latestScreenshotCreatedAt
+  ) {
+    return undefined;
+  }
+
+  return {
+    total,
+    byType,
+    latestScreenshot,
+    latestScreenshotId,
+    latestScreenshotPath,
+    latestScreenshotCreatedAt
+  };
+}
+
+function normalizeSessionHistoryEvents(record: Record<string, unknown>): SessionHistoryEventEvidence | undefined {
+  const eventsValue = record.events;
+  const eventArray = Array.isArray(eventsValue) ? eventsValue.filter(isTraceEvent) : undefined;
+  const eventsRecord = objectOrUndefined<Record<string, unknown>>(eventsValue);
+  const latestAction = normalizeSessionHistoryLatestAction(eventsRecord?.latestAction ?? record.latestAction);
+  const latestError = objectOrUndefined<AtlasLoopError>(eventsRecord?.latestError ?? record.latestError);
+  const total = firstNonNegativeInteger(eventsRecord?.total, record.eventCount, record.eventsCount, eventArray?.length);
+
+  if (total === undefined && !latestAction && !latestError) return undefined;
+
+  return {
+    total,
+    latestAction,
+    latestError
+  };
+}
+
+function normalizeSessionHistoryLatestAction(value: unknown): SessionHistoryActionEvidence | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  const artifacts = normalizeArtifactList(record.artifacts);
+  const actionId = firstString(record.actionId, record.id);
+  const ok = booleanOrUndefined(record.ok);
+  const artifactCount = firstNonNegativeInteger(record.artifactCount, artifacts.length > 0 ? artifacts.length : undefined);
+  const error = objectOrUndefined<AtlasLoopError>(record.error);
+
+  if (!actionId && ok === undefined && !record.startedAt && !record.endedAt && artifactCount === undefined && !error) return undefined;
+
+  return {
+    actionId,
+    ok,
+    startedAt: firstString(record.startedAt),
+    endedAt: firstString(record.endedAt),
+    artifactCount,
+    artifacts: artifacts.length > 0 ? artifacts : undefined,
+    error
+  };
 }
 
 function isArtifactRef(value: unknown): value is ArtifactRef {

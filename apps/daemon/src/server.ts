@@ -43,6 +43,8 @@ import {
   type LaunchRequest,
   type PerformActionRequest,
   type Session,
+  type SessionHistoryItem,
+  type SessionHistoryResult,
   type SessionStatus,
   type TraceEvent
 } from "@atlas-loop/protocol";
@@ -212,6 +214,12 @@ async function handleRequest(state: DaemonState, request: IncomingMessage, respo
       const body = await readJsonBody<CreateSessionRequest>(request);
       const session = await createSession(state, body);
       sendJson(response, 201, { ok: true, data: session });
+      return;
+    }
+
+    if (request.method === "GET" && parts.length === 2 && parts[1] === "history") {
+      const limit = parseHistoryLimit(url.searchParams);
+      sendJson(response, 200, { ok: true, data: await getSessionHistory(state, limit) });
       return;
     }
 
@@ -704,7 +712,7 @@ async function getSessionSummary(sessionState: SessionState): Promise<SessionSum
         ok: latestAction.ok,
         startedAt: latestAction.startedAt,
         endedAt: latestAction.endedAt,
-        artifactCount: latestAction.artifacts.length,
+        artifactCount: Array.isArray(latestAction.artifacts) ? latestAction.artifacts.length : 0,
         error: latestAction.error
       } : undefined,
       latestError: errorEvents.at(-1)?.error
@@ -715,6 +723,79 @@ async function getSessionSummary(sessionState: SessionState): Promise<SessionSum
       warnings: sessionState.warnings
     }
   };
+}
+
+async function getSessionHistory(state: DaemonState, limit: number | null): Promise<SessionHistoryResult> {
+  const sessionStates = (await listSessionStates(state)).sort(compareSessionStatesForHistory);
+  const limitedSessionStates = limit === null ? sessionStates : sessionStates.slice(0, limit);
+  const sessions = (await Promise.all(
+    limitedSessionStates.map((sessionState) => getSessionHistoryItem(sessionState))
+  )).sort(compareSessionHistoryItems);
+  return {
+    schemaVersion: "atlas-loop.session-history.v1",
+    generatedAt: nowIso(),
+    total: sessionStates.length,
+    count: sessions.length,
+    limit,
+    sessions
+  };
+}
+
+async function getSessionHistoryItem(sessionState: SessionState): Promise<SessionHistoryItem> {
+  const summary = await getSessionSummary(sessionState);
+  const warningCount = summary.storage.warnings.length;
+  const latestScreenshotPath = summary.artifacts.latestScreenshotPath;
+  const hasScreenshot = Boolean(latestScreenshotPath);
+  const canMutate = summary.storage.source === "memory" && !isTerminalSessionStatus(summary.session.status);
+  return {
+    session: summary.session,
+    sessionId: summary.session.id,
+    status: summary.session.status,
+    createdAt: summary.session.createdAt,
+    updatedAt: summary.session.updatedAt,
+    artifactDir: summary.paths.artifactDir,
+    storage: {
+      source: summary.storage.source,
+      artifactBacked: summary.storage.artifactBacked,
+      warningCount
+    },
+    artifacts: {
+      total: summary.artifacts.total,
+      byType: summary.artifacts.byType,
+      ...(latestScreenshotPath ? { latestScreenshotPath } : {}),
+      ...(summary.artifacts.latestScreenshotCreatedAt
+        ? { latestScreenshotCreatedAt: summary.artifacts.latestScreenshotCreatedAt }
+        : {})
+    },
+    events: {
+      total: summary.events.total,
+      ...(summary.events.latestAction ? { latestAction: summary.events.latestAction } : {}),
+      ...(summary.events.latestError ? { latestError: summary.events.latestError } : {})
+    },
+    canMutate,
+    hasScreenshot,
+    ready: summary.session.status === "running" && hasScreenshot && !summary.events.latestError && warningCount === 0
+  };
+}
+
+function compareSessionHistoryItems(left: SessionHistoryItem, right: SessionHistoryItem): number {
+  return sessionHistorySortTimestamp(right) - sessionHistorySortTimestamp(left)
+    || timestamp(right.createdAt) - timestamp(left.createdAt)
+    || right.sessionId.localeCompare(left.sessionId);
+}
+
+function compareSessionStatesForHistory(left: SessionState, right: SessionState): number {
+  return sessionStateHistorySortTimestamp(right) - sessionStateHistorySortTimestamp(left)
+    || timestamp(right.session.createdAt) - timestamp(left.session.createdAt)
+    || right.session.id.localeCompare(left.session.id);
+}
+
+function sessionHistorySortTimestamp(item: SessionHistoryItem): number {
+  return timestamp(item.updatedAt) || timestamp(item.createdAt);
+}
+
+function sessionStateHistorySortTimestamp(item: SessionState): number {
+  return timestamp(item.session.updatedAt) || timestamp(item.session.createdAt);
 }
 
 async function getSessionArtifactHealth(
@@ -836,6 +917,19 @@ async function readJsonBody<T>(request: IncomingMessage): Promise<T> {
       cause: error instanceof Error ? error.message : String(error)
     });
   }
+}
+
+function parseHistoryLimit(searchParams: URLSearchParams): number | null {
+  const rawLimit = searchParams.get("limit");
+  if (rawLimit === null) return null;
+  if (!/^\d+$/.test(rawLimit)) {
+    throw atlasError("INVALID_REQUEST", "limit must be a non-negative integer", { limit: rawLimit });
+  }
+  const limit = Number(rawLimit);
+  if (!Number.isSafeInteger(limit)) {
+    throw atlasError("INVALID_REQUEST", "limit must be a non-negative integer", { limit: rawLimit });
+  }
+  return limit;
 }
 
 function sendJson<T>(response: ServerResponse, statusCode: number, envelope: ApiEnvelope<T>): void {

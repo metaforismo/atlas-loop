@@ -12,6 +12,9 @@ Recommended endpoints:
 - `POST /v1/sessions`: Creates a session from a `CreateSessionRequest`.
 - `GET /v1/sessions`: Lists active in-memory sessions plus persisted
   artifact-backed sessions discovered under the artifact root.
+- `GET /v1/sessions/history`: Returns local evidence history across active
+  sessions and persisted artifact-backed sessions. Accepts optional
+  non-negative integer `limit`.
 - `GET /v1/sessions/:id`: Returns the current session object.
 - `GET /v1/sessions/:id/summary`: Returns session status, artifact paths, artifact counts, latest action/error, and latest screenshot metadata.
 - `POST /v1/sessions/:id/build`: Builds an app for the target Simulator.
@@ -97,6 +100,7 @@ Recommended additional tool names:
 
 - `atlas.health`
 - `atlas.listSessions`
+- `atlas.listSessionHistory`
 - `atlas.getLatestSession`
 - `atlas.sessionReady`
 - `atlas.getSessionHandoff`
@@ -164,6 +168,13 @@ must only be true when the summary reports `storage.source` as `memory` and the
 status is not terminal (`ended` or `failed`). Disk-backed sessions are readable
 evidence only, even when their persisted status says `running`.
 
+`atlas.listSessionHistory` is the MCP wrapper for
+`GET /v1/sessions/history`. Its input accepts optional `limit` and optional
+`daemonUrl`; it returns the daemon's structured `SessionHistoryResult` JSON in
+the normal MCP envelope. The history is local evidence across active daemon
+sessions and persisted sessions recovered from artifacts. It is not cloud
+storage, provenance signing, a hosted audit trail, or team sharing.
+
 Daemon and validation failures should return structured tool errors with the
 Atlas Loop error code and message preserved:
 
@@ -176,6 +187,25 @@ Atlas Loop error code and message preserved:
   }
 }
 ```
+
+## Session History
+
+The session-history route is the local evidence index for active daemon
+sessions and persisted artifact-backed sessions:
+
+```sh
+curl -s "http://127.0.0.1:4317/v1/sessions/history?limit=20"
+atlas-loop session history --limit 20
+atlas-loop session hist --limit 20
+```
+
+The optional `limit` must be a non-negative integer and returns the newest
+history entries according to the daemon's `SessionHistoryResult` read model.
+The CLI prints that JSON result directly. MCP callers can use
+`atlas.listSessionHistory` with optional `limit` and `daemonUrl`.
+
+This is a local read-only evidence surface. It does not upload artifacts,
+sign provenance, create hosted audit trails, or share sessions with a team.
 
 ## Event And Trace Inspection
 

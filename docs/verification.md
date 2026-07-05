@@ -95,6 +95,7 @@ For a human or next-agent handoff, run:
 
 ```sh
 npm run cli -- session ready --session latest
+npm run cli -- session history --limit 20
 npm run cli -- artifacts health --session latest
 npm run cli -- viewer url --session latest
 npm run cli -- evidence report --session latest --out artifacts/reports/<session-id>.md
@@ -138,6 +139,9 @@ or `atlas.exportEvents` when the verification handoff needs a local JSON event
 file. MCP clients can use `atlas.verifyHandoffBundle` after a handoff bundle is
 created or received. Do not treat `artifacts health`, `session ready`, or
 `evidence report` as raw event dumps; they are summary and handoff read models.
+Use `session history` or MCP `atlas.listSessionHistory` when the handoff needs
+the local evidence history across active and persisted sessions. It is not
+cloud storage, provenance signing, or team sharing.
 
 ## Reading Artifact Results
 

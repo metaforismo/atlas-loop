@@ -25,7 +25,7 @@ import type {
   HealthState,
   ScreenshotState,
   Session,
-  SessionListItem,
+  SessionHistoryItem,
   SessionSummary,
   TraceEvent,
   ViewerActionDraft,
@@ -46,6 +46,7 @@ import {
   healthTone,
   latestArtifactOfType,
   latestSessionEmptyState,
+  sessionEvidenceChips,
   sessionSignal,
   sessionTone,
   sessionUpdatedAt,
@@ -204,7 +205,7 @@ function useViewerParams(): ViewerParams {
 
 function useAtlasLoopData(params: ViewerParams) {
   const [health, setHealth] = useState<HealthState>("checking");
-  const [sessions, setSessions] = useState<SessionListItem[]>([]);
+  const [sessions, setSessions] = useState<SessionHistoryItem[]>([]);
   const [sessionListStatus, setSessionListStatus] = useState<"loading" | "ready" | "error">("loading");
   const [sessionListError, setSessionListError] = useState<string | undefined>();
   const [session, setSession] = useState<Session | undefined>();
@@ -1078,7 +1079,7 @@ function SessionBrowserContent({
   onSelect
 }: {
   health: HealthState;
-  sessions: SessionListItem[];
+  sessions: SessionHistoryItem[];
   status: "loading" | "ready" | "error";
   error?: string;
   selectedSessionId?: string;
@@ -1114,7 +1115,9 @@ function SessionBrowserContent({
   );
 }
 
-function SessionBrowserRow({ session, selected, onSelect }: { session: SessionListItem; selected: boolean; onSelect: () => void }) {
+function SessionBrowserRow({ session, selected, onSelect }: { session: SessionHistoryItem; selected: boolean; onSelect: () => void }) {
+  const evidenceChips = sessionEvidenceChips(session);
+
   return (
     <div role="listitem">
       <button
@@ -1123,9 +1126,24 @@ function SessionBrowserRow({ session, selected, onSelect }: { session: SessionLi
         aria-current={selected ? "true" : undefined}
         onClick={onSelect}
       >
-        <div>
+        <div className="session-row-main">
           <strong>{session.id}</strong>
           <span>{sessionSignal(session)}</span>
+          {evidenceChips.length > 0 ? (
+            <span className="session-evidence-chips" aria-label={`Evidence for ${session.id}`}>
+              {evidenceChips.map((chip) => (
+                <span
+                  key={chip.id}
+                  className={`session-evidence-chip tone-${chip.tone}`}
+                  title={chip.title}
+                  aria-label={chip.ariaLabel}
+                >
+                  <span>{chip.label}</span>
+                  <strong>{chip.value}</strong>
+                </span>
+              ))}
+            </span>
+          ) : null}
         </div>
         <span className="session-row-meta">
           <small>{session.status ?? "unknown"}</small>
