@@ -1,5 +1,6 @@
 import type { TimelineItem } from "./timeline.js";
 import type {
+  ActionLike,
   ActionResultLike,
   ArtifactHealth,
   ArtifactHealthIssue,
@@ -1219,5 +1220,88 @@ function stringifyMetadata(metadata: ArtifactRef["metadata"]): string | undefine
     return JSON.stringify(metadata);
   } catch {
     return Object.keys(metadata).join(" ");
+  }
+}
+
+export interface VideoReplayMarker {
+  actionId?: string;
+  kind: string;
+  label: string;
+  offsetSeconds: number;
+  ok?: boolean;
+}
+
+export interface VideoReplayModel {
+  artifact: ArtifactRef;
+  videoStartedAt: string;
+  videoEndedAt?: string;
+  markers: VideoReplayMarker[];
+}
+
+export function buildVideoReplayModel(artifacts: ArtifactRef[], events: TraceEvent[]): VideoReplayModel | undefined {
+  const videos = artifacts.filter(
+    (artifact) => artifact.type === "video" && typeof artifact.metadata?.videoStartedAt === "string"
+  );
+  if (videos.length === 0) return undefined;
+
+  const artifact = [...videos].sort((left, right) => timestampMs(left.createdAt) - timestampMs(right.createdAt)).at(-1)!;
+  const videoStartedAt = String(artifact.metadata?.videoStartedAt);
+  const startMs = Date.parse(videoStartedAt);
+  if (!Number.isFinite(startMs)) return undefined;
+
+  const videoEndedAt = typeof artifact.metadata?.videoEndedAt === "string" ? artifact.metadata.videoEndedAt : undefined;
+  const endMs = videoEndedAt ? Date.parse(videoEndedAt) : undefined;
+
+  const resultOkByActionId = new Map<string, boolean>();
+  for (const event of events) {
+    if (event.type === "action.completed" && event.result?.actionId) {
+      resultOkByActionId.set(event.result.actionId, Boolean(event.result.ok));
+    }
+  }
+
+  const markers: VideoReplayMarker[] = [];
+  for (const event of events) {
+    if (event.type !== "action.started" || !event.action || !event.at) continue;
+    const atMs = Date.parse(event.at);
+    if (!Number.isFinite(atMs)) continue;
+    const offsetSeconds = (atMs - startMs) / 1000;
+    if (offsetSeconds < 0) continue;
+    if (endMs !== undefined && Number.isFinite(endMs) && atMs > endMs) continue;
+
+    markers.push({
+      actionId: event.action.id,
+      kind: event.action.kind ?? "action",
+      label: replayMarkerLabel(event.action),
+      offsetSeconds,
+      ok: event.action.id ? resultOkByActionId.get(event.action.id) : undefined
+    });
+  }
+  markers.sort((left, right) => left.offsetSeconds - right.offsetSeconds);
+
+  return { artifact, videoStartedAt, videoEndedAt, markers };
+}
+
+function replayMarkerLabel(action: ActionLike): string {
+  const x = typeof action.x === "number" ? action.x : undefined;
+  const y = typeof action.y === "number" ? action.y : undefined;
+  const identifier = typeof action.identifier === "string" ? action.identifier : undefined;
+
+  switch (action.kind) {
+    case "tap":
+      return x !== undefined && y !== undefined ? `tap ${x.toFixed(2)}, ${y.toFixed(2)}` : "tap";
+    case "tapElement":
+      return identifier ? `tap ${identifier}` : "tap element";
+    case "assertVisible":
+      return identifier ? `assert ${identifier}` : "assert visible";
+    case "typeText":
+      return "type text";
+    case "swipe":
+      return "swipe";
+    case "edgeGesture":
+      return "edge gesture";
+    case "screenshot":
+      return "screenshot";
+    default:
+      return action.kind ?? "action";
   }
 }

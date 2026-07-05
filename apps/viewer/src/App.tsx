@@ -23,6 +23,7 @@ import { EmptyState, ErrorNotice, MetricTile, StatusRow } from "./components/com
 import { EvidenceHealthPanel } from "./components/EvidenceHealthPanel.js";
 import { AgentHandoffPanel } from "./components/HandoffPanel.js";
 import { MetadataGrid, MetadataSkeleton, SummaryEvidence } from "./components/MetadataPanel.js";
+import { ReplayPanel } from "./components/ReplayPanel.js";
 import { ScreenshotView } from "./components/ScreenshotView.js";
 import { SessionBrowserContent } from "./components/SessionBrowser.js";
 import { useAtlasLoopData, useViewerParams } from "./hooks/useAtlasLoopData.js";
@@ -31,6 +32,7 @@ import type { ViewerParams } from "./types.js";
 import {
   artifactTypeOptions,
   buildAgentHandoffBrief,
+  buildVideoReplayModel,
   eventModeTone,
   filterArtifacts,
   filterTimelineItems,
@@ -131,6 +133,7 @@ export function App() {
     () => getActionMutationState(health, sessionSummary?.storage.source, session?.status),
     [health, sessionSummary?.storage.source, session?.status]
   );
+  const replayModel = useMemo(() => buildVideoReplayModel(artifacts, events), [artifacts, events]);
   const handoffBrief = useMemo(
     () =>
       buildAgentHandoffBrief({
@@ -356,6 +359,8 @@ export function App() {
               </a>
             ) : null}
           </div>
+
+          {replayModel ? <ReplayPanel replay={replayModel} /> : null}
         </div>
       </section>
 
