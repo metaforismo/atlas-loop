@@ -23,6 +23,14 @@ describe("viewer params", () => {
     });
   });
 
+  it("normalizes the optional local viewer base URL without serializing it", () => {
+    expect(readViewerParams("?sessionId=session_123", "http://127.0.0.1:5176/path?x=1#hash")).toEqual({
+      daemonUrl: DEFAULT_DAEMON_URL,
+      sessionId: "session_123",
+      viewerBaseUrl: "http://127.0.0.1:5176/path"
+    });
+  });
+
   it("builds encoded session endpoints", () => {
     expect(buildSessionsUrl("http://127.0.0.1:4317/")).toBe("http://127.0.0.1:4317/v1/sessions");
 

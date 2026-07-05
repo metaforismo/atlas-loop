@@ -24,6 +24,8 @@ runtime dependencies.
   persisted sessions.
 - Agent/operator handoff command that summarizes readiness, artifact health,
   viewer URL, blockers, and next local evidence commands.
+- Local handoff bundle output with JSON, Markdown, raw events, report, and a
+  manifest for next-agent context.
 - Viewer handoff copy controls for a compact note, next steps, CLI commands,
   and read-only daemon checks.
 - Repo-owned Swift HID helper with a stable NDJSON protocol.
@@ -146,6 +148,7 @@ npm run cli -- viewer open --session latest --launch
 npm run cli -- evidence report --session latest --out artifacts/reports/<session-id>.md
 npm run cli -- evidence export --session latest --out artifacts/exports/<session-id>
 npm run cli -- events export --session latest --out artifacts/events/<session-id>.json
+npm run cli -- session handoff --session latest --bundle artifacts/handoffs/<session-id>
 ```
 
 If a session already exists, begin with `session list`, `session status`, and
@@ -159,7 +162,11 @@ aggregates the readiness, health, viewer URL, blockers, and copy-paste next
 commands that otherwise come from the explicit commands above, including a raw
 event export for agent-readable trace handoff. JSON remains the default output;
 use `--format markdown` for a readable local note and `--out <path>` to persist
-the selected output. See
+the selected output. Use `--bundle <dir>` when the next agent should receive a
+single local directory containing `handoff.json`, `handoff.md`, optional
+`events.json`, optional `evidence-report.md`, and `manifest.json`; optional
+exports that fail are recorded as warnings in the manifest instead of breaking
+the handoff bundle. See
 [docs/handoff-workflow.md](docs/handoff-workflow.md) for the full local
 handoff checklist. The handoff output is a local operator note, not a share
 link or hosted workspace.
@@ -196,6 +203,7 @@ atlas-loop evidence --session <id>
 atlas-loop evidence report --session <id> [--out report.md]
 atlas-loop evidence export --session <id> --out <dir>
 atlas-loop session handoff --session <id|latest> [--format json|markdown] [--out handoff.md]
+atlas-loop session handoff --session <id|latest> --bundle <dir>
 atlas-loop viewer url --session <id>
 atlas-loop viewer open --session <id> [--launch]
 atlas-loop session stop --session <id>
@@ -342,6 +350,9 @@ errors, and any evidence report or export path. `session handoff --session
 latest --format markdown --out artifacts/handoffs/<session-id>.md` writes this
 note locally. Keep the note explicit about host-gated input behavior so a
 launch-argument smoke proof is not mistaken for primitive HID success.
+Use `session handoff --session latest --bundle artifacts/handoffs/<session-id>`
+when the next agent needs a local directory with both the note and machine
+readable trace context.
 
 ## Verification
 

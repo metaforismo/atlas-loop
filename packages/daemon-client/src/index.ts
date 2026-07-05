@@ -597,6 +597,7 @@ function buildSessionHandoffNextCommands(params: {
   return [
     ...(params.canMutate ? [`atlas-loop screenshot --session ${session} --reason handoff ${daemon}`] : []),
     `atlas-loop artifacts health --session ${session} ${daemon}`,
+    `atlas-loop session handoff --session ${session} --bundle ${shellArg(`./atlas-loop-handoffs/${params.sessionId}`)} --viewer-base-url ${shellArg(params.viewerBaseUrl)} ${daemon}`,
     `atlas-loop evidence report --session ${session} ${daemon}`,
     `atlas-loop evidence export --session ${session} --out ${shellArg(`./atlas-loop-evidence/${params.sessionId}`)} ${daemon}`,
     `atlas-loop events export --session ${session} --out ${shellArg(`./atlas-loop-events/${params.sessionId}.json`)} ${daemon}`,

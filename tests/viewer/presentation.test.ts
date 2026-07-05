@@ -126,6 +126,8 @@ describe("viewer presentation helpers", () => {
 
   it("derives a ready agent handoff brief from loaded session evidence", () => {
     const brief = buildAgentHandoffBrief(handoffInput());
+    const bundleCommand =
+      "atlas-loop session handoff --session 'sess_1' --bundle './atlas-loop-handoffs/sess_1' --viewer-base-url 'http://127.0.0.1:5173' --daemon-url 'http://127.0.0.1:4317'";
 
     expect(brief).toMatchObject({
       readiness: "ready",
@@ -159,18 +161,22 @@ describe("viewer presentation helpers", () => {
       "1. Pass the daemon URL and resolved session id to the next agent."
     );
     expect(brief.copyPayloads.find((payload) => payload.id === "commands")?.value).toContain(
+      bundleCommand
+    );
+    expect(brief.copyPayloads.find((payload) => payload.id === "commands")?.value).toContain(
       "atlas-loop events export --session 'sess_1' --out './atlas-loop-events/sess_1.json' --daemon-url 'http://127.0.0.1:4317'"
     );
     expect(brief.copyPayloads.find((payload) => payload.id === "commands")?.value).toContain(
       "curl -fsS 'http://127.0.0.1:4317/v1/sessions/sess_1/summary'"
     );
     expect(brief.commandPreview).toMatchObject({
-      label: "Read-only local command preview",
+      label: "Local handoff command preview",
       hiddenLineCount: 6,
-      totalLineCount: 11
+      totalLineCount: 12
     });
     expect(brief.commandPreview?.visibleLines).toEqual(
       expect.arrayContaining([
+        bundleCommand,
         "atlas-loop events export --session 'sess_1' --out './atlas-loop-events/sess_1.json' --daemon-url 'http://127.0.0.1:4317'"
       ])
     );
@@ -555,7 +561,7 @@ const baseSummary: SessionSummary = {
 function handoffInput(overrides: Partial<AgentHandoffInput> = {}): AgentHandoffInput {
   return {
     health: "online",
-    params: { daemonUrl: "http://127.0.0.1:4317", sessionId: "latest" },
+    params: { daemonUrl: "http://127.0.0.1:4317", sessionId: "latest", viewerBaseUrl: "http://127.0.0.1:5173" },
     session: baseSession,
     sessionSummary: baseSummary,
     artifactHealth: {

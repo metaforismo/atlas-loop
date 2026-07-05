@@ -110,6 +110,7 @@ Export local evidence for review or manual archival:
 npm run cli -- evidence report --session latest --out artifacts/reports/<session-id>.md
 npm run cli -- evidence export --session latest --out artifacts/exports/<session-id>
 npm run cli -- events export --session latest --out artifacts/events/<session-id>.json
+npm run cli -- session handoff --session latest --bundle artifacts/handoffs/<session-id>
 ```
 
 Use the concrete `sessionId` from `session ready` for final report and export
@@ -123,6 +124,7 @@ The preferred operator shortcut is:
 ```sh
 atlas-loop session handoff --session latest
 atlas-loop session handoff --session latest --format markdown --out artifacts/handoffs/<session-id>.md
+atlas-loop session handoff --session latest --bundle artifacts/handoffs/<session-id>
 ```
 
 It aligns with the same local-first contract as the multi-command flow:
@@ -136,6 +138,12 @@ It aligns with the same local-first contract as the multi-command flow:
   when the evidence needs to be packaged separately or handed to another agent.
 - Optionally persist the selected JSON or Markdown handoff output to a local
   path with `--out`.
+- Optionally write a local bundle with `--bundle <dir>`. The bundle contains
+  `handoff.json`, `handoff.md`, optional `events.json`, optional
+  `evidence-report.md`, and `manifest.json` with `schemaVersion:
+  "atlas-loop.handoff-bundle.v1"`, `localOnly: true`, `uploaded: false`, file
+  paths, readiness, the resolved session id, and warnings for optional exports
+  that could not be generated.
 - Avoid mutating disk-backed sessions and avoid uploading, committing, or
   sharing artifacts.
 

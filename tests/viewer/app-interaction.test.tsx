@@ -10,6 +10,8 @@ const DAEMON_URL = "http://127.0.0.1:4317";
 const SESSION_ID = "sess_timeline";
 const CREATED_AT = "2026-07-04T09:00:00.000Z";
 const SCREENSHOT_TARGET_LABEL = "Select normalized tap target from screenshot; press Enter for center";
+const handoffBundleCommand = (): string =>
+  `atlas-loop session handoff --session '${SESSION_ID}' --bundle './atlas-loop-handoffs/${SESSION_ID}' --viewer-base-url '${window.location.origin}' --daemon-url '${DAEMON_URL}'`;
 
 const screenshotArtifact: ArtifactRef = {
   id: "shot_checkout",
@@ -221,19 +223,23 @@ describe("viewer app interactions", () => {
       expect(panel.textContent).toContain("Ready for handoff");
       expect(getButtonByAriaLabel("Copy compact local handoff note")).toBeTruthy();
       expect(getButtonByAriaLabel("Copy all handoff next steps")).toBeTruthy();
-      expect(getButtonByAriaLabel("Copy read-only local daemon command snippets")).toBeTruthy();
-      expect(getByRoleName("region", "Read-only local command preview")).toBeTruthy();
+      expect(getButtonByAriaLabel("Copy local handoff command snippets")).toBeTruthy();
+      expect(getByRoleName("region", "Local handoff command preview")).toBeTruthy();
       return panel;
     }, "ready handoff copy controls");
 
-    const commandPreview = getByRoleName<HTMLElement>("region", "Read-only local command preview");
+    const commandPreview = getByRoleName<HTMLElement>("region", "Local handoff command preview");
+    const visibleCommandLines = getByRoleName<HTMLElement>("region", "Visible local handoff command lines");
+    expect(commandPreview.textContent).toContain("6/12 lines");
+    expect(commandPreview.textContent).toContain(handoffBundleCommand());
     expect(commandPreview.textContent).toContain(
       `atlas-loop events export --session '${SESSION_ID}' --out './atlas-loop-events/${SESSION_ID}.json' --daemon-url '${DAEMON_URL}'`
     );
+    expect(visibleCommandLines.textContent).toContain(handoffBundleCommand());
     expect(commandPreview.textContent).toContain("+6 more lines: daemon checks");
     expect(commandPreview.textContent).not.toContain(`curl -fsS '${DAEMON_URL}/v1/sessions/${SESSION_ID}/summary'`);
 
-    const overflowToggle = getButtonByAriaLabel("Show 6 overflow read-only command lines");
+    const overflowToggle = getButtonByAriaLabel("Show 6 overflow local handoff command lines");
     expect(overflowToggle.getAttribute("aria-expanded")).toBe("false");
 
     await click(overflowToggle);
@@ -241,7 +247,7 @@ describe("viewer app interactions", () => {
     await waitFor(() => {
       expect(overflowToggle.getAttribute("aria-expanded")).toBe("true");
       expect(commandPreview.textContent).toContain(`curl -fsS '${DAEMON_URL}/v1/sessions/${SESSION_ID}/summary'`);
-      expect(getByRoleName("region", "Expanded read-only handoff command lines")).toBeTruthy();
+      expect(getByRoleName("region", "Expanded local handoff command lines")).toBeTruthy();
       return true;
     }, "expanded handoff command preview");
 
@@ -265,9 +271,10 @@ describe("viewer app interactions", () => {
       return true;
     }, "handoff next steps copied");
 
-    await click(getButtonByAriaLabel("Copy read-only local daemon command snippets"));
+    await click(getButtonByAriaLabel("Copy local handoff command snippets"));
 
     await waitFor(() => {
+      expect(clipboardWriteText).toHaveBeenLastCalledWith(expect.stringContaining(handoffBundleCommand()));
       expect(clipboardWriteText).toHaveBeenLastCalledWith(
         expect.stringContaining(`atlas-loop events export --session '${SESSION_ID}' --out './atlas-loop-events/${SESSION_ID}.json' --daemon-url '${DAEMON_URL}'`)
       );

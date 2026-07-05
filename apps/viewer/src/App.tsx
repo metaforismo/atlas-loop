@@ -189,10 +189,11 @@ const ACTION_WAIT_PRESETS: ActionWaitPreset[] = [
 ];
 
 function useViewerParams(): ViewerParams {
-  const [params, setParams] = useState(() => readViewerParams(window.location.search));
+  const readCurrentParams = (): ViewerParams => readViewerParams(window.location.search, window.location.origin);
+  const [params, setParams] = useState(readCurrentParams);
 
   useEffect(() => {
-    const handlePopState = (): void => setParams(readViewerParams(window.location.search));
+    const handlePopState = (): void => setParams(readCurrentParams());
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
@@ -1745,7 +1746,7 @@ function HandoffCommandPreview({ preview }: { preview: AgentHandoffCommandPrevie
         </span>
       </div>
       <small>{preview.detail}</small>
-      <pre id={previewId} className="handoff-command-lines" role="region" aria-label={expanded ? "Expanded read-only handoff command lines" : "Visible read-only handoff command lines"}>
+      <pre id={previewId} className="handoff-command-lines" role="region" aria-label={expanded ? "Expanded local handoff command lines" : "Visible local handoff command lines"}>
         <code>
           {shownLines.map((line) => (
             <span key={line}>{line}</span>
@@ -1758,7 +1759,7 @@ function HandoffCommandPreview({ preview }: { preview: AgentHandoffCommandPrevie
           className="handoff-command-overflow"
           aria-controls={previewId}
           aria-expanded={expanded}
-          aria-label={expanded ? `Hide ${preview.hiddenLineCount} overflow read-only command lines` : `Show ${preview.hiddenLineCount} overflow read-only command lines`}
+          aria-label={expanded ? `Hide ${preview.hiddenLineCount} overflow local handoff command lines` : `Show ${preview.hiddenLineCount} overflow local handoff command lines`}
           onClick={() => setExpanded((current) => !current)}
         >
           {expanded ? "Collapse command preview" : `+${preview.hiddenLineCount} more lines: daemon checks`}

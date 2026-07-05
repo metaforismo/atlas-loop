@@ -100,6 +100,7 @@ npm run cli -- viewer url --session latest
 npm run cli -- evidence report --session latest --out artifacts/reports/<session-id>.md
 npm run cli -- evidence export --session latest --out artifacts/exports/<session-id>
 npm run cli -- events export --session latest --out artifacts/events/<session-id>.json
+npm run cli -- session handoff --session latest --bundle artifacts/handoffs/<session-id>
 ```
 
 Or use the aggregate command:
@@ -107,6 +108,7 @@ Or use the aggregate command:
 ```sh
 npm run cli -- session handoff --session latest
 npm run cli -- session handoff --session latest --format markdown --out artifacts/handoffs/<session-id>.md
+npm run cli -- session handoff --session latest --bundle artifacts/handoffs/<session-id>
 ```
 
 The handoff note should include the concrete session id, `storage.source`,

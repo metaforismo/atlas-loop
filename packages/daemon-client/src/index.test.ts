@@ -347,6 +347,7 @@ describe("DaemonClient", () => {
       blockingReasons: [],
       nextCommands: [
         "atlas-loop artifacts health --session sess_handoff --daemon-url http://127.0.0.1:4317",
+        "atlas-loop session handoff --session sess_handoff --bundle ./atlas-loop-handoffs/sess_handoff --viewer-base-url http://127.0.0.1:5173 --daemon-url http://127.0.0.1:4317",
         "atlas-loop evidence report --session sess_handoff --daemon-url http://127.0.0.1:4317",
         "atlas-loop evidence export --session sess_handoff --out ./atlas-loop-evidence/sess_handoff --daemon-url http://127.0.0.1:4317",
         "atlas-loop events export --session sess_handoff --out ./atlas-loop-events/sess_handoff.json --daemon-url http://127.0.0.1:4317",
@@ -363,6 +364,7 @@ describe("DaemonClient", () => {
     expect(note).toContain("- Latest screenshot: `/tmp/atlas-loop/sess-handoff/screenshots/latest.png`");
     expect(note).toContain("- Artifact health: ok (disk, sessions: 1, errors: 0, warnings: 0, issues: 0)");
     expect(note).toContain("- Latest action: `act_1` (passed)");
+    expect(note).toContain("atlas-loop session handoff --session sess_handoff --bundle ./atlas-loop-handoffs/sess_handoff --viewer-base-url http://127.0.0.1:5173 --daemon-url http://127.0.0.1:4317");
     expect(note).toContain("atlas-loop events export --session sess_handoff --out ./atlas-loop-events/sess_handoff.json --daemon-url http://127.0.0.1:4317");
   });
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env tsx
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { exportSessionArtifacts } from "@atlas-loop/artifacts";
@@ -90,6 +90,44 @@ interface LocalEvidenceExportMetadata {
   latestScreenshotPath: string | null;
   exportedLatestScreenshotPath: string | null;
   storage: SessionSummary["storage"];
+}
+
+interface SessionHandoffBundleFiles {
+  manifest: string;
+  handoffJson: string;
+  handoffMarkdown: string;
+  eventsJson: string | null;
+  evidenceReport: string | null;
+}
+
+interface SessionHandoffBundleManifest {
+  schemaVersion: "atlas-loop.handoff-bundle.v1";
+  sessionId: string;
+  requestedSessionId: string;
+  createdAt: string;
+  exportedAt: string;
+  ready: boolean;
+  localOnly: true;
+  uploaded: false;
+  viewerUrl: string;
+  artifactDir: string | null;
+  bundleDir: string;
+  files: SessionHandoffBundleFiles;
+  warnings: string[];
+}
+
+interface SessionHandoffBundleResult {
+  ok: true;
+  schemaVersion: SessionHandoffBundleManifest["schemaVersion"];
+  bundleDir: string;
+  manifestPath: string;
+  sessionId: string;
+  requestedSessionId: string;
+  ready: boolean;
+  localOnly: true;
+  uploaded: false;
+  files: SessionHandoffBundleFiles;
+  warnings: string[];
 }
 
 export interface ArtifactVerification {
@@ -205,11 +243,16 @@ export async function main(args: Args): Promise<number> {
     }
     if (subcommand === "handoff") {
       const format = handoffFormat(flags);
+      const bundleDir = handoffBundleDir(flags);
       const handoff = await buildSessionHandoff(client, {
         sessionId: requireFlag(flags, "session"),
         daemonUrl,
         viewerBaseUrl: stringFlag(flags, "viewer-base-url")
       });
+      if (bundleDir) {
+        await outputSessionHandoffBundle(client, handoff, bundleDir);
+        return 0;
+      }
       await outputSessionHandoff(handoff, flags, format);
       return 0;
     }
@@ -548,6 +591,90 @@ async function outputSessionHandoff(handoff: SessionHandoff, flags: Map<string, 
   });
 }
 
+async function outputSessionHandoffBundle(
+  client: EventClient & EvidenceClient,
+  handoff: SessionHandoff,
+  bundleDir: string
+): Promise<void> {
+  const createdAt = new Date().toISOString();
+  const manifestPath = join(bundleDir, "manifest.json");
+  const handoffJsonPath = join(bundleDir, "handoff.json");
+  const handoffMarkdownPath = join(bundleDir, "handoff.md");
+  const eventsJsonPath = join(bundleDir, "events.json");
+  const evidenceReportPath = join(bundleDir, "evidence-report.md");
+  const warnings: string[] = [];
+
+  await mkdir(bundleDir, { recursive: true });
+  await rm(eventsJsonPath, { force: true });
+  await rm(evidenceReportPath, { force: true });
+  await writeFile(handoffJsonPath, `${JSON.stringify(handoff, null, 2)}\n`, "utf8");
+  await writeFile(handoffMarkdownPath, buildSessionHandoffMarkdownNote(handoff), "utf8");
+
+  let eventsJson: string | null = eventsJsonPath;
+  try {
+    await exportSessionEvents(client, {
+      sessionId: handoff.sessionId,
+      outPath: eventsJsonPath
+    });
+  } catch (error) {
+    eventsJson = null;
+    warnings.push(`events.json unavailable: ${formatErrorMessage(error)}`);
+  }
+
+  let evidenceReport: string | null = evidenceReportPath;
+  try {
+    const evidence = await buildEvidenceReportData(client, {
+      sessionId: handoff.sessionId,
+      daemonUrl: handoff.daemonUrl,
+      viewerBaseUrl: handoff.viewerBaseUrl
+    });
+    await writeFile(evidenceReportPath, buildEvidenceMarkdownReport(evidence), "utf8");
+  } catch (error) {
+    evidenceReport = null;
+    warnings.push(`evidence-report.md unavailable: ${formatErrorMessage(error)}`);
+  }
+
+  const exportedAt = new Date().toISOString();
+  const files: SessionHandoffBundleFiles = {
+    manifest: manifestPath,
+    handoffJson: handoffJsonPath,
+    handoffMarkdown: handoffMarkdownPath,
+    eventsJson,
+    evidenceReport
+  };
+  const manifest: SessionHandoffBundleManifest = {
+    schemaVersion: "atlas-loop.handoff-bundle.v1",
+    sessionId: handoff.sessionId,
+    requestedSessionId: handoff.requestedSessionId,
+    createdAt,
+    exportedAt,
+    ready: handoff.ready,
+    localOnly: true,
+    uploaded: false,
+    viewerUrl: handoff.viewerUrl,
+    artifactDir: handoff.artifactDir,
+    bundleDir,
+    files,
+    warnings
+  };
+  await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+
+  const result: SessionHandoffBundleResult = {
+    ok: true,
+    schemaVersion: manifest.schemaVersion,
+    bundleDir,
+    manifestPath,
+    sessionId: manifest.sessionId,
+    requestedSessionId: manifest.requestedSessionId,
+    ready: manifest.ready,
+    localOnly: true,
+    uploaded: false,
+    files,
+    warnings
+  };
+  printJson(result);
+}
+
 export async function exportLocalEvidence(
   client: Pick<EvidenceClient, "getSessionSummary">,
   params: { sessionId: string; outDir: string }
@@ -781,6 +908,14 @@ function handoffFormat(flags: Map<string, string | boolean>): "json" | "markdown
   throw new Error("--format must be json or markdown");
 }
 
+function handoffBundleDir(flags: Map<string, string | boolean>): string | undefined {
+  const rawValue = flags.get("bundle");
+  if (rawValue === undefined) return undefined;
+  if (flags.has("out")) throw new Error("Use either --bundle or --out for session handoff, not both");
+  if (typeof rawValue !== "string" || rawValue.length === 0) throw new Error("Missing required --bundle");
+  return resolveLocalPath(rawValue, "handoff bundle path");
+}
+
 function normalizeEventLimit(value: number | undefined, label: string): number | undefined {
   if (value === undefined) return undefined;
   if (!Number.isInteger(value) || value < 0) throw new Error(`${label} must be a non-negative integer`);
@@ -813,6 +948,12 @@ function resolveLocalPath(path: string, label: string): string {
   return resolve(path);
 }
 
+function formatErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  return JSON.stringify(error);
+}
+
 function mapSourcePathToBundle(sourceDir: string, bundleDir: string, sourcePath: string): string | null {
   const resolvedPath = resolve(sourcePath);
   const relativePath = relative(sourceDir, resolvedPath);
@@ -840,6 +981,7 @@ Usage:
   atlas-loop session status --session <id|latest>
   atlas-loop session ready --session <id|latest>
   atlas-loop session handoff --session <id|latest> [--format json|markdown] [--out handoff.md]
+  atlas-loop session handoff --session <id|latest> --bundle <dir>
   atlas-loop session stop --session <id|latest>
   atlas-loop build --session <id|latest> --project <path> --scheme <scheme>
   atlas-loop install --session <id|latest> --app <path.app>
