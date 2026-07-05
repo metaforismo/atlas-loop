@@ -55,6 +55,7 @@ import { createSimulator, type RecordingHandle } from "@atlas-loop/simulator";
 import { validateArtifactTarget, type ValidationReport } from "../../../scripts/verify-artifacts.ts";
 import { deriveAtlasMap, loadHashCache, saveHashCache } from "@atlas-loop/atlas-map";
 import { XcuitestRunnerManager } from "@atlas-loop/xcuitest-client";
+import { parseLaunchPid, startMetricsSampler, type MetricsSample, type MetricsSamplerHandle } from "./metricsSampler.ts";
 import { createCgEventBackend } from "./backends/cgevent.ts";
 import { createXcuitestBackend, type XcuitestManagerLike } from "./backends/xcuitest.ts";
 import type { InputAction, InputBackend } from "./backends/types.ts";
@@ -68,6 +69,7 @@ export interface DaemonOptions {
   artifactRoot?: string;
   hidHelperPath?: string;
   autoScreenshot?: boolean;
+  metricsIntervalMs?: number;
   simulator?: SimulatorApi;
   hidClientFactory?: (options: HidClientOptions) => HidClient;
   xcuitestManagerFactory?: () => XcuitestManagerLike;
@@ -87,6 +89,7 @@ interface SessionState {
   source: "memory" | "disk";
   warnings: PersistedSessionWarning[];
   recording?: { handle: RecordingHandle; path: string; startedAt: string };
+  metrics?: { handle: MetricsSamplerHandle; path: string; startedAt: string };
 }
 
 interface DaemonState {
@@ -99,6 +102,7 @@ interface DaemonState {
   xcuitestManagerFactory: () => XcuitestManagerLike;
   xcuitestManager?: XcuitestManagerLike;
   xcuitestTargets: Map<string, string>;
+  metricsIntervalMs: number;
   sessions: Map<string, SessionState>;
 }
 
@@ -172,6 +176,7 @@ export async function startDaemonServer(options: DaemonOptions = {}): Promise<St
           portRange: config.driverPortRange
         })),
     xcuitestTargets: new Map(),
+    metricsIntervalMs: options.metricsIntervalMs ?? 1_000,
     sessions: new Map()
   };
 
@@ -354,6 +359,12 @@ async function handleRequest(state: DaemonState, request: IncomingMessage, respo
     if (request.method === "GET" && parts.length === 3 && parts[2] === "artifacts") {
       const sessionState = await resolveReadableSessionState(state, sessionId);
       sendJson(response, 200, { ok: true, data: sessionState.artifacts.map((artifact) => artifactWithContentUrl(baseUrl, artifact)) });
+      return;
+    }
+
+    if (request.method === "GET" && parts.length === 3 && parts[2] === "metrics") {
+      const sessionState = await resolveReadableSessionState(state, sessionId);
+      sendJson(response, 200, { ok: true, data: await readSessionMetrics(sessionState) });
       return;
     }
 
@@ -634,8 +645,117 @@ async function launchApp(state: DaemonState, sessionState: SessionState, request
     sessionState.session.app = { ...sessionState.session.app, bundleId: request.bundleId };
     await writeSession(sessionState.layout, sessionState.session);
     await setStatus(sessionState, "running");
+    await startSessionMetrics(state, sessionState, parseLaunchPid(result.stdout));
     return artifacts;
   });
+}
+
+async function startSessionMetrics(state: DaemonState, sessionState: SessionState, pid: number | undefined): Promise<void> {
+  // A re-launch replaces the previous sampler; its samples become evidence.
+  if (sessionState.metrics) {
+    await stopSessionMetrics(sessionState);
+  }
+  if (pid === undefined) return;
+
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const metricsPath = join(sessionState.layout.metadataDir, `metrics-${stamp}.jsonl`);
+  const startedAt = nowIso();
+  const handle = startMetricsSampler({
+    pid,
+    metricsPath,
+    intervalMs: state.metricsIntervalMs,
+    runCommand: async (command, args) => {
+      const result = await state.simulator.runCommand(command, args);
+      return { exitCode: result.exitCode, stdout: result.stdout };
+    },
+    onProcessExit: () => {
+      if (sessionState.metrics?.handle === handle) {
+        void finalizeSessionMetrics(sessionState);
+      }
+    }
+  });
+  sessionState.metrics = { handle, path: metricsPath, startedAt };
+}
+
+async function stopSessionMetrics(sessionState: SessionState): Promise<void> {
+  const metrics = sessionState.metrics;
+  if (!metrics) return;
+  await metrics.handle.stop();
+  await finalizeSessionMetrics(sessionState);
+}
+
+async function finalizeSessionMetrics(sessionState: SessionState): Promise<void> {
+  const metrics = sessionState.metrics;
+  if (!metrics) return;
+  sessionState.metrics = undefined;
+  if (metrics.handle.sampleCount() === 0) return;
+
+  try {
+    const artifact = await artifactFromPath(sessionState.layout, "metadata", metrics.path, {
+      kind: "performance-metrics",
+      pid: metrics.handle.pid,
+      sampleCount: metrics.handle.sampleCount(),
+      metricsStartedAt: metrics.startedAt
+    });
+    await addArtifact(sessionState, artifact);
+  } catch (error) {
+    await recordTrace(sessionState.layout, {
+      type: "error",
+      at: nowIso(),
+      sessionId: sessionState.session.id,
+      error: normalizeError(error, "ARTIFACT_WRITE_FAILED")
+    }).catch(() => undefined);
+  }
+}
+
+interface SessionMetricsView {
+  schemaVersion: "atlas-loop.metrics.v1";
+  sessionId: string;
+  active: boolean;
+  sampleCount: number;
+  samples: MetricsSample[];
+}
+
+async function readSessionMetrics(sessionState: SessionState): Promise<SessionMetricsView> {
+  const paths: string[] = [];
+  for (const artifact of sessionState.artifacts) {
+    if (artifact.type === "metadata" && artifact.metadata?.kind === "performance-metrics") {
+      paths.push(artifact.path);
+    }
+  }
+  if (sessionState.metrics && !paths.includes(sessionState.metrics.path)) {
+    paths.push(sessionState.metrics.path);
+  }
+
+  const samples: MetricsSample[] = [];
+  for (const path of paths) {
+    const safePath = await resolveContainedArtifactPath(sessionState.layout, "metadata", path);
+    if (!safePath) continue;
+    let text: string;
+    try {
+      text = await readFile(safePath, "utf8");
+    } catch {
+      continue;
+    }
+    for (const line of text.split(/\r?\n/)) {
+      if (!line.trim()) continue;
+      try {
+        const parsed = JSON.parse(line) as MetricsSample;
+        if (parsed.schemaVersion === "atlas-loop.metrics-sample.v1") samples.push(parsed);
+      } catch {
+        // Skip malformed sample lines; the rest of the series stays usable.
+      }
+    }
+  }
+  samples.sort((left, right) => left.at.localeCompare(right.at));
+
+  return {
+    schemaVersion: "atlas-loop.metrics.v1",
+    sessionId: sessionState.session.id,
+    active: Boolean(sessionState.metrics),
+    sampleCount: samples.length,
+    samples
+  };
 }
 
 async function performAction(
@@ -1394,6 +1514,9 @@ async function setStatus(sessionState: SessionState, status: SessionStatus): Pro
     } catch {
       // The stop failure is already recorded as a video.stopped trace event.
     }
+  }
+  if ((status === "ended" || status === "failed") && sessionState.metrics) {
+    await stopSessionMetrics(sessionState);
   }
   const from = sessionState.session.status;
   sessionState.session = {

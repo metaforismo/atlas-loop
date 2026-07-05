@@ -873,6 +873,113 @@ describe("daemon artifact content route", () => {
   });
 });
 
+describe("daemon performance metrics", () => {
+  function metricsSimulator(options: { psOutput?: string; psFailsAfter?: number } = {}) {
+    const simulator = fakeSimulator();
+    let psCalls = 0;
+    const originalRunCommand = simulator.runCommand;
+    simulator.launch = async () => ({
+      command: "xcrun",
+      args: ["simctl", "launch"],
+      stdout: "app.atlasloop.CommerceDemo: 12345\n",
+      stderr: "",
+      exitCode: 0,
+      durationMs: 1
+    });
+    simulator.runCommand = async (command: string, args: string[] = []) => {
+      if (command === "ps") {
+        psCalls += 1;
+        if (options.psFailsAfter !== undefined && psCalls > options.psFailsAfter) {
+          return { command, args, stdout: "", stderr: "no such process", exitCode: 1, durationMs: 1 };
+        }
+        return { command, args, stdout: options.psOutput ?? " 12.5  50000\n", stderr: "", exitCode: 0, durationMs: 1 };
+      }
+      return originalRunCommand(command, args);
+    };
+    return simulator;
+  }
+
+  async function metricsDaemon(simulator: SimulatorApi) {
+    const artifactRoot = await mkdtemp(join(tmpdir(), "atlas-loop-metrics-"));
+    tempDirs.push(artifactRoot);
+    const daemon = await startDaemonServer({
+      port: 0,
+      artifactRoot,
+      autoScreenshot: false,
+      metricsIntervalMs: 20,
+      simulator
+    });
+    startedDaemons.push(daemon);
+
+    const created = await requestJson<{ id: string }>(daemon.url, "/sessions", {
+      method: "POST",
+      body: JSON.stringify({ simulator: { name: "iPhone 16" } })
+    });
+    await requestJson(daemon.url, `/sessions/${created.id}/launch`, {
+      method: "POST",
+      body: JSON.stringify({ bundleId: "app.atlasloop.CommerceDemo" })
+    });
+    return { daemon, sessionId: created.id };
+  }
+
+  it("samples the launched app and registers a metrics artifact on session end", async () => {
+    const { daemon, sessionId } = await metricsDaemon(metricsSimulator());
+
+    await new Promise((resolvePause) => setTimeout(resolvePause, 120));
+    const live = await requestJson<Record<string, any>>(daemon.url, `/sessions/${sessionId}/metrics`);
+    expect(live.active).toBe(true);
+    expect(live.sampleCount).toBeGreaterThan(0);
+    expect(live.samples[0]).toMatchObject({
+      schemaVersion: "atlas-loop.metrics-sample.v1",
+      pid: 12345,
+      cpuPercent: 12.5,
+      rssBytes: 50000 * 1024
+    });
+
+    await requestJson(daemon.url, `/sessions/${sessionId}/end`, { method: "POST" });
+
+    const artifacts = await requestJson<Array<Record<string, any>>>(daemon.url, `/sessions/${sessionId}/artifacts`);
+    const metricsArtifact = artifacts.find((artifact) => artifact.metadata?.kind === "performance-metrics");
+    expect(metricsArtifact).toBeDefined();
+    expect(metricsArtifact!.metadata.pid).toBe(12345);
+    expect(metricsArtifact!.metadata.sampleCount).toBeGreaterThan(0);
+
+    const after = await requestJson<Record<string, any>>(daemon.url, `/sessions/${sessionId}/metrics`);
+    expect(after.active).toBe(false);
+    expect(after.sampleCount).toBeGreaterThan(0);
+  });
+
+  it("stops sampling on its own when the process disappears and keeps collected evidence", async () => {
+    const { daemon, sessionId } = await metricsDaemon(metricsSimulator({ psFailsAfter: 2 }));
+
+    await new Promise((resolvePause) => setTimeout(resolvePause, 200));
+    const view = await requestJson<Record<string, any>>(daemon.url, `/sessions/${sessionId}/metrics`);
+    expect(view.active).toBe(false);
+    expect(view.sampleCount).toBe(2);
+
+    const artifacts = await requestJson<Array<Record<string, any>>>(daemon.url, `/sessions/${sessionId}/artifacts`);
+    expect(artifacts.some((artifact) => artifact.metadata?.kind === "performance-metrics")).toBe(true);
+  });
+
+  it("does not sample when the launch output has no pid", async () => {
+    const simulator = metricsSimulator();
+    simulator.launch = async () => ({
+      command: "xcrun",
+      args: ["simctl", "launch"],
+      stdout: "",
+      stderr: "",
+      exitCode: 0,
+      durationMs: 1
+    });
+    const { daemon, sessionId } = await metricsDaemon(simulator);
+
+    await new Promise((resolvePause) => setTimeout(resolvePause, 80));
+    const view = await requestJson<Record<string, any>>(daemon.url, `/sessions/${sessionId}/metrics`);
+    expect(view.active).toBe(false);
+    expect(view.sampleCount).toBe(0);
+  });
+});
+
 describe("daemon atlas map surface", () => {
   async function atlasDaemon() {
     const tempRoot = await mkdtemp(join(tmpdir(), "atlas-loop-map-route-"));
