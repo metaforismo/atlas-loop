@@ -157,7 +157,9 @@ evidence-only.
 The shortcut command is `atlas-loop session handoff --session latest`. It
 aggregates the readiness, health, viewer URL, blockers, and copy-paste next
 commands that otherwise come from the explicit commands above, including a raw
-event export for agent-readable trace handoff. See
+event export for agent-readable trace handoff. JSON remains the default output;
+use `--format markdown` for a readable local note and `--out <path>` to persist
+the selected output. See
 [docs/handoff-workflow.md](docs/handoff-workflow.md) for the full local
 handoff checklist. The handoff output is a local operator note, not a share
 link or hosted workspace.
@@ -193,6 +195,7 @@ atlas-loop events export --session <id|latest> --out events.json [--type action.
 atlas-loop evidence --session <id>
 atlas-loop evidence report --session <id> [--out report.md]
 atlas-loop evidence export --session <id> --out <dir>
+atlas-loop session handoff --session <id|latest> [--format json|markdown] [--out handoff.md]
 atlas-loop viewer url --session <id>
 atlas-loop viewer open --session <id> [--launch]
 atlas-loop session stop --session <id>
@@ -335,9 +338,10 @@ screenshots or logs from local apps.
 
 For agent/operator handoff notes, include the resolved session id, whether the
 session came from memory or disk, the viewer URL, artifact health warnings or
-errors, and any evidence report or export path. Keep the note explicit about
-host-gated input behavior so a launch-argument smoke proof is not mistaken for
-primitive HID success.
+errors, and any evidence report or export path. `session handoff --session
+latest --format markdown --out artifacts/handoffs/<session-id>.md` writes this
+note locally. Keep the note explicit about host-gated input behavior so a
+launch-argument smoke proof is not mistaken for primitive HID success.
 
 ## Verification
 

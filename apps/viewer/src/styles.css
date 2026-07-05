@@ -806,27 +806,29 @@ h2 {
 }
 
 .inspector {
-  display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   gap: 14px;
   padding: 14px;
   overflow-y: auto;
 }
 
 .inspector-section {
+  flex: 0 0 auto;
   min-width: 0;
 }
 
 .session-overview {
   display: grid;
   align-content: start;
-  min-height: 0;
+  min-height: max-content;
 }
 
 .artifact-section {
   display: grid;
+  flex: 1 0 auto;
   grid-template-rows: auto auto minmax(0, 1fr);
-  min-height: 0;
+  min-height: 220px;
 }
 
 .meta-grid {
@@ -1063,6 +1065,98 @@ h2 {
 
 .handoff-copy-status.failed {
   color: var(--bad);
+}
+
+.handoff-command-preview {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  border: 1px solid rgba(91, 111, 128, 0.34);
+  border-left: 3px solid rgba(74, 179, 216, 0.72);
+  border-radius: 8px;
+  padding: 8px;
+  background: rgba(8, 12, 17, 0.74);
+}
+
+.handoff-command-preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.handoff-command-preview-head strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--soft);
+  font-size: 11px;
+  font-weight: 780;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.handoff-command-preview-head span,
+.handoff-command-preview > small {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.handoff-command-preview-head span {
+  flex: 0 0 auto;
+  font-family: "SF Mono", SFMono-Regular, ui-monospace, Menlo, Consolas, monospace;
+}
+
+.handoff-command-lines {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
+  overflow: hidden;
+  color: #d4e5eb;
+  font-family: "SF Mono", SFMono-Regular, ui-monospace, Menlo, Consolas, monospace;
+  font-size: 10px;
+  line-height: 1.42;
+  white-space: pre-wrap;
+}
+
+.handoff-command-lines code,
+.handoff-command-lines span {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.handoff-command-lines span {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.handoff-command-overflow {
+  justify-self: start;
+  min-width: 0;
+  border: 1px solid rgba(91, 111, 128, 0.42);
+  border-radius: 6px;
+  padding: 5px 7px;
+  overflow: hidden;
+  background: rgba(21, 26, 34, 0.72);
+  color: var(--soft);
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 760;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  transition:
+    background 180ms ease,
+    border-color 180ms ease;
+  white-space: nowrap;
+}
+
+.handoff-command-overflow:hover {
+  border-color: rgba(143, 216, 242, 0.58);
+  background: rgba(74, 179, 216, 0.1);
 }
 
 .handoff-signal-grid {
@@ -2475,6 +2569,12 @@ h2 {
   .handoff-notices ul {
     max-height: none;
     overflow: visible;
+  }
+
+  .handoff-command-overflow {
+    max-width: 100%;
+    text-align: left;
+    white-space: normal;
   }
 
   .empty-state.horizontal {

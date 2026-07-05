@@ -108,6 +108,15 @@ export interface AgentHandoffCopyPayload {
   value: string;
 }
 
+export interface AgentHandoffCommandPreview {
+  label: string;
+  detail: string;
+  visibleLines: string[];
+  hiddenLines: string[];
+  hiddenLineCount: number;
+  totalLineCount: number;
+}
+
 export interface AgentHandoffBrief {
   readiness: AgentHandoffReadiness;
   title: string;
@@ -120,6 +129,7 @@ export interface AgentHandoffBrief {
   notices: AgentHandoffNotice[];
   nextSteps: string[];
   copyPayloads: AgentHandoffCopyPayload[];
+  commandPreview: AgentHandoffCommandPreview | undefined;
 }
 
 export interface AgentHandoffInput {
@@ -468,6 +478,7 @@ export function buildAgentHandoffBrief(input: AgentHandoffInput): AgentHandoffBr
     notices,
     nextSteps
   );
+  const commandPreview = agentHandoffCommandPreview(copyPayloads.find((payload) => payload.id === "commands")?.value);
 
   return {
     readiness,
@@ -480,7 +491,8 @@ export function buildAgentHandoffBrief(input: AgentHandoffInput): AgentHandoffBr
     latestAction,
     notices: visibleNotices,
     nextSteps,
-    copyPayloads
+    copyPayloads,
+    commandPreview
   };
 }
 
@@ -924,6 +936,27 @@ function agentHandoffCommands(input: AgentHandoffInput, resolvedSessionId: strin
     "# Read-only local daemon checks",
     ...endpoints.map((endpoint) => `curl -fsS ${shellSingleQuote(endpoint)}`)
   ].join("\n");
+}
+
+function agentHandoffCommandPreview(value: string | undefined): AgentHandoffCommandPreview | undefined {
+  const lines = (value ?? "")
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .filter((line) => line.length > 0);
+
+  if (lines.length === 0) return undefined;
+
+  const visibleLines = lines.slice(0, 5);
+  const hiddenLines = lines.slice(visibleLines.length);
+
+  return {
+    label: "Read-only local command preview",
+    detail: "CLI exports and daemon GET checks",
+    visibleLines,
+    hiddenLines,
+    hiddenLineCount: hiddenLines.length,
+    totalLineCount: lines.length
+  };
 }
 
 function numberedLines(items: string[]): string {

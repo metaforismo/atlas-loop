@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { CSSProperties, FormEvent, KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
 import {
   fetchArtifactHealth,
@@ -53,6 +53,7 @@ import {
   timelineFilterOptions,
   visibleArtifactHealth,
   type AgentHandoffBrief,
+  type AgentHandoffCommandPreview,
   type AgentHandoffCopyPayload,
   type ArtifactHealthStatus,
   type TimelineFilter,
@@ -1667,6 +1668,8 @@ function AgentHandoffPanel({ brief }: { brief: AgentHandoffBrief }) {
         {copyStatus}
       </p>
 
+      {brief.commandPreview ? <HandoffCommandPreview preview={brief.commandPreview} /> : null}
+
       <div className="handoff-signal-grid">
         <HandoffSignal
           label="Screenshot"
@@ -1717,6 +1720,50 @@ function AgentHandoffPanel({ brief }: { brief: AgentHandoffBrief }) {
           ))}
         </ul>
       </div>
+    </section>
+  );
+}
+
+function HandoffCommandPreview({ preview }: { preview: AgentHandoffCommandPreview }) {
+  const [expanded, setExpanded] = useState(false);
+  const previewId = useId();
+  const headingId = useId();
+  const previewKey = [...preview.visibleLines, ...preview.hiddenLines].join("\x1f");
+  const shownLines = expanded ? [...preview.visibleLines, ...preview.hiddenLines] : preview.visibleLines;
+  const hasOverflow = preview.hiddenLineCount > 0;
+
+  useEffect(() => {
+    setExpanded(false);
+  }, [previewKey]);
+
+  return (
+    <section className="handoff-command-preview" aria-labelledby={headingId}>
+      <div className="handoff-command-preview-head">
+        <strong id={headingId}>{preview.label}</strong>
+        <span>
+          {shownLines.length}/{preview.totalLineCount} lines
+        </span>
+      </div>
+      <small>{preview.detail}</small>
+      <pre id={previewId} className="handoff-command-lines" role="region" aria-label={expanded ? "Expanded read-only handoff command lines" : "Visible read-only handoff command lines"}>
+        <code>
+          {shownLines.map((line) => (
+            <span key={line}>{line}</span>
+          ))}
+        </code>
+      </pre>
+      {hasOverflow ? (
+        <button
+          type="button"
+          className="handoff-command-overflow"
+          aria-controls={previewId}
+          aria-expanded={expanded}
+          aria-label={expanded ? `Hide ${preview.hiddenLineCount} overflow read-only command lines` : `Show ${preview.hiddenLineCount} overflow read-only command lines`}
+          onClick={() => setExpanded((current) => !current)}
+        >
+          {expanded ? "Collapse command preview" : `+${preview.hiddenLineCount} more lines: daemon checks`}
+        </button>
+      ) : null}
     </section>
   );
 }
