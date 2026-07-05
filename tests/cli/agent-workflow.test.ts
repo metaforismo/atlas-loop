@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { buildEvidenceSummary, buildSessionReadiness, buildViewerUrl, main } from "../../apps/cli/src/index.ts";
+import { startDaemonServer } from "../../apps/daemon/src/server.ts";
 import type { SessionSummary } from "@atlas-loop/daemon-client";
 import type { SessionHandoffBundleVerification } from "@atlas-loop/artifacts";
 import type { ArtifactRef, Session, TraceEvent } from "@atlas-loop/protocol";
@@ -312,6 +313,96 @@ describe("CLI agent workflow helpers", () => {
       body: { action: { kind: "assertVisible", identifier: "confirmation" } }
     });
     expect(captured).toHaveLength(3);
+  });
+
+  it("writes a self-contained HTML evidence report from live daemon evidence", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "atlas-loop-cli-html-"));
+    const artifactRoot = join(tempDir, "artifacts", "sessions");
+    const originalCwd = process.cwd();
+    const originalLog = console.log;
+    const logged: string[] = [];
+
+    const daemon = await startDaemonServer({
+      port: 0,
+      artifactRoot,
+      autoScreenshot: false,
+      simulator: {
+        runCommand: async (command: string, args: string[] = []) => ({ command, args, stdout: "", stderr: "", exitCode: 0, durationMs: 1 }),
+        doctor: async () => ({ ok: true, checks: [] }),
+        build: async () => ({ command: "xcodebuild", args: [], stdout: "", stderr: "", exitCode: 0, durationMs: 1 }),
+        boot: async () => ({ command: "xcrun", args: [], stdout: "", stderr: "", exitCode: 0, durationMs: 1 }),
+        install: async () => ({ command: "xcrun", args: [], stdout: "", stderr: "", exitCode: 0, durationMs: 1 }),
+        launch: async () => ({ command: "xcrun", args: [], stdout: "", stderr: "", exitCode: 0, durationMs: 1 }),
+        screenshot: async ({ outputPath }: { outputPath: string }) => {
+          await writeFile(outputPath, Buffer.from("fake html report png"));
+          return { command: "xcrun", args: [], stdout: "", stderr: "", exitCode: 0, durationMs: 1 };
+        },
+        recordVideo: async () => ({ command: "xcrun", args: [], stdout: "", stderr: "", exitCode: 0, durationMs: 1 }),
+        startRecordVideo: ({ outputPath }: { outputPath: string }) => {
+          let resolveDone: (value: unknown) => void = () => undefined;
+          const done = new Promise((resolveInner) => {
+            resolveDone = resolveInner;
+          });
+          return {
+            pid: 999,
+            startedAt: new Date().toISOString(),
+            done,
+            stop: async () => {
+              await writeFile(outputPath, Buffer.from("fake mp4"));
+              const result = { command: "xcrun", args: [], stdout: "", stderr: "", exitCode: 0, durationMs: 1 };
+              resolveDone(result);
+              return result;
+            }
+          };
+        },
+        version: async () => ({
+          xcodebuild: { command: "xcodebuild", args: [], stdout: "", stderr: "", exitCode: 0, durationMs: 1 },
+          simctl: { command: "xcrun", args: [], stdout: "", stderr: "", exitCode: 0, durationMs: 1 }
+        })
+      } as never
+    });
+
+    console.log = (value?: unknown) => {
+      logged.push(String(value));
+    };
+
+    try {
+      await writeFile(join(tempDir, "atlas-loop.config.json"), JSON.stringify({ daemonUrl: daemon.url }));
+      process.chdir(tempDir);
+
+      const createResponse = await fetch(`${daemon.url}/v1/sessions`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ simulator: { name: "iPhone 16" }, record: true })
+      });
+      const created = (await createResponse.json() as { data: { id: string } }).data;
+      await fetch(`${daemon.url}/v1/sessions/${created.id}/screenshot`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ reason: "html-report" })
+      });
+      await fetch(`${daemon.url}/v1/sessions/${created.id}/end`, { method: "POST" });
+
+      const reportPath = join(tempDir, "reports", "evidence.html");
+      await expect(main(["evidence", "report", "--session", created.id, "--format", "html", "--out", reportPath])).resolves.toBe(0);
+
+      const html = await readFile(reportPath, "utf8");
+      expect(html.startsWith("<!doctype html>")).toBe(true);
+      expect(html).toContain("data:image/png;base64,");
+      expect(html).toContain(created.id);
+      expect(html).not.toMatch(/src="https?:\/\//);
+      expect(html).toContain('src="../artifacts/sessions/');
+
+      const summary = JSON.parse(logged.at(-1) ?? "{}");
+      expect(summary).toMatchObject({ ok: true, format: "html", screenshotCount: 1 });
+
+      await expect(main(["evidence", "report", "--session", created.id, "--format", "bogus"])).rejects.toThrow(/--format must be markdown or html/);
+    } finally {
+      process.chdir(originalCwd);
+      console.log = originalLog;
+      await daemon.close();
+      await rm(tempDir, { recursive: true, force: true });
+    }
   });
 
   it("prints session history and alias results through the configured daemon URL", async () => {

@@ -17,6 +17,8 @@ import {
 import { createSimulator } from "@atlas-loop/simulator";
 import { loadConfig } from "@atlas-loop/config";
 import {
+  buildEvidenceHtmlReport,
+  collectEvidenceHtmlAssets,
   buildEvidenceMarkdownReport,
   buildSessionHandoff,
   buildSessionHandoffMarkdownNote,
@@ -455,11 +457,19 @@ export async function main(args: Args): Promise<number> {
       return 0;
     }
     if (subcommand === "report" || stringFlag(flags, "_0") === "report") {
+      const format = stringFlag(flags, "format") ?? "markdown";
+      if (format !== "markdown" && format !== "html") {
+        throw new Error("--format must be markdown or html");
+      }
       const evidence = await buildEvidenceReportData(client, {
         sessionId: requireFlag(flags, "session"),
         daemonUrl,
         viewerBaseUrl
       });
+      if (format === "html") {
+        await outputEvidenceHtmlReport(client, evidence, flags);
+        return 0;
+      }
       await outputEvidenceReport(evidence, flags);
       return 0;
     }
@@ -616,6 +626,47 @@ export async function buildEvidenceReportData(
     viewerUrl: buildViewerUrl({ daemonUrl: params.daemonUrl, sessionId, viewerBaseUrl }),
     latestScreenshot,
     artifactHighlights
+  });
+}
+
+async function outputEvidenceHtmlReport(
+  client: DaemonClient,
+  evidence: EvidenceReportData,
+  flags: Map<string, string | boolean>
+): Promise<void> {
+  const outPath = stringFlag(flags, "out");
+  const reportPath = outPath ? resolve(outPath) : undefined;
+  const [artifacts, events, metrics] = await Promise.all([
+    client.listArtifacts(evidence.sessionId),
+    client.events(evidence.sessionId),
+    client.getSessionMetrics(evidence.sessionId).catch(() => ({ active: false, sampleCount: 0, samples: [] }))
+  ]);
+
+  const assets = await collectEvidenceHtmlAssets({
+    artifacts,
+    events,
+    metrics: metrics.samples,
+    maxScreenshots: integerFlag(flags, "max-screenshots") ?? 20,
+    readFile: (path) => readFile(path),
+    videoPathResolver: (path) => (reportPath ? relative(dirname(reportPath), path) : path)
+  });
+  const html = buildEvidenceHtmlReport(evidence, assets, { generatedAt: new Date().toISOString() });
+
+  if (!reportPath) {
+    console.log(html);
+    return;
+  }
+
+  await mkdir(dirname(reportPath), { recursive: true });
+  await writeFile(reportPath, html, "utf8");
+  printJson({
+    ok: true,
+    format: "html",
+    reportPath,
+    sessionId: evidence.sessionId,
+    screenshotCount: assets.screenshots.length,
+    truncatedScreenshots: assets.truncatedScreenshots,
+    videoRelativePath: assets.videoRelativePath ?? null
   });
 }
 
@@ -1224,7 +1275,7 @@ Usage:
   atlas-loop events list --session <id|latest> [--type action.completed] [--limit 20]
   atlas-loop events export --session <id|latest> --out events.json [--type action.completed] [--limit 20]
   atlas-loop evidence --session <id|latest>
-  atlas-loop evidence report --session <id|latest> [--out report.md]
+  atlas-loop evidence report --session <id|latest> [--out report.md] [--format markdown|html] [--max-screenshots 20]
   atlas-loop evidence export --session <id|latest> --out <dir>
   atlas-loop viewer url --session <id|latest>
   atlas-loop viewer open --session <id|latest> [--launch]

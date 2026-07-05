@@ -1,11 +1,13 @@
 #!/usr/bin/env tsx
 import { createInterface } from "node:readline";
-import { mkdir, writeFile } from "node:fs/promises";
+import { readFile, mkdir, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { exportSessionArtifacts, verifySessionHandoffBundle } from "@atlas-loop/artifacts";
 import { loadConfig as loadAtlasLoopConfig } from "@atlas-loop/config";
 import {
+  buildEvidenceHtmlReport,
+  collectEvidenceHtmlAssets,
   buildEvidenceMarkdownReport,
   buildSessionHandoff,
   type CompactEvidenceSummary,
@@ -43,6 +45,7 @@ interface McpDaemonClient {
   latestScreenshot(sessionId: string): Promise<Partial<ArtifactRef>>;
   endSession(sessionId: string): Promise<unknown>;
   getAtlasMap?(rebuild?: boolean): Promise<unknown>;
+  getSessionMetrics?(sessionId: string): Promise<{ samples: Array<{ at: string; cpuPercent: number; rssBytes: number }> }>;
   startRecording?(sessionId: string): Promise<unknown>;
   stopRecording?(sessionId: string): Promise<unknown>;
   build(sessionId: string, request: unknown): Promise<unknown>;
@@ -237,11 +240,13 @@ export const tools = [
   },
   {
     name: "atlas.getEvidenceReport",
-    description: "Return compact evidence plus a paste-ready Markdown report.",
+    description: "Return compact evidence plus a paste-ready report (Markdown, or a self-contained HTML file with inlined screenshots).",
     inputSchema: objectSchema(["sessionId"], {
       sessionId: { type: "string", description: "Session id or latest." },
       daemonUrl: { type: "string", description: "Optional daemon URL override." },
-      viewerBaseUrl: { type: "string", description: "Optional viewer app base URL override." }
+      viewerBaseUrl: { type: "string", description: "Optional viewer app base URL override." },
+      format: { type: "string", enum: ["markdown", "html"], description: "Report format; html inlines screenshots as data URIs." },
+      maxScreenshots: { type: "number", minimum: 0, description: "Cap on inlined screenshots for html (default 20)." }
     })
   },
   {
@@ -620,11 +625,28 @@ async function getEvidenceReport(
   client: McpDaemonClient,
   args: Record<string, unknown>,
   runtime: ToolRuntime
-): Promise<{ evidence: EvidenceReportData; report: string }> {
+): Promise<{ evidence: EvidenceReportData; report: string; format: "markdown" | "html" }> {
+  const format = args.format === "html" ? "html" : "markdown";
   const evidence = await getEvidenceReportData(client, args, runtime);
+  if (format === "html") {
+    const [artifacts, events, metrics] = await Promise.all([
+      client.listArtifacts(evidence.sessionId) as Promise<import("@atlas-loop/protocol").ArtifactRef[]>,
+      client.events(evidence.sessionId),
+      client.getSessionMetrics?.(evidence.sessionId).catch(() => ({ samples: [] })) ?? Promise.resolve({ samples: [] })
+    ]);
+    const assets = await collectEvidenceHtmlAssets({
+      artifacts,
+      events,
+      metrics: metrics.samples,
+      maxScreenshots: typeof args.maxScreenshots === "number" ? args.maxScreenshots : 20,
+      readFile: (path) => readFile(path)
+    });
+    return { evidence, report: buildEvidenceHtmlReport(evidence, assets), format };
+  }
   return {
     evidence,
-    report: buildEvidenceMarkdownReport(evidence)
+    report: buildEvidenceMarkdownReport(evidence),
+    format
   };
 }
 
