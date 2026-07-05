@@ -12,6 +12,7 @@ final class AtlasDriverRunnerTests: XCTestCase {
         let port = UInt16(environment["ATLAS_DRIVER_PORT"] ?? "") ?? 4700
 
         let server = DriverHTTPServer(port: port)
+        server.controller = DriverController()
         let shutdownExpectation = expectation(description: "atlas-driver-shutdown")
         server.onShutdown = { shutdownExpectation.fulfill() }
 
