@@ -141,6 +141,8 @@ export interface ArtifactRef {
   createdAt: string;
   sha256?: string;
   metadata?: Record<string, unknown>;
+  /** Daemon content URL, populated at response-serialization time only; never persisted to disk. */
+  url?: string;
 }
 
 export interface ActionResult {
