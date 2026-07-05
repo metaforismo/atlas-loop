@@ -203,7 +203,8 @@ export async function main(args: Args): Promise<number> {
           name: stringFlag(flags, "simulator"),
           udid: stringFlag(flags, "udid")
         },
-        viewer: booleanFlag(flags, "viewer")
+        viewer: booleanFlag(flags, "viewer"),
+        inputBackend: inputBackendFlag(flags)
       });
       printJson(session);
       return 0;
@@ -285,6 +286,22 @@ export async function main(args: Args): Promise<number> {
 
   if (command === "type") {
     return action(client, flags, { kind: "typeText", text: requireFlag(flags, "text") });
+  }
+
+  if (command === "tap-element") {
+    return action(client, flags, {
+      kind: "tapElement",
+      identifier: identifierFlag(flags),
+      timeoutMs: numberFlag(flags, "timeout-ms")
+    } as ActionInput);
+  }
+
+  if (command === "assert-visible") {
+    return action(client, flags, {
+      kind: "assertVisible",
+      identifier: identifierFlag(flags),
+      timeoutMs: numberFlag(flags, "timeout-ms")
+    } as ActionInput);
   }
 
   if (command === "swipe") {
@@ -944,6 +961,21 @@ function numberFlagRequired(flags: Map<string, string | boolean>, name: string):
   return value;
 }
 
+function inputBackendFlag(flags: Map<string, string | boolean>): "cgevent" | "xcuitest" | undefined {
+  const value = stringFlag(flags, "input-backend");
+  if (value === undefined) return undefined;
+  if (value !== "cgevent" && value !== "xcuitest") {
+    throw new Error("--input-backend must be cgevent or xcuitest");
+  }
+  return value;
+}
+
+function identifierFlag(flags: Map<string, string | boolean>): string {
+  const value = stringFlag(flags, "id") ?? stringFlag(flags, "identifier");
+  if (!value) throw new Error("Missing required --id (accessibility identifier)");
+  return value;
+}
+
 function integerFlag(flags: Map<string, string | boolean>, name: string): number | undefined {
   if (flags.has(name) && typeof flags.get(name) !== "string") {
     throw new Error(`--${name} must be a non-negative integer`);
@@ -1086,7 +1118,7 @@ function printHelp(): void {
 Usage:
   atlas-loop doctor
   atlas-loop daemon start --port 4317
-  atlas-loop session start --simulator "iPhone 16" [--viewer]
+  atlas-loop session start --simulator "iPhone 16" [--viewer] [--input-backend cgevent|xcuitest]
   atlas-loop session list [--json]
   atlas-loop session history [--limit 20]
   atlas-loop session latest
@@ -1100,6 +1132,8 @@ Usage:
   atlas-loop install --session <id|latest> --app <path.app>
   atlas-loop launch --session <id|latest> --bundle-id <bundle>
   atlas-loop tap --session <id|latest> --x 0.5 --y 0.5
+  atlas-loop tap-element --session <id|latest> --id cart.continue [--timeout-ms 5000]
+  atlas-loop assert-visible --session <id|latest> --id confirmation [--timeout-ms 5000]
   atlas-loop type --session <id|latest> --text "Ada Lovelace"
   atlas-loop swipe --session <id|latest> --from 0.5,0.8 --to 0.5,0.2 --duration-ms 350
   atlas-loop edge --session <id|latest> --edge left --distance 0.75 --duration-ms 350
