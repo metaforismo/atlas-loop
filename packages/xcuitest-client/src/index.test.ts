@@ -224,7 +224,7 @@ describe("xcuitest runner manager", () => {
     });
   });
 
-  it("marks the runner dead and raises retryable DRIVER_UNAVAILABLE on network failure", async () => {
+  it("marks the runner dead, kills the child, and raises retryable DRIVER_UNAVAILABLE on network failure", async () => {
     const world = makeWorld();
 
     await world.manager.ensureRunner("SIM-A");
@@ -235,6 +235,7 @@ describe("xcuitest runner manager", () => {
       retryable: true
     });
     expect(world.manager.runnerStatus("SIM-A")?.alive).toBe(false);
+    expect(world.spawned[0].process.killed).toBe(true);
   });
 
   it("forwards the target bundle id through /target", async () => {

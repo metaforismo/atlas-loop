@@ -69,25 +69,39 @@ That turns host-gated skips into failures.
 
 ## Native Input Proof
 
-The v1 CGEvent backend needs a visible Simulator window and Accessibility
-permission for the helper process. A demo-route screenshot proves launch state;
-it does not prove primitive tap/type/swipe input was consumed by the guest app.
+The headless proof is the xcuitest checkout-by-tap smoke:
 
-For native helper protocol compatibility without a booted Simulator:
+```sh
+ATLAS_LOOP_SMOKE_INPUT_BACKEND=xcuitest npm run smoke:ios
+```
+
+It drives the demo checkout end to end with real element taps through the
+XCUITest driver runner (no Simulator window or Accessibility permission),
+asserts each screen by accessibility identifier, captures per-step
+screenshots, and verifies that every `metadata/input-action-*.json` artifact
+records `inputBackend: "xcuitest"`. Set `ATLAS_LOOP_SMOKE_UDID` to pin a
+booted simulator when several are running.
+
+The CGEvent backend remains host-gated: it needs a visible Simulator window
+and Accessibility permission for the helper process, and a demo-route
+screenshot only proves launch state, not consumed input.
+
+For protocol compatibility checks without a booted Simulator:
 
 ```sh
 swift build --package-path native/ios-hid-helper
 node scripts/check-hid-helper-protocol.mjs native/ios-hid-helper/.build/debug/ios-hid-helper
+node scripts/check-driver-runner-protocol.mjs --url http://127.0.0.1:4700   # against a running runner
 ```
 
-For a real primitive-input proof, include the host setup in the PR notes:
+For a CGEvent primitive-input proof, include the host setup in the PR notes:
 
 - Simulator model and runtime.
 - Whether the Simulator window was visible.
 - Whether Accessibility permission was granted.
 - CLI or MCP actions issued.
 - Latest screenshot path and artifact health result.
-- Any HID metadata artifact path under `metadata/`.
+- Any input-action metadata artifact path under `metadata/`.
 
 ## Evidence And Handoff Checklist
 

@@ -44,23 +44,46 @@ export function createXcuitestBackend(options: XcuitestBackendOptions): InputBac
       }
 
       const udid = await options.resolveUdid(session);
-      const status = await options.manager.ensureRunner(udid);
-      if (options.targets.get(udid) !== bundleId) {
-        await options.manager.setTarget(udid, bundleId);
-        options.targets.set(udid, bundleId);
-      }
+      const drive = async (): Promise<Record<string, unknown>> => {
+        const status = await options.manager.ensureRunner(udid);
+        // The target must be re-sent whenever a fresh runner process starts,
+        // so the recorded key is tied to the runner generation, not just udid.
+        const targetKey = `${bundleId}#${status.restarts}#${status.port}`;
+        if (options.targets.get(udid) !== targetKey) {
+          await options.manager.setTarget(udid, bundleId);
+          options.targets.set(udid, targetKey);
+        }
 
-      const driverData = await options.manager.performAction(udid, actionInputForDriver(action));
-      return {
-        runnerPort: status.port,
-        runnerRestarts: status.restarts,
-        simulatorUdid: udid,
-        ...(driverData ? { driverData } : {})
+        const driverData = await options.manager.performAction(udid, actionInputForDriver(action));
+        return {
+          runnerPort: status.port,
+          runnerRestarts: status.restarts,
+          simulatorUdid: udid,
+          ...(driverData ? { driverData } : {})
+        };
       };
+
+      try {
+        return await drive();
+      } catch (error) {
+        if (!isRetryableDriverError(error)) throw error;
+        // One self-heal attempt: ensureRunner restarts a dead runner and the
+        // generation-aware target key re-targets the app on the new process.
+        return await drive();
+      }
     },
     // The manager outlives individual actions; the daemon closes it on shutdown.
     close: async () => undefined
   };
+}
+
+function isRetryableDriverError(error: unknown): boolean {
+  return Boolean(
+    error &&
+    typeof error === "object" &&
+    (error as { code?: unknown }).code === "DRIVER_UNAVAILABLE" &&
+    (error as { retryable?: unknown }).retryable === true
+  );
 }
 
 function actionInputForDriver(action: ActionInput & { id?: string; sessionId?: string; createdAt?: string; sequence?: number }): ActionInput {
