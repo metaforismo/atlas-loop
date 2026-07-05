@@ -27,7 +27,26 @@ Recommended endpoints:
   directory through the daemon and returns a structured health report.
 - `GET /v1/sessions/:id/latest-screenshot`: Returns the latest screenshot image.
 - `GET /v1/sessions/:id/artifacts/latest-screenshot`: Returns the latest screenshot artifact reference as JSON.
-- `GET /v1/sessions/:id/events`: Returns parsed trace events as JSON.
+- `GET /v1/sessions/:id/artifacts/:artifactId/content`: Streams artifact bytes
+  with the artifact's media type and single-range HTTP Range support (used for
+  image previews and seekable video replay). Artifact list and summary
+  responses populate `ArtifactRef.url` with this route; urls are never
+  persisted to disk.
+- `GET /v1/sessions/:id/events`: Returns parsed trace events as JSON. With
+  `Accept: text/event-stream` the same route serves an SSE stream that replays
+  existing events and follows appends.
+- `POST /v1/sessions/:id/recording/start` / `POST /v1/sessions/:id/recording/stop`:
+  Controls session video recording; stop registers the video artifact with a
+  `videoStartedAt` alignment anchor. `record: true` on session create starts
+  recording immediately, and recordings auto-stop when the session ends.
+- `GET /v1/sessions/:id/metrics`: Returns sampled app CPU/RSS metrics
+  (`atlas-loop.metrics.v1`) for live and persisted sessions.
+- `GET /v1/atlas/map`: Returns `{ source, map, warnings }` where `map` is the
+  Atlas screen map (`atlas-loop.atlas-map.v1`) derived from local session
+  evidence; served from cache while no session evidence changed.
+- `POST /v1/atlas/map/rebuild`: Forces a rebuild of the Atlas map.
+- `GET /v1/atlas/screens/:screenId/image`: Streams a screen's representative
+  screenshot; `?variant=N` selects a variant.
 
 The daemon also accepts the same session routes without the `/v1` prefix for
 older local clients.

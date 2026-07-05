@@ -16,6 +16,18 @@ runtime dependencies.
   (`--input-backend xcuitest`): coordinate taps, swipes, typing, and element
   actions (`tap-element`, `assert-visible`) with no Simulator window or
   Accessibility permission, proven by a tap-driven checkout smoke.
+- Automatic post-action screenshots (`role: "after"`, disable with
+  `skipScreenshot` or the `autoScreenshot` config) that power before/after
+  evidence pairs in the viewer.
+- Session video recording (`session start --record`, `recording start|stop`)
+  with a viewer replay panel: action markers on the scrubber, click-to-seek.
+- The Atlas map: screens and transitions derived from local session evidence
+  (`map build`, `GET /v1/atlas/map`, MCP `atlas.getMap`) with a screens grid
+  and transition graph in the viewer (`?view=atlas`).
+- Per-session app metrics (CPU/RSS sampled from the launched pid) with viewer
+  sparklines and a `GET /v1/sessions/:id/metrics` route.
+- Self-contained HTML evidence reports (`evidence report --format html`) with
+  inlined screenshots, action table, and metrics; shareable as a single file.
 - CLI commands for session lifecycle, app build/install/launch, tap/type/swipe,
   screenshots, and viewer startup.
 - Local MCP-compatible stdio server exposing the same runtime controls.
@@ -199,7 +211,7 @@ link or hosted workspace.
 ```bash
 atlas-loop doctor
 atlas-loop daemon start --port 4317
-atlas-loop session start --simulator "iPhone 16" --viewer
+atlas-loop session start --simulator "iPhone 16" --viewer [--input-backend cgevent|xcuitest] [--record]
 atlas-loop session list
 atlas-loop session history [--limit 20]
 atlas-loop session latest
@@ -209,6 +221,12 @@ atlas-loop build --session <id> --project apps/ios-commerce-demo/CommerceDemo.xc
 atlas-loop install --session <id> --app <path-to-app>
 atlas-loop launch --session <id> --bundle-id app.atlasloop.CommerceDemo
 atlas-loop tap --session <id> --x 0.5 --y 0.8
+atlas-loop tap-element --session <id> --id cart.continue [--timeout-ms 5000]
+atlas-loop assert-visible --session <id> --id confirmation [--timeout-ms 5000]
+atlas-loop recording start --session <id|latest>
+atlas-loop recording stop --session <id|latest>
+atlas-loop map build [--sessions id,id] [--threshold 10] [--json]
+atlas-loop map show [--json]
 atlas-loop type --session <id> --text "Ada Lovelace"
 atlas-loop swipe --session <id> --from 0.5,0.8 --to 0.5,0.2 --duration-ms 450
 atlas-loop edge --session <id> --edge left --distance 0.75 --duration-ms 350
@@ -224,7 +242,7 @@ atlas-loop artifacts open --session <id> [--latest-screenshot]
 atlas-loop events list --session <id|latest> [--type action.completed] [--limit 20]
 atlas-loop events export --session <id|latest> --out events.json [--type action.completed] [--limit 20]
 atlas-loop evidence --session <id>
-atlas-loop evidence report --session <id> [--out report.md]
+atlas-loop evidence report --session <id> [--out report.md] [--format markdown|html] [--max-screenshots 20]
 atlas-loop evidence export --session <id> --out <dir>
 atlas-loop session handoff --session <id|latest> [--format json|markdown] [--out handoff.md]
 atlas-loop session handoff --session <id|latest> --bundle <dir>
@@ -257,7 +275,10 @@ daemon's local evidence history across active and persisted sessions, with an
 optional `limit`. `atlas.listEvents` returns structured, read-only trace events
 for agent handoffs and audits. `atlas.exportEvents`
 writes the same filtered event view to a caller-chosen local JSON file and
-returns the file metadata.
+returns the file metadata. `atlas.getMap` returns the Atlas screen map (or a
+compact summary) derived from local evidence; `atlas.startRecording` and
+`atlas.stopRecording` control session video capture; `atlas.getEvidenceReport`
+accepts `format: "html"` for a self-contained report with inlined screenshots.
 `atlas.getArtifactHealth` validates the daemon-resolved local artifact
 directory for one readable session, including persisted sessions discovered
 after a restart. It does not upload artifacts. `atlas.verifyArtifacts`
