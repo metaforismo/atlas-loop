@@ -532,6 +532,7 @@ function buildSessionHandoffNextCommands(params: {
     `atlas-loop artifacts health --session ${session} ${daemon}`,
     `atlas-loop evidence report --session ${session} ${daemon}`,
     `atlas-loop evidence export --session ${session} --out ${shellArg(`./atlas-loop-evidence/${params.sessionId}`)} ${daemon}`,
+    `atlas-loop events export --session ${session} --out ${shellArg(`./atlas-loop-events/${params.sessionId}.json`)} ${daemon}`,
     `atlas-loop viewer url --session ${session} --viewer-base-url ${shellArg(params.viewerBaseUrl)} ${daemon}`
   ];
 }

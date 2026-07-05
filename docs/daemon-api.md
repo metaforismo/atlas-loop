@@ -404,8 +404,9 @@ atlas-loop session handoff --session latest
 ```
 
 The shortcut aggregates the same readiness, health, viewer URL, blockers, and
-copy-paste next commands rather than creating a new cloud, team sharing,
-Android, or hosted-dashboard contract.
+copy-paste next commands, including a local `events export` command for raw
+trace JSON, rather than creating a new cloud, team sharing, Android, or
+hosted-dashboard contract.
 
 For MCP runtimes, the matching helper is `atlas.getSessionHandoff`. Agents can
 still call `atlas.sessionReady`, `atlas.getArtifactHealth`,

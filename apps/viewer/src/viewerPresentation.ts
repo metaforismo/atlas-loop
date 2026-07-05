@@ -99,6 +99,15 @@ export interface AgentHandoffActionSummary {
   error?: string;
 }
 
+export type AgentHandoffCopyPayloadId = "note" | "nextSteps" | "commands";
+
+export interface AgentHandoffCopyPayload {
+  id: AgentHandoffCopyPayloadId;
+  label: string;
+  ariaLabel: string;
+  value: string;
+}
+
 export interface AgentHandoffBrief {
   readiness: AgentHandoffReadiness;
   title: string;
@@ -110,6 +119,7 @@ export interface AgentHandoffBrief {
   latestAction: AgentHandoffActionSummary;
   notices: AgentHandoffNotice[];
   nextSteps: string[];
+  copyPayloads: AgentHandoffCopyPayload[];
 }
 
 export interface AgentHandoffInput {
@@ -447,6 +457,17 @@ export function buildAgentHandoffBrief(input: AgentHandoffInput): AgentHandoffBr
   const tone: UiTone = readiness === "ready" ? "good" : readiness === "blocked" ? "bad" : "warn";
   const identifiers = agentHandoffIdentifiers(input, resolvedSessionId);
   const nextSteps = agentHandoffNextSteps(input, readiness, latestAction, notices);
+  const visibleNotices = notices.slice(0, 6);
+  const copyPayloads = agentHandoffCopyPayloads(
+    input,
+    readiness,
+    resolvedSessionId,
+    identifiers,
+    latestScreenshot,
+    latestAction,
+    notices,
+    nextSteps
+  );
 
   return {
     readiness,
@@ -457,8 +478,9 @@ export function buildAgentHandoffBrief(input: AgentHandoffInput): AgentHandoffBr
     identifiers,
     latestScreenshot,
     latestAction,
-    notices: notices.slice(0, 6),
-    nextSteps
+    notices: visibleNotices,
+    nextSteps,
+    copyPayloads
   };
 }
 
@@ -818,6 +840,98 @@ function agentHandoffNextSteps(
   }
 
   return steps.slice(0, 4);
+}
+
+function agentHandoffCopyPayloads(
+  input: AgentHandoffInput,
+  readiness: AgentHandoffReadiness,
+  resolvedSessionId: string | undefined,
+  identifiers: AgentHandoffIdentifier[],
+  latestScreenshot: AgentHandoffSnapshot,
+  latestAction: AgentHandoffActionSummary,
+  notices: AgentHandoffNotice[],
+  nextSteps: string[]
+): AgentHandoffCopyPayload[] {
+  return [
+    {
+      id: "note",
+      label: "Copy note",
+      ariaLabel: "Copy compact local handoff note",
+      value: agentHandoffNote(readiness, identifiers, latestScreenshot, latestAction, notices, nextSteps)
+    },
+    {
+      id: "nextSteps",
+      label: "Copy steps",
+      ariaLabel: "Copy all handoff next steps",
+      value: numberedLines(nextSteps)
+    },
+    {
+      id: "commands",
+      label: "Copy commands",
+      ariaLabel: "Copy read-only local daemon command snippets",
+      value: agentHandoffCommands(input, resolvedSessionId)
+    }
+  ];
+}
+
+function agentHandoffNote(
+  readiness: AgentHandoffReadiness,
+  identifiers: AgentHandoffIdentifier[],
+  latestScreenshot: AgentHandoffSnapshot,
+  latestAction: AgentHandoffActionSummary,
+  notices: AgentHandoffNotice[],
+  nextSteps: string[]
+): string {
+  const noticeLines = notices.length > 0
+    ? notices.map((notice) => `- ${notice.title}: ${notice.detail}${notice.path ? ` (${notice.path})` : ""}`)
+    : ["- none"];
+
+  return [
+    "Atlas Loop handoff",
+    `Status: ${readinessLabel(readiness)}`,
+    `Readiness: ${agentHandoffTitle(readiness)} - ${agentHandoffDetail(readiness)}`,
+    ...identifiers.map((identifier) => `${identifier.label}: ${identifier.value}`),
+    `Screenshot: ${latestScreenshot.path} (${latestScreenshot.source}) - ${latestScreenshot.detail}`,
+    `Action: ${latestAction.label} - ${latestAction.error ?? latestAction.detail}`,
+    "Blockers/warnings:",
+    ...noticeLines,
+    "Next steps:",
+    ...numberedLines(nextSteps).split("\n")
+  ].join("\n");
+}
+
+function agentHandoffCommands(input: AgentHandoffInput, resolvedSessionId: string | undefined): string {
+  const rawSessionId = resolvedSessionId ?? input.params.sessionId;
+  const sessionId = encodeURIComponent(rawSessionId);
+  const baseUrl = input.params.daemonUrl.replace(/\/+$/, "");
+  const cliSession = shellSingleQuote(rawSessionId);
+  const cliDaemon = shellSingleQuote(baseUrl);
+  const endpoints = [
+    `${baseUrl}/healthz`,
+    `${baseUrl}/v1/sessions/${sessionId}`,
+    `${baseUrl}/v1/sessions/${sessionId}/summary`,
+    `${baseUrl}/v1/sessions/${sessionId}/artifacts`,
+    `${baseUrl}/v1/sessions/${sessionId}/artifacts/health`
+  ];
+
+  return [
+    "# Read-only atlas-loop CLI handoff commands",
+    `atlas-loop artifacts health --session ${cliSession} --daemon-url ${cliDaemon}`,
+    `atlas-loop evidence report --session ${cliSession} --daemon-url ${cliDaemon}`,
+    `atlas-loop evidence export --session ${cliSession} --out ${shellSingleQuote(`./atlas-loop-evidence/${rawSessionId}`)} --daemon-url ${cliDaemon}`,
+    `atlas-loop events export --session ${cliSession} --out ${shellSingleQuote(`./atlas-loop-events/${rawSessionId}.json`)} --daemon-url ${cliDaemon}`,
+    "",
+    "# Read-only local daemon checks",
+    ...endpoints.map((endpoint) => `curl -fsS ${shellSingleQuote(endpoint)}`)
+  ].join("\n");
+}
+
+function numberedLines(items: string[]): string {
+  return items.length > 0 ? items.map((item, index) => `${index + 1}. ${item}`).join("\n") : "No next steps from loaded viewer data.";
+}
+
+function shellSingleQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\"'\"'")}'`;
 }
 
 function agentHandoffTitle(readiness: AgentHandoffReadiness): string {

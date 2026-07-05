@@ -53,6 +53,7 @@ import {
   timelineFilterOptions,
   visibleArtifactHealth,
   type AgentHandoffBrief,
+  type AgentHandoffCopyPayload,
   type ArtifactHealthStatus,
   type TimelineFilter,
   type UiTone
@@ -130,6 +131,11 @@ type CopyState =
   | { status: "idle" }
   | { status: "copied"; target: "id" | "path"; label: string }
   | { status: "failed"; target: "id" | "path"; message: string };
+
+type HandoffCopyState =
+  | { status: "idle" }
+  | { status: "copied"; label: string }
+  | { status: "failed"; message: string };
 
 interface ActionTapPreset {
   label: string;
@@ -1616,6 +1622,27 @@ function SummaryEvidence({ summary }: { summary: SessionSummary }) {
 
 function AgentHandoffPanel({ brief }: { brief: AgentHandoffBrief }) {
   const busy = brief.readiness === "waiting";
+  const [copyState, setCopyState] = useState<HandoffCopyState>({ status: "idle" });
+  const copyPayloadKey = brief.copyPayloads.map((payload) => `${payload.id}:${payload.value}`).join("\x1f");
+
+  useEffect(() => {
+    setCopyState({ status: "idle" });
+  }, [copyPayloadKey]);
+
+  const copyHandoffPayload = (payload: AgentHandoffCopyPayload): void => {
+    void copyToClipboard(payload.value)
+      .then(() => setCopyState({ status: "copied", label: handoffCopiedLabel(payload) }))
+      .catch((error: unknown) => {
+        setCopyState({ status: "failed", message: error instanceof Error ? error.message : "Copy failed." });
+      });
+  };
+
+  const copyStatus =
+    copyState.status === "copied"
+      ? `${copyState.label} copied.`
+      : copyState.status === "failed"
+        ? copyState.message
+        : "Clipboard ready.";
 
   return (
     <section className={`agent-handoff tone-${brief.tone}`} aria-label="Agent handoff" aria-busy={busy}>
@@ -1628,6 +1655,17 @@ function AgentHandoffPanel({ brief }: { brief: AgentHandoffBrief }) {
         <strong>{brief.title}</strong>
         <span>{brief.detail}</span>
       </div>
+
+      <div className="handoff-copy-tools" aria-label="Handoff copy actions">
+        {brief.copyPayloads.map((payload) => (
+          <button key={payload.id} type="button" className="handoff-copy-action" aria-label={payload.ariaLabel} onClick={() => copyHandoffPayload(payload)}>
+            {payload.label}
+          </button>
+        ))}
+      </div>
+      <p className={`handoff-copy-status ${copyState.status}`} role="status" aria-live="polite">
+        {copyStatus}
+      </p>
 
       <div className="handoff-signal-grid">
         <HandoffSignal
@@ -1681,6 +1719,17 @@ function AgentHandoffPanel({ brief }: { brief: AgentHandoffBrief }) {
       </div>
     </section>
   );
+}
+
+function handoffCopiedLabel(payload: AgentHandoffCopyPayload): string {
+  switch (payload.id) {
+    case "note":
+      return "Handoff note";
+    case "nextSteps":
+      return "Next steps";
+    case "commands":
+      return "Command snippets";
+  }
 }
 
 function HandoffSignal({ label, value, detail, meta, tone }: { label: string; value: string; detail: string; meta?: string; tone: UiTone }) {
