@@ -430,6 +430,10 @@ export class DaemonClient {
     return this.requestData("POST", `/sessions/${encodeURIComponent(sessionId)}/end`, "ended session");
   }
 
+  getSessionMetrics(sessionId: string): Promise<{ active: boolean; sampleCount: number; samples: EvidenceHtmlMetricsSample[] }> {
+    return this.requestData("GET", `/sessions/${encodeURIComponent(sessionId)}/metrics`, "session metrics");
+  }
+
   getAtlasMap(rebuild = false): Promise<unknown> {
     return rebuild
       ? this.requestData("POST", "/atlas/map/rebuild", "atlas map")
@@ -730,4 +734,295 @@ function markdownText(value: string): string {
     .replaceAll("_", "\\_")
     .replaceAll("[", "\\[")
     .replaceAll("]", "\\]");
+}
+
+export interface EvidenceHtmlScreenshot {
+  name: string;
+  dataUri: string;
+  createdAt?: string;
+  actionId?: string;
+  label?: string;
+}
+
+export interface EvidenceHtmlAction {
+  actionId: string;
+  kind: string;
+  ok: boolean;
+  startedAt?: string;
+  endedAt?: string;
+  artifactCount: number;
+  detail?: string;
+}
+
+export interface EvidenceHtmlMetricsSample {
+  at: string;
+  cpuPercent: number;
+  rssBytes: number;
+}
+
+export interface EvidenceHtmlAssets {
+  screenshots: EvidenceHtmlScreenshot[];
+  actions: EvidenceHtmlAction[];
+  metrics: EvidenceHtmlMetricsSample[];
+  videoRelativePath?: string;
+  truncatedScreenshots: number;
+}
+
+export interface CollectEvidenceHtmlAssetsOptions {
+  artifacts: ArtifactRef[];
+  events: TraceEvent[];
+  metrics?: EvidenceHtmlMetricsSample[];
+  maxScreenshots?: number;
+  readFile: (path: string) => Promise<Uint8Array>;
+  /** Maps a video artifact path to the reference written into the report (e.g. relative to the report file). */
+  videoPathResolver?: (path: string) => string;
+}
+
+/**
+ * Gathers the local assets an HTML evidence report inlines. Screenshots are
+ * base64-inlined newest-first up to the cap; the video is referenced by path
+ * only (multi-MB videos never get base64-inlined).
+ */
+export async function collectEvidenceHtmlAssets(options: CollectEvidenceHtmlAssetsOptions): Promise<EvidenceHtmlAssets> {
+  const maxScreenshots = options.maxScreenshots ?? 20;
+
+  const startedByActionId = new Map<string, { kind: string; detail?: string }>();
+  for (const event of options.events) {
+    if (event.type !== "action.started" || !event.action) continue;
+    const action = event.action as unknown as Record<string, unknown> & { id: string; kind: string };
+    startedByActionId.set(action.id, { kind: action.kind, detail: actionDetailText(action) });
+  }
+
+  const actions: EvidenceHtmlAction[] = [];
+  for (const event of options.events) {
+    if (event.type !== "action.completed" || !event.result) continue;
+    const started = startedByActionId.get(event.result.actionId);
+    actions.push({
+      actionId: event.result.actionId,
+      kind: started?.kind ?? "unknown",
+      ok: Boolean(event.result.ok),
+      startedAt: event.result.startedAt,
+      endedAt: event.result.endedAt,
+      artifactCount: event.result.artifacts?.length ?? 0,
+      detail: started?.detail ?? (event.result.error ? `${event.result.error.code}: ${event.result.error.message}` : undefined)
+    });
+  }
+  actions.sort((left, right) => (left.startedAt ?? "").localeCompare(right.startedAt ?? ""));
+
+  const screenshotArtifacts = options.artifacts
+    .filter((artifact) => artifact.type === "screenshot")
+    .sort((left, right) => (right.createdAt ?? "").localeCompare(left.createdAt ?? ""));
+  const selected = screenshotArtifacts.slice(0, maxScreenshots);
+  const truncatedScreenshots = Math.max(0, screenshotArtifacts.length - selected.length);
+
+  const screenshots: EvidenceHtmlScreenshot[] = [];
+  for (const artifact of selected) {
+    try {
+      const data = await options.readFile(artifact.path);
+      screenshots.push({
+        name: artifact.path.split("/").at(-1) ?? artifact.id,
+        dataUri: `data:image/png;base64,${Buffer.from(data).toString("base64")}`,
+        createdAt: artifact.createdAt,
+        actionId: metadataText(artifact, "actionId"),
+        label: metadataText(artifact, "reason") ?? metadataText(artifact, "identifier") ?? metadataText(artifact, "actionKind")
+      });
+    } catch {
+      // Unreadable screenshots are simply omitted from the gallery.
+    }
+  }
+
+  const videoArtifact = [...options.artifacts]
+    .filter((artifact) => artifact.type === "video")
+    .sort((left, right) => (left.createdAt ?? "").localeCompare(right.createdAt ?? ""))
+    .at(-1);
+
+  return {
+    screenshots,
+    actions,
+    metrics: options.metrics ?? [],
+    videoRelativePath: videoArtifact ? (options.videoPathResolver ?? ((path: string) => path))(videoArtifact.path) : undefined,
+    truncatedScreenshots
+  };
+}
+
+function metadataText(artifact: ArtifactRef, key: string): string | undefined {
+  const value = artifact.metadata?.[key];
+  return typeof value === "string" && value ? value : typeof value === "number" ? String(value) : undefined;
+}
+
+function actionDetailText(action: Record<string, unknown> & { kind: string }): string | undefined {
+  if (typeof action.identifier === "string") return action.identifier;
+  if (typeof action.x === "number" && typeof action.y === "number") return `${action.x}, ${action.y}`;
+  if (typeof action.text === "string") return "text input";
+  if (typeof action.bundleId === "string") return action.bundleId;
+  if (typeof action.reason === "string") return action.reason;
+  return undefined;
+}
+
+/**
+ * Renders one self-contained dark-themed HTML file: no scripts, no external
+ * asset references. Screenshots arrive base64-inlined; the video (if any) is
+ * referenced by a local path so the file stays small.
+ */
+export function buildEvidenceHtmlReport(
+  evidence: EvidenceReportData,
+  assets: EvidenceHtmlAssets,
+  options: { generatedAt?: string } = {}
+): string {
+  const generatedAt = options.generatedAt ?? new Date().toISOString();
+  const failedActions = assets.actions.filter((action) => !action.ok).length;
+
+  const sections: string[] = [];
+
+  sections.push(`<header>
+  <p class="kicker">Atlas Loop</p>
+  <h1>Evidence report</h1>
+  <p class="meta">session <code>${escapeHtml(evidence.sessionId)}</code> · status ${escapeHtml(evidence.sessionStatus ?? "unknown")} · generated ${escapeHtml(generatedAt)}</p>
+</header>`);
+
+  sections.push(`<section>
+  <h2>Session</h2>
+  <dl class="facts">
+    <div><dt>Created</dt><dd>${escapeHtml(evidence.createdAt ?? "--")}</dd></div>
+    <div><dt>Updated</dt><dd>${escapeHtml(evidence.updatedAt ?? "--")}</dd></div>
+    <div><dt>Storage</dt><dd>${escapeHtml(evidence.storage.source)}${evidence.storage.artifactBacked ? " (artifact-backed)" : ""}</dd></div>
+    <div><dt>Artifacts</dt><dd>${evidence.artifactTotal}</dd></div>
+    <div><dt>Events</dt><dd>${evidence.eventTotal}</dd></div>
+    <div><dt>Artifact dir</dt><dd><code>${escapeHtml(evidence.artifactDir)}</code></dd></div>
+  </dl>
+</section>`);
+
+  if (assets.actions.length > 0) {
+    const rows = assets.actions
+      .map(
+        (action) => `      <tr class="${action.ok ? "ok" : "failed"}">
+        <td><code>${escapeHtml(action.actionId)}</code></td>
+        <td>${escapeHtml(action.kind)}</td>
+        <td>${escapeHtml(action.detail ?? "")}</td>
+        <td>${action.ok ? "passed" : "failed"}</td>
+        <td>${escapeHtml(action.startedAt ?? "--")}</td>
+        <td>${action.artifactCount}</td>
+      </tr>`
+      )
+      .join("\n");
+    sections.push(`<section>
+  <h2>Actions <small>${assets.actions.length} total${failedActions > 0 ? ` · ${failedActions} failed` : ""}</small></h2>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Action</th><th>Kind</th><th>Detail</th><th>Result</th><th>Started</th><th>Artifacts</th></tr></thead>
+      <tbody>
+${rows}
+      </tbody>
+    </table>
+  </div>
+</section>`);
+  }
+
+  if (assets.metrics.length > 1) {
+    const cpu = assets.metrics.map((sample) => sample.cpuPercent);
+    const rssMb = assets.metrics.map((sample) => sample.rssBytes / (1024 * 1024));
+    sections.push(`<section>
+  <h2>App metrics <small>${assets.metrics.length} samples</small></h2>
+  <div class="spark"><span>CPU · peak ${Math.max(...cpu).toFixed(1)}%</span>${sparklineSvg(cpu)}</div>
+  <div class="spark"><span>Memory · peak ${Math.max(...rssMb).toFixed(0)}MB</span>${sparklineSvg(rssMb)}</div>
+</section>`);
+  }
+
+  if (assets.videoRelativePath) {
+    sections.push(`<section>
+  <h2>Video</h2>
+  <p>The session recording lives next to this report's evidence: <code>${escapeHtml(assets.videoRelativePath)}</code></p>
+  <video controls preload="metadata" src="${escapeHtml(assets.videoRelativePath)}"></video>
+</section>`);
+  }
+
+  if (assets.screenshots.length > 0) {
+    const figures = assets.screenshots
+      .map(
+        (shot) => `    <figure>
+      <img src="${shot.dataUri}" alt="${escapeHtml(shot.name)}" loading="lazy" />
+      <figcaption><code>${escapeHtml(shot.name)}</code>${shot.label ? ` · ${escapeHtml(shot.label)}` : ""}${shot.createdAt ? `<br /><small>${escapeHtml(shot.createdAt)}</small>` : ""}</figcaption>
+    </figure>`
+      )
+      .join("\n");
+    sections.push(`<section>
+  <h2>Screenshots <small>${assets.screenshots.length} inlined${assets.truncatedScreenshots > 0 ? ` · ${assets.truncatedScreenshots} older omitted` : ""}</small></h2>
+  <div class="gallery">
+${figures}
+  </div>
+</section>`);
+  }
+
+  if (evidence.storage.warnings.length > 0) {
+    const items = evidence.storage.warnings
+      .map((warning) => `    <li><code>${escapeHtml(warning.path)}</code> ${escapeHtml(warning.message)}</li>`)
+      .join("\n");
+    sections.push(`<section>
+  <h2>Warnings</h2>
+  <ul>
+${items}
+  </ul>
+</section>`);
+  }
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Atlas Loop evidence · ${escapeHtml(evidence.sessionId)}</title>
+<style>
+:root { color-scheme: dark; }
+* { box-sizing: border-box; }
+body { margin: 0; padding: 32px; background: #0b0f16; color: #e6e9ef; font: 14px/1.5 -apple-system, "Segoe UI", sans-serif; }
+.kicker { letter-spacing: .22em; text-transform: uppercase; font-size: 11px; color: #4ab3d8; margin: 0; }
+h1 { margin: 4px 0 6px; }
+h2 { margin: 32px 0 12px; font-size: 16px; }
+h2 small { font-weight: 400; color: #8b93a3; font-size: 12px; }
+.meta { color: #8b93a3; font-size: 12px; }
+code { background: rgba(74,179,216,.12); padding: 1px 5px; border-radius: 5px; font-size: 12px; }
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin: 0; }
+.facts dt { font-size: 11px; color: #8b93a3; }
+.facts dd { margin: 0; overflow-wrap: anywhere; }
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 12px; }
+th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid rgba(139,147,163,.18); }
+tr.failed td { color: #f07878; }
+.spark { display: flex; align-items: center; gap: 12px; margin: 8px 0; font-size: 12px; color: #8b93a3; }
+.spark span { min-width: 160px; }
+.spark svg { background: rgba(0,0,0,.3); border-radius: 8px; }
+video { max-width: 420px; width: 100%; border-radius: 10px; margin-top: 8px; background: #000; }
+.gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 14px; }
+figure { margin: 0; }
+figure img { width: 100%; border-radius: 10px; border: 1px solid rgba(74,179,216,.25); }
+figcaption { font-size: 11px; color: #8b93a3; margin-top: 4px; overflow-wrap: anywhere; }
+footer { margin-top: 40px; font-size: 11px; color: #8b93a3; }
+</style>
+</head>
+<body>
+${sections.join("\n\n")}
+
+<footer>Self-contained local evidence report generated by Atlas Loop. No data leaves this machine.</footer>
+</body>
+</html>
+`;
+}
+
+function sparklineSvg(values: number[]): string {
+  const width = 260;
+  const height = 40;
+  const max = Math.max(...values, 0.000001) * 1.08;
+  const step = values.length > 1 ? width / (values.length - 1) : width;
+  const points = values
+    .map((value, index) => `${(index * step).toFixed(1)},${(height - (value / max) * height).toFixed(1)}`)
+    .join(" ");
+  return `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><polyline fill="none" stroke="#4ab3d8" stroke-width="1.6" points="${points}" /></svg>`;
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
 }
