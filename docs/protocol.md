@@ -21,6 +21,7 @@ Optional fields:
 - `app`: Bundle, scheme, workspace, project, or built app path metadata.
 - `viewerUrl`: URL for a local viewer.
 - `backend`: Name of the automation backend in use.
+- `inputBackend`: Input backend selected for the session, `cgevent` (default) or `xcuitest`.
 - `error`: Structured Atlas Loop error when the session failed.
 
 ## Actions
@@ -39,6 +40,8 @@ Supported action kinds:
 - `typeText`: `text` must be non-empty.
 - `swipe`: `from`, `to`, and non-negative `durationMs`.
 - `edgeGesture`: `edge`, `distance` from `0` to `1`, and non-negative `durationMs`.
+- `tapElement`: `identifier` is a non-empty accessibility identifier; optional non-negative `timeoutMs` bounds the wait for the element. Requires an element-capable input backend (`xcuitest`).
+- `assertVisible`: same fields as `tapElement`; asserts the element exists and reports its visibility state as evidence. Requires an element-capable input backend (`xcuitest`).
 - `screenshot`: optional `reason`.
 - `install`: `appPath`.
 - `launch`: `bundleId`, optional `arguments`, optional `environment`.
@@ -68,7 +71,7 @@ Errors use:
 - optional `retryable`
 - optional `details`
 
-Known error codes include Simulator discovery failures, build/install/launch failures, HID failures, action timeouts, artifact write failures, invalid requests, command failures, and not-found cases.
+Known error codes include Simulator discovery failures, build/install/launch failures, HID failures, action timeouts, artifact write failures, invalid requests, command failures, and not-found cases. Element-driven input adds `ELEMENT_NOT_FOUND` (the accessibility identifier did not resolve to a hittable element; not retryable) and `DRIVER_UNAVAILABLE` (the XCUITest driver runner is not reachable or died; retryable, mapped to HTTP 503).
 
 ## Trace Events
 
