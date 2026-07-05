@@ -15,6 +15,8 @@ export interface AtlasLoopConfig {
   driverRunnerProjectPath: string;
   driverRunnerDerivedData: string;
   driverPortRange: DriverPortRange;
+  /** Capture a screenshot after every successful input action (default true). */
+  autoScreenshot: boolean;
 }
 
 export function defaultConfig(cwd = process.cwd()): AtlasLoopConfig {
@@ -25,7 +27,8 @@ export function defaultConfig(cwd = process.cwd()): AtlasLoopConfig {
     hidHelperPath: resolve(cwd, "native", "ios-hid-helper", ".build", "debug", "ios-hid-helper"),
     driverRunnerProjectPath: resolve(cwd, "native", "ios-driver-runner", "AtlasDriverRunner.xcodeproj"),
     driverRunnerDerivedData: resolve(cwd, "artifacts", "build", "driver-runner", "DerivedData"),
-    driverPortRange: { start: 4700, end: 4799 }
+    driverPortRange: { start: 4700, end: 4799 },
+    autoScreenshot: true
   };
 }
 

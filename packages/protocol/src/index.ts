@@ -273,6 +273,8 @@ export interface LaunchRequest {
 
 export interface PerformActionRequest {
   action: ActionInput;
+  /** Skip the automatic post-action screenshot for this action only. */
+  skipScreenshot?: boolean;
 }
 
 export type ActionInput =

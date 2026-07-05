@@ -64,6 +64,7 @@ export interface DaemonOptions {
   port?: number;
   artifactRoot?: string;
   hidHelperPath?: string;
+  autoScreenshot?: boolean;
   simulator?: SimulatorApi;
   hidClientFactory?: (options: HidClientOptions) => HidClient;
   xcuitestManagerFactory?: () => XcuitestManagerLike;
@@ -150,7 +151,8 @@ export async function startDaemonServer(options: DaemonOptions = {}): Promise<St
     config: {
       ...config,
       artifactRoot: options.artifactRoot ?? config.artifactRoot,
-      hidHelperPath: options.hidHelperPath ?? config.hidHelperPath
+      hidHelperPath: options.hidHelperPath ?? config.hidHelperPath,
+      autoScreenshot: options.autoScreenshot ?? config.autoScreenshot
     },
     host: options.host ?? "127.0.0.1",
     port: options.port ?? config.daemonPort,
@@ -299,7 +301,10 @@ async function handleRequest(state: DaemonState, request: IncomingMessage, respo
     if (request.method === "POST" && parts.length === 3 && parts[2] === "actions") {
       const sessionState = resolveActiveSessionState(state, sessionId);
       const body = await readJsonBody<PerformActionRequest>(request);
-      sendJson(response, 200, { ok: true, data: await performAction(state, sessionState, body.action) });
+      sendJson(response, 200, {
+        ok: true,
+        data: await performAction(state, sessionState, body.action, { skipScreenshot: body.skipScreenshot })
+      });
       return;
     }
 
@@ -524,7 +529,12 @@ async function launchApp(state: DaemonState, sessionState: SessionState, request
   });
 }
 
-async function performAction(state: DaemonState, sessionState: SessionState, input: ActionInput): Promise<ActionResult> {
+async function performAction(
+  state: DaemonState,
+  sessionState: SessionState,
+  input: ActionInput,
+  options: { skipScreenshot?: boolean } = {}
+): Promise<ActionResult> {
   const action = materializeAction(sessionState.session.id, ++sessionState.sequence, input);
   return executeAction(sessionState, action, async () => {
     switch (action.kind) {
@@ -549,12 +559,17 @@ async function performAction(state: DaemonState, sessionState: SessionState, inp
         const backendDetail = backend.describe(sessionState.session);
         try {
           const actionDetail = await backend.performAction(sessionState.session, action);
-          return [
+          const artifacts = [
             await recordInputActionMetadata(sessionState, action, { ok: true }, backend.name, {
               ...backendDetail,
               ...actionDetail
             })
           ];
+          if (state.config.autoScreenshot && !options.skipScreenshot) {
+            const afterShot = await tryCaptureActionScreenshot(state, sessionState, action);
+            if (afterShot) artifacts.push(afterShot);
+          }
+          return artifacts;
         } catch (error) {
           const atlasLoopError = normalizeError(error, "HID_FAILED");
           const artifact = await recordInputActionMetadata(
@@ -700,15 +715,62 @@ async function captureScreenshot(
   sessionState: SessionState,
   action: Extract<Action, { kind: "screenshot" }>
 ): Promise<ArtifactRef> {
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const tempPath = join(sessionState.layout.screenshotsDir, `.tmp-${makeId("shot")}.png`);
-  await state.simulator.screenshot({ simulator: sessionState.session.simulator, outputPath: tempPath });
-  const artifact = await copyScreenshot(sessionState.layout, tempPath, `${stamp}.png`, {
+  return captureScreenshotArtifact(state, sessionState, {
     ...actionMetadata(action),
     reason: action.reason
   });
+}
+
+async function captureScreenshotArtifact(
+  state: DaemonState,
+  sessionState: SessionState,
+  metadata: Record<string, unknown>
+): Promise<ArtifactRef> {
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const tempPath = join(sessionState.layout.screenshotsDir, `.tmp-${makeId("shot")}.png`);
+  await state.simulator.screenshot({ simulator: sessionState.session.simulator, outputPath: tempPath });
+  const artifact = await copyScreenshot(sessionState.layout, tempPath, `${stamp}.png`, metadata);
   await rm(tempPath, { force: true });
   return addArtifact(sessionState, artifact);
+}
+
+async function tryCaptureActionScreenshot(
+  state: DaemonState,
+  sessionState: SessionState,
+  action: InputAction
+): Promise<ArtifactRef | undefined> {
+  try {
+    return await captureScreenshotArtifact(state, sessionState, {
+      ...actionMetadata(action),
+      role: "after",
+      ...actionCoordinateMetadata(action)
+    });
+  } catch (error) {
+    // Evidence enrichment must not fail the action; leave a trace instead.
+    await recordTrace(sessionState.layout, {
+      type: "error",
+      at: nowIso(),
+      sessionId: sessionState.session.id,
+      error: normalizeError(error, "ARTIFACT_WRITE_FAILED")
+    }).catch(() => undefined);
+    return undefined;
+  }
+}
+
+function actionCoordinateMetadata(action: InputAction): Record<string, unknown> {
+  switch (action.kind) {
+    case "tap":
+      return { tapX: action.x, tapY: action.y };
+    case "swipe":
+      return { fromX: action.from.x, fromY: action.from.y, toX: action.to.x, toY: action.to.y };
+    case "edgeGesture":
+      return { edge: action.edge, distance: action.distance };
+    case "tapElement":
+    case "assertVisible":
+      return { identifier: action.identifier };
+    default:
+      return {};
+  }
 }
 
 async function recordCommandArtifacts(
