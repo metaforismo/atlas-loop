@@ -213,6 +213,52 @@ describe("viewer app interactions", () => {
     }, "copy id confirmation");
   });
 
+  it("copies local agent handoff notes and next steps", async () => {
+    await act(async () => root?.render(<App />));
+
+    const handoff = await waitFor(() => {
+      const panel = getByAriaLabel<HTMLElement>("Agent handoff");
+      expect(panel.textContent).toContain("Ready for handoff");
+      expect(getButtonByAriaLabel("Copy compact local handoff note")).toBeTruthy();
+      expect(getButtonByAriaLabel("Copy all handoff next steps")).toBeTruthy();
+      expect(getButtonByAriaLabel("Copy read-only local daemon command snippets")).toBeTruthy();
+      return panel;
+    }, "ready handoff copy controls");
+
+    await click(getButtonByAriaLabel("Copy compact local handoff note"));
+
+    await waitFor(() => {
+      expect(clipboardWriteText).toHaveBeenLastCalledWith(expect.stringContaining("Atlas Loop handoff"));
+      expect(clipboardWriteText).toHaveBeenLastCalledWith(expect.stringContaining(`Session: ${SESSION_ID}`));
+      expect(clipboardWriteText).toHaveBeenLastCalledWith(expect.stringContaining("Blockers/warnings:\n- none"));
+      expect(handoff.textContent).toContain("Handoff note copied.");
+      return true;
+    }, "handoff note copied");
+
+    await click(getButtonByAriaLabel("Copy all handoff next steps"));
+
+    await waitFor(() => {
+      expect(clipboardWriteText).toHaveBeenLastCalledWith(
+        expect.stringContaining("1. Pass the daemon URL and resolved session id to the next agent.")
+      );
+      expect(handoff.textContent).toContain("Next steps copied.");
+      return true;
+    }, "handoff next steps copied");
+
+    await click(getButtonByAriaLabel("Copy read-only local daemon command snippets"));
+
+    await waitFor(() => {
+      expect(clipboardWriteText).toHaveBeenLastCalledWith(
+        expect.stringContaining(`atlas-loop events export --session '${SESSION_ID}' --out './atlas-loop-events/${SESSION_ID}.json' --daemon-url '${DAEMON_URL}'`)
+      );
+      expect(clipboardWriteText).toHaveBeenLastCalledWith(
+        expect.stringContaining(`curl -fsS '${DAEMON_URL}/v1/sessions/${SESSION_ID}/summary'`)
+      );
+      expect(handoff.textContent).toContain("Command snippets copied.");
+      return true;
+    }, "handoff command snippets copied");
+  });
+
   it("selects the screenshot center target from keyboard activation", async () => {
     await act(async () => root?.render(<App />));
 

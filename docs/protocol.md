@@ -136,6 +136,6 @@ artifact health, reports, and local exports.
 
 The CLI shortcut is `atlas-loop session handoff --session latest`. Clients can
 also compose handoff state from `session ready`, `artifacts health`, the viewer
-URL, and optional evidence report or export commands. No handoff field should
-imply cloud sharing, hosted authentication, Android support, or a remote viewer
-in v1.
+URL, optional evidence report/export commands, and a raw `events export` file
+for exact trace JSON. No handoff field should imply cloud sharing, hosted
+authentication, Android support, or a remote viewer in v1.

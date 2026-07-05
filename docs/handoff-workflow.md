@@ -81,7 +81,9 @@ npm run cli -- viewer open --session latest --launch
 Use the viewer to inspect the latest screenshot, action timeline, and artifact
 list together. Timeline entries are correlated with trace events and recovered
 artifact references, so the operator can move from an action to the screenshot,
-log, or metadata file that proves what happened. The viewer stays local; the
+log, or metadata file that proves what happened. The Agent handoff panel can
+copy a compact note, next steps, local CLI commands, and read-only daemon
+checks for the next operator or coding agent. The viewer stays local; the
 durable source of truth remains `artifacts/sessions/<session-id>/`.
 
 When the handoff needs exact trace JSON rather than visual correlation, read
@@ -107,6 +109,7 @@ Export local evidence for review or manual archival:
 ```sh
 npm run cli -- evidence report --session latest --out artifacts/reports/<session-id>.md
 npm run cli -- evidence export --session latest --out artifacts/exports/<session-id>
+npm run cli -- events export --session latest --out artifacts/events/<session-id>.json
 ```
 
 Use the concrete `sessionId` from `session ready` for final report and export
@@ -128,8 +131,8 @@ It aligns with the same local-first contract as the multi-command flow:
   `hasScreenshot`, `artifactDir`, `latestScreenshotPath`, and `viewerUrl`.
 - Include daemon-backed `artifacts health` status and warning/error counts.
 - Point to a local viewer URL, without requiring a hosted dashboard.
-- Include next commands for local report and export when the evidence needs to
-  be packaged separately.
+- Include next commands for local report, evidence export, and raw event export
+  when the evidence needs to be packaged separately or handed to another agent.
 - Avoid mutating disk-backed sessions and avoid uploading, committing, or
   sharing artifacts.
 

@@ -42,6 +42,8 @@ weakening the others:
 4. Human inspection
    - The viewer makes the current session, latest screenshot, action timeline, and
      artifacts easy to inspect locally.
+   - Handoff UI should expose copyable local notes, next steps, CLI commands, and
+     read-only daemon checks without introducing hosted sharing.
    - Repeated operator actions should have compact local shortcuts without hiding
      the underlying primitive tap, wait, type, screenshot, and swipe fields.
    - Disk-backed evidence can be inspected without rerunning the app, while

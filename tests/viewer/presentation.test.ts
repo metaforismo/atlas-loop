@@ -150,6 +150,20 @@ describe("viewer presentation helpers", () => {
       ])
     );
     expect(brief.nextSteps).toContain("Pass the daemon URL and resolved session id to the next agent.");
+    expect(brief.copyPayloads.map((payload) => payload.id)).toEqual(["note", "nextSteps", "commands"]);
+    expect(brief.copyPayloads.find((payload) => payload.id === "note")?.value).toEqual(expect.stringContaining("Atlas Loop handoff"));
+    expect(brief.copyPayloads.find((payload) => payload.id === "note")?.value).toEqual(expect.stringContaining("Status: ready"));
+    expect(brief.copyPayloads.find((payload) => payload.id === "note")?.value).toEqual(expect.stringContaining("Session: sess_1"));
+    expect(brief.copyPayloads.find((payload) => payload.id === "note")?.value).toEqual(expect.stringContaining("Blockers/warnings:\n- none"));
+    expect(brief.copyPayloads.find((payload) => payload.id === "nextSteps")?.value).toContain(
+      "1. Pass the daemon URL and resolved session id to the next agent."
+    );
+    expect(brief.copyPayloads.find((payload) => payload.id === "commands")?.value).toContain(
+      "atlas-loop events export --session 'sess_1' --out './atlas-loop-events/sess_1.json' --daemon-url 'http://127.0.0.1:4317'"
+    );
+    expect(brief.copyPayloads.find((payload) => payload.id === "commands")?.value).toContain(
+      "curl -fsS 'http://127.0.0.1:4317/v1/sessions/sess_1/summary'"
+    );
   });
 
   it("marks the handoff brief waiting while session, screenshot, and health data are still loading", () => {
@@ -237,6 +251,57 @@ describe("viewer presentation helpers", () => {
         "Inspect the failed action in the timeline, correct the UI state, then retry locally."
       ])
     );
+  });
+
+  it("keeps hidden handoff warnings in the copied note", () => {
+    const failedSession: Session = {
+      ...baseSession,
+      status: "failed",
+      error: { code: "BOOT_FAILED", message: "Simulator did not boot." }
+    };
+    const brief = buildAgentHandoffBrief(
+      handoffInput({
+        health: "offline",
+        session: failedSession,
+        sessionSummary: {
+          ...baseSummary,
+          session: failedSession,
+          artifacts: { total: 0, byType: {} },
+          events: {
+            total: 4,
+            latestAction: {
+              actionId: "act_failed",
+              ok: false,
+              endedAt: "2026-07-04T09:00:08.000Z",
+              artifactCount: 0,
+              error: { code: "TAP_MISSED", message: "Tap target was not visible" }
+            },
+            latestError: { code: "TRACE_ERROR", message: "Trace stream ended early." }
+          },
+          storage: {
+            source: "disk",
+            artifactBacked: true,
+            warnings: [{ path: "trace.jsonl", message: "trace.jsonl was recovered from a partial write" }]
+          }
+        },
+        artifactHealth: {
+          ok: false,
+          report: {
+            issues: [{ severity: "error", path: "/tmp/atlas-loop/sess_1/session.json", message: "manifest missing" }]
+          },
+          summary: { sessionCount: 1, errorCount: 1, warningCount: 1, issueCount: 2 }
+        },
+        screenshot: { status: "error", message: "Screenshot route returned 404." },
+        artifacts: []
+      })
+    );
+
+    expect(brief.notices).toHaveLength(6);
+
+    const note = brief.copyPayloads.find((payload) => payload.id === "note")?.value ?? "";
+    expect(note).toContain("- Storage warnings: 1 persisted storage warning reported in the summary.");
+    expect(note).toContain("- Screenshot unavailable: Screenshot route returned 404.");
+    expect(note).toContain("- No artifacts listed: The session has no loaded screenshots, logs, traces, or metadata artifacts yet.");
   });
 
   it("does not mark handoff ready without a completed action result", () => {

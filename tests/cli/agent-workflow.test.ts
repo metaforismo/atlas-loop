@@ -519,6 +519,7 @@ describe("CLI agent workflow helpers", () => {
       blockingReasons: ["artifact health unavailable: artifact health missing"],
       nextCommands: expect.arrayContaining([
         `atlas-loop artifacts health --session sess_handoff_cli --daemon-url ${daemonUrl}`,
+        `atlas-loop events export --session sess_handoff_cli --out ./atlas-loop-events/sess_handoff_cli.json --daemon-url ${daemonUrl}`,
         `atlas-loop viewer url --session sess_handoff_cli --viewer-base-url http://127.0.0.1:5176 --daemon-url ${daemonUrl}`
       ])
     });

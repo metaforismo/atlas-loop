@@ -24,6 +24,8 @@ runtime dependencies.
   persisted sessions.
 - Agent/operator handoff command that summarizes readiness, artifact health,
   viewer URL, blockers, and next local evidence commands.
+- Viewer handoff copy controls for a compact note, next steps, CLI commands,
+  and read-only daemon checks.
 - Repo-owned Swift HID helper with a stable NDJSON protocol.
 - Deterministic SwiftUI commerce checkout demo app.
 - Local evidence under `artifacts/sessions/<session-id>/`, with optional local
@@ -143,6 +145,7 @@ npm run cli -- artifacts health --session latest
 npm run cli -- viewer open --session latest --launch
 npm run cli -- evidence report --session latest --out artifacts/reports/<session-id>.md
 npm run cli -- evidence export --session latest --out artifacts/exports/<session-id>
+npm run cli -- events export --session latest --out artifacts/events/<session-id>.json
 ```
 
 If a session already exists, begin with `session list`, `session status`, and
@@ -153,10 +156,11 @@ evidence-only.
 
 The shortcut command is `atlas-loop session handoff --session latest`. It
 aggregates the readiness, health, viewer URL, blockers, and copy-paste next
-commands that otherwise come from the explicit commands above. See
+commands that otherwise come from the explicit commands above, including a raw
+event export for agent-readable trace handoff. See
 [docs/handoff-workflow.md](docs/handoff-workflow.md) for the full local
-handoff checklist. The handoff output is a local operator note, not a share link
-or hosted workspace.
+handoff checklist. The handoff output is a local operator note, not a share
+link or hosted workspace.
 
 ## Main Commands
 
