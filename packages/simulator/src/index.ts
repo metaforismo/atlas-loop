@@ -59,6 +59,19 @@ export interface RecordVideoOptions extends SimulatorTargetOptions {
   durationMs?: number;
 }
 
+export interface StartRecordVideoOptions extends SimulatorTargetOptions {
+  outputPath: string;
+}
+
+export interface RecordingHandle {
+  pid?: number;
+  startedAt: string;
+  /** Resolves when the recorder process exits; rejects if it exits with an error. */
+  done: Promise<SimulatorCommandResult>;
+  /** Sends SIGINT (which finalizes the video file) and resolves with the exit result. */
+  stop(): Promise<SimulatorCommandResult>;
+}
+
 export interface DoctorCheck {
   name: string;
   ok: boolean;
@@ -170,6 +183,10 @@ export function createSimulator(options: SimulatorOptions = {}) {
         commandTimeoutMs: defaultTimeoutMs,
         runCommand
       });
+    },
+
+    startRecordVideo(options: StartRecordVideoOptions): RecordingHandle {
+      return startRecordVideo(options);
     },
 
     async version(): Promise<{ xcodebuild: SimulatorCommandResult; simctl: SimulatorCommandResult }> {
@@ -352,6 +369,71 @@ async function recordVideo(options: RecordVideoOptions & {
       resolve({ ...result, exitCode: 0 });
     });
   });
+}
+
+function startRecordVideo(options: StartRecordVideoOptions): RecordingHandle {
+  const command = "xcrun";
+  const args = ["simctl", "io", simulatorTarget(options.simulator), "recordVideo", "--force", options.outputPath];
+  const startedAtMs = Date.now();
+  const startedAt = new Date(startedAtMs).toISOString();
+  const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
+  const stdout: Buffer[] = [];
+  const stderr: Buffer[] = [];
+  let settled = false;
+  let hardStop: NodeJS.Timeout | undefined;
+
+  const done = new Promise<SimulatorCommandResult>((resolve, reject) => {
+    child.stdout.on("data", (chunk) => stdout.push(Buffer.from(chunk)));
+    child.stderr.on("data", (chunk) => stderr.push(Buffer.from(chunk)));
+    child.on("error", (error) => {
+      if (settled) return;
+      settled = true;
+      if (hardStop) clearTimeout(hardStop);
+      reject(new SimulatorCommandError({
+        code: "COMMAND_FAILED",
+        message: `${command} ${args.join(" ")} failed to start`,
+        details: { stderr: error.message }
+      }));
+    });
+    child.on("close", (exitCode, signal) => {
+      if (settled) return;
+      settled = true;
+      if (hardStop) clearTimeout(hardStop);
+      const result: SimulatorCommandResult = {
+        command,
+        args,
+        exitCode: exitCode ?? 0,
+        signal,
+        stdout: Buffer.concat(stdout).toString("utf8"),
+        stderr: Buffer.concat(stderr).toString("utf8"),
+        durationMs: Date.now() - startedAtMs
+      };
+      // SIGINT is how recordings are finalized; treat it as success.
+      if (result.exitCode !== 0 && signal !== "SIGINT") {
+        reject(new SimulatorCommandError(simulatorErrorFromCommand("COMMAND_FAILED", result), result));
+        return;
+      }
+      resolve({ ...result, exitCode: 0 });
+    });
+  });
+  // A recording may outlive callers that never await done; avoid unhandled rejections.
+  done.catch(() => undefined);
+
+  return {
+    pid: child.pid,
+    startedAt,
+    done,
+    stop() {
+      if (!settled) {
+        child.kill("SIGINT");
+        hardStop = setTimeout(() => {
+          if (!settled) child.kill("SIGTERM");
+        }, 10_000);
+        hardStop.unref?.();
+      }
+      return done;
+    }
+  };
 }
 
 async function doctorCheck(

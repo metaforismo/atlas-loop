@@ -430,6 +430,14 @@ export class DaemonClient {
     return this.requestData("POST", `/sessions/${encodeURIComponent(sessionId)}/end`, "ended session");
   }
 
+  startRecording(sessionId: string): Promise<{ active: boolean; startedAt: string; path: string }> {
+    return this.requestData("POST", `/sessions/${encodeURIComponent(sessionId)}/recording/start`, "recording status");
+  }
+
+  stopRecording(sessionId: string): Promise<ArtifactRef> {
+    return this.requestData("POST", `/sessions/${encodeURIComponent(sessionId)}/recording/stop`, "video artifact");
+  }
+
   build(sessionId: string, request: BuildRequest): Promise<unknown> {
     return this.requestData("POST", `/sessions/${encodeURIComponent(sessionId)}/build`, "build result", request);
   }

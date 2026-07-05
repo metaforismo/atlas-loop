@@ -34,6 +34,8 @@ const TRACE_EVENT_TYPES = [
   "action.started",
   "action.completed",
   "artifact.created",
+  "video.started",
+  "video.stopped",
   "error"
 ];
 

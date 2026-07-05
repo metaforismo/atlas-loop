@@ -873,6 +873,89 @@ describe("daemon artifact content route", () => {
   });
 });
 
+describe("daemon session video recording", () => {
+  async function recordingDaemon() {
+    const artifactRoot = await mkdtemp(join(tmpdir(), "atlas-loop-recording-"));
+    tempDirs.push(artifactRoot);
+    const daemon = await startDaemonServer({
+      port: 0,
+      artifactRoot,
+      autoScreenshot: false,
+      simulator: fakeSimulator()
+    });
+    startedDaemons.push(daemon);
+    return daemon;
+  }
+
+  it("records from session start to explicit stop with trace and artifact evidence", async () => {
+    const daemon = await recordingDaemon();
+
+    const created = await requestJson<{ id: string }>(daemon.url, "/sessions", {
+      method: "POST",
+      body: JSON.stringify({ simulator: { name: "iPhone 16" }, record: true })
+    });
+    const summary = await requestJson<Record<string, any>>(daemon.url, `/sessions/${created.id}/summary`);
+    expect(summary.recording).toMatchObject({ active: true });
+    expect(summary.recording.path).toContain("/video/");
+
+    const artifact = await requestJson<Record<string, any>>(daemon.url, `/sessions/${created.id}/recording/stop`, {
+      method: "POST"
+    });
+    expect(artifact).toMatchObject({
+      type: "video",
+      metadata: expect.objectContaining({ videoStartedAt: summary.recording.startedAt })
+    });
+    expect(artifact.url).toContain(`/artifacts/${artifact.id}/content`);
+    expect(await readFile(artifact.path, "utf8")).toBe("fake mp4");
+
+    const events = await requestJson<Array<Record<string, any>>>(daemon.url, `/sessions/${created.id}/events`);
+    expect(events.some((event) => event.type === "video.started" && event.path === summary.recording.path)).toBe(true);
+    expect(events.some((event) => event.type === "video.stopped" && event.artifactId === artifact.id)).toBe(true);
+
+    const after = await requestJson<Record<string, any>>(daemon.url, `/sessions/${created.id}/summary`);
+    expect(after.recording).toBeNull();
+  });
+
+  it("supports mid-session start and stops automatically when the session ends", async () => {
+    const daemon = await recordingDaemon();
+
+    const created = await requestJson<{ id: string }>(daemon.url, "/sessions", {
+      method: "POST",
+      body: JSON.stringify({ simulator: { name: "iPhone 16" } })
+    });
+    const status = await requestJson<Record<string, any>>(daemon.url, `/sessions/${created.id}/recording/start`, {
+      method: "POST"
+    });
+    expect(status).toMatchObject({ active: true });
+
+    await requestJson(daemon.url, `/sessions/${created.id}/end`, { method: "POST" });
+
+    const artifacts = await requestJson<Array<Record<string, any>>>(daemon.url, `/sessions/${created.id}/artifacts`);
+    const video = artifacts.find((artifact) => artifact.type === "video");
+    expect(video).toBeDefined();
+    const events = await requestJson<Array<Record<string, any>>>(daemon.url, `/sessions/${created.id}/events`);
+    expect(events.some((event) => event.type === "video.stopped" && event.artifactId === video!.id)).toBe(true);
+  });
+
+  it("rejects double start and stop without an active recording", async () => {
+    const daemon = await recordingDaemon();
+
+    const created = await requestJson<{ id: string }>(daemon.url, "/sessions", {
+      method: "POST",
+      body: JSON.stringify({ simulator: { name: "iPhone 16" }, record: true })
+    });
+
+    const doubleStart = await fetch(`${daemon.url}/sessions/${created.id}/recording/start`, { method: "POST" });
+    expect(doubleStart.status).toBe(400);
+    expect(await doubleStart.json()).toMatchObject({ ok: false, error: { code: "INVALID_REQUEST", message: expect.stringContaining("already recording") } });
+
+    await requestJson(daemon.url, `/sessions/${created.id}/recording/stop`, { method: "POST" });
+    const doubleStop = await fetch(`${daemon.url}/sessions/${created.id}/recording/stop`, { method: "POST" });
+    expect(doubleStop.status).toBe(400);
+    expect(await doubleStop.json()).toMatchObject({ ok: false, error: { code: "INVALID_REQUEST", message: expect.stringContaining("no active recording") } });
+  });
+});
+
 describe("daemon post-action screenshots", () => {
   async function daemonForScreenshots(options: { autoScreenshot?: boolean; screenshotFails?: boolean } = {}) {
     const artifactRoot = await mkdtemp(join(tmpdir(), "atlas-loop-after-shot-"));
@@ -1372,6 +1455,23 @@ function fakeSimulator(): SimulatorApi {
       return result("xcrun", ["simctl", "io", "screenshot", outputPath]);
     },
     recordVideo: async ({ outputPath }) => result("xcrun", ["simctl", "io", "recordVideo", outputPath]),
+    startRecordVideo: ({ outputPath }) => {
+      let resolveDone: (value: ReturnType<typeof result>) => void = () => undefined;
+      const done = new Promise<ReturnType<typeof result>>((resolve) => {
+        resolveDone = resolve;
+      });
+      return {
+        pid: 4242,
+        startedAt: new Date().toISOString(),
+        done,
+        stop: async () => {
+          await writeFile(outputPath, Buffer.from("fake mp4"));
+          const commandResult = result("xcrun", ["simctl", "io", "recordVideo", outputPath]);
+          resolveDone(commandResult);
+          return commandResult;
+        }
+      };
+    },
     version: async () => {
       return {
         xcodebuild: result("xcodebuild", ["-version"]),

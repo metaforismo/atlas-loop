@@ -42,6 +42,8 @@ interface McpDaemonClient {
   listArtifacts(sessionId: string): Promise<unknown>;
   latestScreenshot(sessionId: string): Promise<Partial<ArtifactRef>>;
   endSession(sessionId: string): Promise<unknown>;
+  startRecording?(sessionId: string): Promise<unknown>;
+  stopRecording?(sessionId: string): Promise<unknown>;
   build(sessionId: string, request: unknown): Promise<unknown>;
   install(sessionId: string, request: unknown): Promise<unknown>;
   launch(sessionId: string, request: unknown): Promise<unknown>;
@@ -184,6 +186,8 @@ export const tools = [
     inputSchema: eventExportSchema()
   },
   { name: "atlas.performAction", description: "Perform tap/type/swipe/tapElement/assertVisible/wait/screenshot action.", inputSchema: performActionSchema() },
+  { name: "atlas.startRecording", description: "Start a local session video recording (saved under the session's video/ directory).", inputSchema: sessionIdSchema() },
+  { name: "atlas.stopRecording", description: "Stop the active session video recording and register the local video artifact.", inputSchema: sessionIdSchema() },
   { name: "atlas.takeScreenshot", description: "Capture a screenshot artifact.", inputSchema: objectSchema(["sessionId"], { ...sessionIdProperty(), reason: { type: "string" } }) },
   { name: "atlas.listArtifacts", description: "List local evidence artifacts.", inputSchema: sessionIdSchema() },
   { name: "atlas.latestScreenshot", description: "Return the latest screenshot artifact reference.", inputSchema: sessionIdSchema() },
@@ -355,6 +359,14 @@ async function callTool(name: string, args: Record<string, unknown>, runtime: To
       });
     case "atlas.endSession":
       return client.endSession(requireString(args, "sessionId"));
+    case "atlas.startRecording": {
+      if (!client.startRecording) throw new Error("daemon client does not support startRecording");
+      return client.startRecording(requireString(args, "sessionId"));
+    }
+    case "atlas.stopRecording": {
+      if (!client.stopRecording) throw new Error("daemon client does not support stopRecording");
+      return client.stopRecording(requireString(args, "sessionId"));
+    }
     case "atlas.build":
       return client.build(requireString(args, "sessionId"), buildRequest(args));
     case "atlas.install":
@@ -936,6 +948,10 @@ function createSessionSchema(): Record<string, unknown> {
       type: "string",
       enum: ["cgevent", "xcuitest"],
       description: "Input backend for the session. xcuitest drives real headless input including tapElement/assertVisible."
+    },
+    record: {
+      type: "boolean",
+      description: "Start a session-long local video recording immediately (explicit opt-in)."
     }
   });
 }
