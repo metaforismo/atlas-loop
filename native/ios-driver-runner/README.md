@@ -34,19 +34,31 @@ TEST_RUNNER_ATLAS_DRIVER_PORT=4701 xcodebuild \
 `TEST_RUNNER_`-prefixed variables are forwarded into the runner process, so
 the server listens on `ATLAS_DRIVER_PORT` (default 4700).
 
-## HTTP surface (v0.1)
+## HTTP surface (v0.2)
 
 - `GET /health` → `{ ok, runnerVersion, uptimeMs, screen: { width, height, scale } }`
+- `POST /target` with `{ bundleId }` → sets and foregrounds the app under
+  automation (`XCUIApplication(bundleIdentifier:)`).
+- `POST /command` with `{ id?, kind, ... }` → executes one action and returns
+  the envelope `{ id, type, ok, data?, error? { code, message, retryable, details? } }`:
+  - `tap { x, y }` — normalized 0..1 coordinates on the target app window
+  - `typeText { text }` — requires a visible keyboard (`keyboardNotVisible` otherwise)
+  - `swipe { from: {x,y}, to: {x,y}, durationMs }`
+  - `edgeGesture { edge, distance, durationMs }`
+  - `tapElement { identifier, timeoutMs? }` — waits for the accessibility id, taps it
+  - `assertVisible { identifier, timeoutMs? }` — returns `{ exists, isHittable, label, frame }`
 - `POST /shutdown` → `{ ok, shuttingDown }`, then the driver loop ends and
   `xcodebuild` exits.
 
-Command routes (`/target`, `/command` for tap/typeText/swipe/edgeGesture/
-tapElement/assertVisible) land in the next iteration; see
-`docs/protocol.md` for the action contract they will mirror.
+Error codes: `invalidRequest`, `unknownCommand`, `invalidCoordinates`,
+`elementNotFound`, `elementNotHittable`, `noTargetApp`, `keyboardNotVisible`,
+`internalError`. Coordinates are normalized against the target app window,
+matching the Atlas Loop action protocol (`docs/protocol.md`).
 
 ## Check it manually
 
 ```bash
 curl -s http://127.0.0.1:4701/health
-curl -s -X POST http://127.0.0.1:4701/shutdown
+node scripts/check-driver-runner-protocol.mjs --url http://127.0.0.1:4701 \
+  --bundle-id app.atlasloop.CommerceDemo --shutdown
 ```

@@ -9,12 +9,16 @@
 /* Begin PBXBuildFile section */
 		AD00000000000000000000B1 /* AtlasDriverRunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD00000000000000000000F1 /* AtlasDriverRunnerTests.swift */; };
 		AD00000000000000000000B2 /* DriverHTTPServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD00000000000000000000F2 /* DriverHTTPServer.swift */; };
+		AD00000000000000000000B3 /* DriverCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD00000000000000000000F3 /* DriverCommands.swift */; };
+		AD00000000000000000000B4 /* DriverErrors.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD00000000000000000000F4 /* DriverErrors.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		AD00000000000000000000E1 /* AtlasDriverRunner.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AtlasDriverRunner.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		AD00000000000000000000F1 /* AtlasDriverRunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AtlasDriverRunnerTests.swift; sourceTree = "<group>"; };
 		AD00000000000000000000F2 /* DriverHTTPServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DriverHTTPServer.swift; sourceTree = "<group>"; };
+		AD00000000000000000000F3 /* DriverCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DriverCommands.swift; sourceTree = "<group>"; };
+		AD00000000000000000000F4 /* DriverErrors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DriverErrors.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -49,6 +53,8 @@
 			children = (
 				AD00000000000000000000F1 /* AtlasDriverRunnerTests.swift */,
 				AD00000000000000000000F2 /* DriverHTTPServer.swift */,
+				AD00000000000000000000F3 /* DriverCommands.swift */,
+				AD00000000000000000000F4 /* DriverErrors.swift */,
 			);
 			path = AtlasDriverRunner;
 			sourceTree = "<group>";
@@ -123,6 +129,8 @@
 			files = (
 				AD00000000000000000000B1 /* AtlasDriverRunnerTests.swift in Sources */,
 				AD00000000000000000000B2 /* DriverHTTPServer.swift in Sources */,
+				AD00000000000000000000B3 /* DriverCommands.swift in Sources */,
+				AD00000000000000000000B4 /* DriverErrors.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

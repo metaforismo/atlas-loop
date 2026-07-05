@@ -53,6 +53,7 @@ final class DriverHTTPServer {
     private var listener: NWListener?
 
     var onShutdown: (() -> Void)?
+    var controller: DriverController?
 
     init(port: UInt16) {
         self.port = port
@@ -129,6 +130,22 @@ final class DriverHTTPServer {
         switch (request.method, request.path) {
         case ("GET", "/health"):
             send(status: "200 OK", payload: healthPayload(), on: connection)
+        case ("POST", "/target"):
+            guard let controller else {
+                send(status: "503 Service Unavailable", payload: ["ok": false, "error": ["code": "internalError", "message": "driver controller is not attached", "retryable": true]], on: connection)
+                return
+            }
+            // XCUITest APIs must run on the main thread; the driver loop's
+            // XCTWaiter keeps the main run loop serviced while we block here.
+            let response = DispatchQueue.main.sync { controller.handleTarget(body: request.body) }
+            send(status: "200 OK", payload: response.payload, on: connection)
+        case ("POST", "/command"):
+            guard let controller else {
+                send(status: "503 Service Unavailable", payload: ["ok": false, "error": ["code": "internalError", "message": "driver controller is not attached", "retryable": true]], on: connection)
+                return
+            }
+            let response = DispatchQueue.main.sync { controller.handleCommand(body: request.body) }
+            send(status: "200 OK", payload: response.payload, on: connection)
         case ("POST", "/shutdown"):
             send(status: "200 OK", payload: ["ok": true, "shuttingDown": true], on: connection)
             queue.asyncAfter(deadline: .now() + 0.05) { [weak self] in
