@@ -291,6 +291,57 @@ export type ActionInput =
   | Omit<ScreenshotAction, "id" | "sessionId" | "createdAt" | "sequence">
   | Omit<WaitAction, "id" | "sessionId" | "createdAt" | "sequence">;
 
+export const ATLAS_LAUNCH_NODE_ID = "__launch__";
+
+export interface AtlasMapSessionRef {
+  sessionId: string;
+  bundleId?: string;
+  createdAt: string;
+  observationCount: number;
+}
+
+export interface AtlasScreenShot {
+  sessionId: string;
+  artifactId: string;
+  path: string;
+  sha256?: string;
+  createdAt: string;
+}
+
+export interface AtlasScreen {
+  id: string;
+  /** Explicit screen identifier when the evidence carried one (e.g. accessibility id). */
+  screenId?: string;
+  hashes: string[];
+  representative: AtlasScreenShot;
+  variants: AtlasScreenShot[];
+  screenshotCount: number;
+  sessionIds: string[];
+  firstSeenAt: string;
+  lastSeenAt: string;
+}
+
+export interface AtlasTransition {
+  id: string;
+  from: string;
+  to: string;
+  actionSignature: string;
+  actionKinds: ActionKind[];
+  count: number;
+  sessionIds: string[];
+  examples: Array<{ sessionId: string; actionId: string; at: string }>;
+}
+
+export interface AtlasMap {
+  schemaVersion: "atlas-loop.atlas-map.v1";
+  generatedAt: string;
+  artifactRoot: string;
+  hashThreshold: number;
+  sessions: AtlasMapSessionRef[];
+  screens: AtlasScreen[];
+  transitions: AtlasTransition[];
+}
+
 export interface ApiEnvelope<T> {
   ok: boolean;
   data?: T;
