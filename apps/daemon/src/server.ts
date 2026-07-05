@@ -51,7 +51,9 @@ import {
 import { parseTraceLine } from "@atlas-loop/traces";
 import { createSimulator } from "@atlas-loop/simulator";
 import { validateArtifactTarget, type ValidationReport } from "../../../scripts/verify-artifacts.ts";
+import { XcuitestRunnerManager } from "@atlas-loop/xcuitest-client";
 import { createCgEventBackend } from "./backends/cgevent.ts";
+import { createXcuitestBackend, type XcuitestManagerLike } from "./backends/xcuitest.ts";
 import type { InputAction, InputBackend } from "./backends/types.ts";
 
 export type SimulatorApi = ReturnType<typeof createSimulator>;
@@ -64,6 +66,7 @@ export interface DaemonOptions {
   hidHelperPath?: string;
   simulator?: SimulatorApi;
   hidClientFactory?: (options: HidClientOptions) => HidClient;
+  xcuitestManagerFactory?: () => XcuitestManagerLike;
 }
 
 export interface StartedDaemon {
@@ -88,6 +91,9 @@ interface DaemonState {
   port: number;
   simulator: SimulatorApi;
   hidClientFactory: (options: HidClientOptions) => HidClient;
+  xcuitestManagerFactory: () => XcuitestManagerLike;
+  xcuitestManager?: XcuitestManagerLike;
+  xcuitestTargets: Map<string, string>;
   sessions: Map<string, SessionState>;
 }
 
@@ -150,6 +156,15 @@ export async function startDaemonServer(options: DaemonOptions = {}): Promise<St
     port: options.port ?? config.daemonPort,
     simulator: options.simulator ?? createSimulator(),
     hidClientFactory: options.hidClientFactory ?? ((hidOptions) => new HidClient(hidOptions)),
+    xcuitestManagerFactory:
+      options.xcuitestManagerFactory ??
+      (() =>
+        new XcuitestRunnerManager({
+          projectPath: config.driverRunnerProjectPath,
+          derivedDataPath: config.driverRunnerDerivedData,
+          portRange: config.driverPortRange
+        })),
+    xcuitestTargets: new Map(),
     sessions: new Map()
   };
 
@@ -171,7 +186,10 @@ export async function startDaemonServer(options: DaemonOptions = {}): Promise<St
   return {
     server,
     url,
-    close: () => new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())))
+    close: async () => {
+      await state.xcuitestManager?.close();
+      await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    }
   };
 }
 
@@ -337,8 +355,8 @@ async function handleRequest(state: DaemonState, request: IncomingMessage, respo
 }
 
 async function createSession(state: DaemonState, request: CreateSessionRequest): Promise<Session> {
-  if (request.inputBackend && request.inputBackend !== "cgevent") {
-    throw atlasError("INVALID_REQUEST", `input backend ${request.inputBackend} is not available yet; only cgevent is wired`);
+  if (request.inputBackend && request.inputBackend !== "cgevent" && request.inputBackend !== "xcuitest") {
+    throw atlasError("INVALID_REQUEST", `unknown input backend: ${String(request.inputBackend)}`);
   }
   const id = makeId("sess");
   const layout = await createSessionArtifacts(request.artifactRoot ?? state.config.artifactRoot, id);
@@ -518,8 +536,16 @@ async function performAction(state: DaemonState, sessionState: SessionState, inp
       case "tap":
       case "typeText":
       case "swipe":
-      case "edgeGesture": {
+      case "edgeGesture":
+      case "tapElement":
+      case "assertVisible": {
         const backend = createInputBackend(state, sessionState.session);
+        if (!backend.supports(action.kind)) {
+          throw atlasError(
+            "INVALID_REQUEST",
+            `the ${backend.name} input backend does not support ${action.kind}; start the session with --input-backend xcuitest`
+          );
+        }
         const backendDetail = backend.describe(sessionState.session);
         try {
           const actionDetail = await backend.performAction(sessionState.session, action);
@@ -589,11 +615,50 @@ async function executeAction(
 }
 
 function createInputBackend(state: DaemonState, session: Session): InputBackend {
-  void session;
+  if (session.inputBackend === "xcuitest") {
+    return createXcuitestBackend({
+      manager: getXcuitestManager(state),
+      targets: state.xcuitestTargets,
+      resolveUdid: (targetSession) => resolveSimulatorUdid(state, targetSession)
+    });
+  }
   return createCgEventBackend({
     helperPath: state.config.hidHelperPath,
     hidClientFactory: state.hidClientFactory
   });
+}
+
+function getXcuitestManager(state: DaemonState): XcuitestManagerLike {
+  if (!state.xcuitestManager) {
+    state.xcuitestManager = state.xcuitestManagerFactory();
+  }
+  return state.xcuitestManager;
+}
+
+async function resolveSimulatorUdid(state: DaemonState, session: Session): Promise<string> {
+  if (session.simulator.udid) return session.simulator.udid;
+
+  const result = await state.simulator.runCommand("xcrun", ["simctl", "list", "devices", "booted", "-j"]);
+  let devices: Record<string, Array<{ udid?: string; name?: string; state?: string }>>;
+  try {
+    devices = (JSON.parse(result.stdout) as { devices?: typeof devices }).devices ?? {};
+  } catch {
+    throw atlasError("SIMULATOR_NOT_FOUND", "could not parse booted simulator list to resolve a udid for the xcuitest backend");
+  }
+
+  const booted = Object.values(devices).flat().filter((device) => device.state === "Booted" && device.udid);
+  const match = session.simulator.name
+    ? booted.find((device) => device.name === session.simulator.name) ?? booted[0]
+    : booted[0];
+  if (!match?.udid) {
+    throw atlasError(
+      "SIMULATOR_NOT_FOUND",
+      "the xcuitest backend needs a booted simulator udid; boot a simulator or create the session with --udid"
+    );
+  }
+
+  session.simulator = { ...session.simulator, udid: match.udid };
+  return match.udid;
 }
 
 async function recordInputActionMetadata(

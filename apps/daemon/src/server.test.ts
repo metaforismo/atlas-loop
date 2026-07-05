@@ -873,7 +873,7 @@ describe("daemon artifact content route", () => {
 });
 
 describe("daemon element action groundwork", () => {
-  it("rejects tapElement cleanly while no element-capable backend is wired", async () => {
+  it("rejects tapElement on cgevent sessions with backend remediation", async () => {
     const artifactRoot = await mkdtemp(join(tmpdir(), "atlas-loop-element-reject-"));
     tempDirs.push(artifactRoot);
     const daemon = await startDaemonServer({
@@ -894,8 +894,196 @@ describe("daemon element action groundwork", () => {
 
     expect(result).toMatchObject({
       ok: false,
-      error: { code: "INVALID_REQUEST", message: expect.stringContaining("unsupported action kind: tapElement") }
+      error: {
+        code: "INVALID_REQUEST",
+        message: expect.stringContaining("cgevent input backend does not support tapElement")
+      }
     });
+    expect(result.error.message).toContain("--input-backend xcuitest");
+  });
+});
+
+describe("daemon xcuitest backend wiring", () => {
+  interface FakeManagerLog {
+    ensured: string[];
+    targets: Array<{ udid: string; bundleId: string }>;
+    actions: Array<{ udid: string; action: Record<string, any> }>;
+    closed: boolean;
+  }
+
+  function fakeXcuitestManager(log: FakeManagerLog, options: { actionError?: Record<string, unknown> } = {}) {
+    return {
+      ensureRunner: async (udid: string) => {
+        log.ensured.push(udid);
+        return { udid, port: 4711, alive: true, restarts: 0, xctestrunPath: "/dd/AtlasDriverRunner_sim.xctestrun" };
+      },
+      setTarget: async (udid: string, bundleId: string) => {
+        log.targets.push({ udid, bundleId });
+        return { bundleId };
+      },
+      performAction: async (udid: string, action: Record<string, any>) => {
+        log.actions.push({ udid, action });
+        if (options.actionError) throw options.actionError;
+        return { exists: true, isHittable: true };
+      },
+      close: async () => {
+        log.closed = true;
+      }
+    };
+  }
+
+  async function xcuitestDaemon(log: FakeManagerLog, managerOptions: { actionError?: Record<string, unknown> } = {}) {
+    const artifactRoot = await mkdtemp(join(tmpdir(), "atlas-loop-xcuitest-"));
+    tempDirs.push(artifactRoot);
+    const daemon = await startDaemonServer({
+      port: 0,
+      artifactRoot,
+      simulator: fakeSimulator(),
+      xcuitestManagerFactory: () => fakeXcuitestManager(log, managerOptions) as never
+    });
+    startedDaemons.push(daemon);
+    return daemon;
+  }
+
+  it("creates xcuitest sessions and drives element actions through the runner manager", async () => {
+    const log: FakeManagerLog = { ensured: [], targets: [], actions: [], closed: false };
+    const daemon = await xcuitestDaemon(log);
+
+    const created = await requestJson<Record<string, any>>(daemon.url, "/sessions", {
+      method: "POST",
+      body: JSON.stringify({ simulator: { name: "iPhone 16", udid: "SIM-XC-1" }, inputBackend: "xcuitest" })
+    });
+    expect(created.inputBackend).toBe("xcuitest");
+
+    await requestJson(daemon.url, `/sessions/${created.id}/launch`, {
+      method: "POST",
+      body: JSON.stringify({ bundleId: "app.atlasloop.CommerceDemo" })
+    });
+
+    const first = await requestJson<Record<string, any>>(daemon.url, `/sessions/${created.id}/actions`, {
+      method: "POST",
+      body: JSON.stringify({ action: { kind: "tapElement", identifier: "cart.continue", timeoutMs: 4000 } })
+    });
+    const second = await requestJson<Record<string, any>>(daemon.url, `/sessions/${created.id}/actions`, {
+      method: "POST",
+      body: JSON.stringify({ action: { kind: "assertVisible", identifier: "confirmation" } })
+    });
+
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    expect(log.ensured).toEqual(["SIM-XC-1", "SIM-XC-1"]);
+    expect(log.targets).toEqual([{ udid: "SIM-XC-1", bundleId: "app.atlasloop.CommerceDemo" }]);
+    expect(log.actions.map((entry) => entry.action.kind)).toEqual(["tapElement", "assertVisible"]);
+    expect(log.actions[0].action).not.toHaveProperty("id");
+
+    const metadataArtifact = first.artifacts[0];
+    expect(metadataArtifact.metadata).toMatchObject({ inputBackend: "xcuitest", operation: "input-action", ok: true });
+    const metadataText = JSON.parse(await readFile(metadataArtifact.path, "utf8"));
+    expect(metadataText).toMatchObject({
+      schemaVersion: "atlas-loop.input-action.v1",
+      inputBackend: "xcuitest",
+      runnerPort: 4711,
+      simulatorUdid: "SIM-XC-1",
+      driverData: { exists: true, isHittable: true }
+    });
+  });
+
+  it("requires a launched app before xcuitest input", async () => {
+    const log: FakeManagerLog = { ensured: [], targets: [], actions: [], closed: false };
+    const daemon = await xcuitestDaemon(log);
+
+    const created = await requestJson<Record<string, any>>(daemon.url, "/sessions", {
+      method: "POST",
+      body: JSON.stringify({ simulator: { udid: "SIM-XC-2" }, inputBackend: "xcuitest" })
+    });
+    const result = await requestJson<Record<string, any>>(daemon.url, `/sessions/${created.id}/actions`, {
+      method: "POST",
+      body: JSON.stringify({ action: { kind: "tap", x: 0.5, y: 0.5 } })
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: "INVALID_REQUEST", message: expect.stringContaining("launched app") }
+    });
+    expect(log.ensured).toHaveLength(0);
+  });
+
+  it("propagates driver error codes onto the action result", async () => {
+    const log: FakeManagerLog = { ensured: [], targets: [], actions: [], closed: false };
+    const daemon = await xcuitestDaemon(log, {
+      actionError: { code: "ELEMENT_NOT_FOUND", message: "no element with identifier missing.button appeared within 5000ms" }
+    });
+
+    const created = await requestJson<Record<string, any>>(daemon.url, "/sessions", {
+      method: "POST",
+      body: JSON.stringify({ simulator: { udid: "SIM-XC-3" }, inputBackend: "xcuitest" })
+    });
+    await requestJson(daemon.url, `/sessions/${created.id}/launch`, {
+      method: "POST",
+      body: JSON.stringify({ bundleId: "app.atlasloop.CommerceDemo" })
+    });
+    const result = await requestJson<Record<string, any>>(daemon.url, `/sessions/${created.id}/actions`, {
+      method: "POST",
+      body: JSON.stringify({ action: { kind: "tapElement", identifier: "missing.button" } })
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: "ELEMENT_NOT_FOUND" },
+      artifacts: [expect.objectContaining({ type: "metadata" })]
+    });
+  });
+
+  it("resolves a booted simulator udid when the session only has a name", async () => {
+    const log: FakeManagerLog = { ensured: [], targets: [], actions: [], closed: false };
+    const artifactRoot = await mkdtemp(join(tmpdir(), "atlas-loop-xcuitest-udid-"));
+    tempDirs.push(artifactRoot);
+    const simulator = fakeSimulator();
+    const originalRunCommand = simulator.runCommand;
+    simulator.runCommand = async (command: string, args: string[] = []) => {
+      if (command === "xcrun" && args.join(" ").includes("simctl list devices booted")) {
+        return {
+          command,
+          args,
+          stdout: JSON.stringify({
+            devices: {
+              "com.apple.CoreSimulator.SimRuntime.iOS-18-5": [
+                { udid: "BOOTED-UDID-9", name: "iPhone 16", state: "Booted" }
+              ]
+            }
+          }),
+          stderr: "",
+          exitCode: 0,
+          durationMs: 1
+        };
+      }
+      return originalRunCommand(command, args);
+    };
+    const daemon = await startDaemonServer({
+      port: 0,
+      artifactRoot,
+      simulator,
+      xcuitestManagerFactory: () => fakeXcuitestManager(log) as never
+    });
+    startedDaemons.push(daemon);
+
+    const created = await requestJson<Record<string, any>>(daemon.url, "/sessions", {
+      method: "POST",
+      body: JSON.stringify({ simulator: { name: "iPhone 16" }, inputBackend: "xcuitest" })
+    });
+    await requestJson(daemon.url, `/sessions/${created.id}/launch`, {
+      method: "POST",
+      body: JSON.stringify({ bundleId: "app.atlasloop.CommerceDemo" })
+    });
+    const result = await requestJson<Record<string, any>>(daemon.url, `/sessions/${created.id}/actions`, {
+      method: "POST",
+      body: JSON.stringify({ action: { kind: "tap", x: 0.4, y: 0.6 } })
+    });
+    const session = await requestJson<Record<string, any>>(daemon.url, `/sessions/${created.id}`);
+
+    expect(result.ok).toBe(true);
+    expect(log.ensured).toEqual(["BOOTED-UDID-9"]);
+    expect(session.simulator.udid).toBe("BOOTED-UDID-9");
   });
 });
 
