@@ -33,3 +33,18 @@ jobs:
             -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath artifacts/ci/DerivedData \
             build CODE_SIGNING_ALLOWED=NO
+      - name: Cache driver runner DerivedData
+        uses: actions/cache@v4
+        with:
+          path: artifacts/ci/DriverRunnerDerivedData
+          key: driver-runner-${{ runner.os }}-${{ hashFiles('native/ios-driver-runner/**') }}
+      - name: Build XCUITest driver runner (build-for-testing)
+        run: |
+          xcodebuild \
+            -project native/ios-driver-runner/AtlasDriverRunner.xcodeproj \
+            -scheme AtlasDriverRunner \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath artifacts/ci/DriverRunnerDerivedData \
+            build-for-testing CODE_SIGNING_ALLOWED=NO
+      - name: Check driver runner xctestrun output
+        run: ls artifacts/ci/DriverRunnerDerivedData/Build/Products/AtlasDriverRunner_*.xctestrun
