@@ -183,7 +183,7 @@ export const tools = [
     description: "Write filtered local daemon trace events to a local JSON file for agent handoff. Does not upload data.",
     inputSchema: eventExportSchema()
   },
-  { name: "atlas.performAction", description: "Perform tap/type/swipe/wait/screenshot action.", inputSchema: performActionSchema() },
+  { name: "atlas.performAction", description: "Perform tap/type/swipe/tapElement/assertVisible/wait/screenshot action.", inputSchema: performActionSchema() },
   { name: "atlas.takeScreenshot", description: "Capture a screenshot artifact.", inputSchema: objectSchema(["sessionId"], { ...sessionIdProperty(), reason: { type: "string" } }) },
   { name: "atlas.listArtifacts", description: "List local evidence artifacts.", inputSchema: sessionIdSchema() },
   { name: "atlas.latestScreenshot", description: "Return the latest screenshot artifact reference.", inputSchema: sessionIdSchema() },
@@ -849,6 +849,15 @@ function normalizeActionInput(kind: string, record: Record<string, unknown>): Ac
         distance: numberField(record, "distance"),
         durationMs: numberField(record, "durationMs")
       };
+    case "tapElement":
+    case "assertVisible": {
+      const timeoutMs = record.timeoutMs;
+      return {
+        kind,
+        identifier: stringField(record, "identifier"),
+        ...(typeof timeoutMs === "number" ? { timeoutMs } : {})
+      };
+    }
     case "screenshot": {
       const reason = record.reason;
       return optionalStringValue(reason) ? { kind, reason } : { kind };
@@ -922,7 +931,12 @@ function createSessionSchema(): Record<string, unknown> {
       booted: { type: "boolean" }
     }),
     artifactRoot: { type: "string" },
-    viewer: { type: "boolean" }
+    viewer: { type: "boolean" },
+    inputBackend: {
+      type: "string",
+      enum: ["cgevent", "xcuitest"],
+      description: "Input backend for the session. xcuitest drives real headless input including tapElement/assertVisible."
+    }
   });
 }
 
@@ -1035,6 +1049,16 @@ function performActionSchema(): Record<string, unknown> {
           edge: { type: "string", enum: ["left", "right", "top", "bottom"] },
           distance: normalizedNumberSchema(),
           durationMs: { type: "number", minimum: 0 }
+        }),
+        objectSchema(["kind", "identifier"], {
+          kind: { const: "tapElement" },
+          identifier: { type: "string", minLength: 1 },
+          timeoutMs: { type: "number", minimum: 0 }
+        }),
+        objectSchema(["kind", "identifier"], {
+          kind: { const: "assertVisible" },
+          identifier: { type: "string", minLength: 1 },
+          timeoutMs: { type: "number", minimum: 0 }
         }),
         objectSchema(["kind"], {
           kind: { const: "screenshot" },

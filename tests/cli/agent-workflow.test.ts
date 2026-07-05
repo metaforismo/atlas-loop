@@ -250,6 +250,70 @@ describe("CLI agent workflow helpers", () => {
     });
   });
 
+  it("forwards input backend selection and element actions to the daemon", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "atlas-loop-cli-xcuitest-"));
+    const originalCwd = process.cwd();
+    const originalLog = console.log;
+    const captured: Array<{ method?: string; url?: string; body?: unknown }> = [];
+    const server = createServer((request, response) => {
+      let raw = "";
+      request.setEncoding("utf8");
+      request.on("data", (chunk) => {
+        raw += chunk;
+      });
+      request.on("end", () => {
+        captured.push({ method: request.method, url: request.url, body: raw ? JSON.parse(raw) : undefined });
+        response.writeHead(200, { "content-type": "application/json" });
+        if (request.url === "/sessions") {
+          response.end(JSON.stringify({ ok: true, data: { id: "sess_xc_cli", inputBackend: "xcuitest" } }));
+          return;
+        }
+        response.end(JSON.stringify({
+          ok: true,
+          data: { actionId: "act_cli", ok: true, startedAt: "2026-07-05T12:00:00.000Z", endedAt: "2026-07-05T12:00:00.010Z", artifacts: [] }
+        }));
+      });
+    });
+    await new Promise<void>((resolveListen) => server.listen(0, "127.0.0.1", resolveListen));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("fake daemon did not bind a TCP port");
+    const daemonUrl = `http://127.0.0.1:${address.port}`;
+
+    await writeFile(join(tempDir, "atlas-loop.config.json"), JSON.stringify({ daemonUrl }, null, 2));
+    console.log = () => undefined;
+
+    try {
+      process.chdir(tempDir);
+      await expect(main(["session", "start", "--simulator", "iPhone 16", "--input-backend", "xcuitest"])).resolves.toBe(0);
+      await expect(main(["tap-element", "--session", "sess_xc_cli", "--id", "cart.continue", "--timeout-ms", "4000"])).resolves.toBe(0);
+      await expect(main(["assert-visible", "--session", "sess_xc_cli", "--identifier", "confirmation"])).resolves.toBe(0);
+      await expect(main(["session", "start", "--input-backend", "bogus"])).rejects.toThrow(/--input-backend must be cgevent or xcuitest/);
+      await expect(main(["tap-element", "--session", "sess_xc_cli"])).rejects.toThrow(/--id/);
+    } finally {
+      process.chdir(originalCwd);
+      console.log = originalLog;
+      await closeServer(server);
+      await rm(tempDir, { recursive: true, force: true });
+    }
+
+    expect(captured[0]).toMatchObject({
+      method: "POST",
+      url: "/sessions",
+      body: { simulator: { name: "iPhone 16" }, viewer: false, inputBackend: "xcuitest" }
+    });
+    expect(captured[1]).toMatchObject({
+      method: "POST",
+      url: "/sessions/sess_xc_cli/actions",
+      body: { action: { kind: "tapElement", identifier: "cart.continue", timeoutMs: 4000 } }
+    });
+    expect(captured[2]).toMatchObject({
+      method: "POST",
+      url: "/sessions/sess_xc_cli/actions",
+      body: { action: { kind: "assertVisible", identifier: "confirmation" } }
+    });
+    expect(captured).toHaveLength(3);
+  });
+
   it("prints session history and alias results through the configured daemon URL", async () => {
     const tempDir = await mkdtemp(join(tmpdir(), "atlas-loop-cli-history-"));
     const originalCwd = process.cwd();

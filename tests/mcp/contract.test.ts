@@ -448,6 +448,61 @@ describe("MCP contract documentation", () => {
     expect(forwarded).toEqual([{ action: { kind: "tap", x: 0.2, y: 0.8 } }]);
   });
 
+  it("normalizes element actions and forwards inputBackend on session creation", async () => {
+    const forwarded: unknown[] = [];
+    const created: unknown[] = [];
+
+    const elementResult = await callToolWithEnvelope("atlas.performAction", {
+      sessionId: "sess_element",
+      action: { kind: "tapElement", identifier: "cart.continue", timeoutMs: 4000, unexpected: "dropped" }
+    }, {
+      client: {
+        performAction: async (_sessionId: string, request: unknown) => {
+          forwarded.push(request);
+          return { actionId: "act_el", ok: true, startedAt: "2026-07-05T12:00:00.000Z", endedAt: "2026-07-05T12:00:00.010Z", artifacts: [] };
+        }
+      } as never
+    });
+    const createResult = await callToolWithEnvelope("atlas.createSession", {
+      simulator: { name: "iPhone 16" },
+      inputBackend: "xcuitest"
+    }, {
+      client: {
+        createSession: async (request: unknown) => {
+          created.push(request);
+          return { id: "sess_xc", inputBackend: "xcuitest" };
+        }
+      } as never
+    });
+
+    expect(elementResult).toMatchObject({ ok: true });
+    expect(forwarded).toEqual([{ action: { kind: "tapElement", identifier: "cart.continue", timeoutMs: 4000 } }]);
+    expect(createResult).toMatchObject({ ok: true });
+    expect(created).toEqual([{ simulator: { name: "iPhone 16" }, inputBackend: "xcuitest" }]);
+  });
+
+  it("rejects element actions with empty identifiers before daemon I/O", async () => {
+    let daemonCalled = false;
+
+    const result = await callToolWithEnvelope("atlas.performAction", {
+      sessionId: "sess_element_invalid",
+      action: { kind: "assertVisible", identifier: "   " }
+    }, {
+      client: {
+        performAction: async () => {
+          daemonCalled = true;
+          return {};
+        }
+      } as never
+    });
+
+    expect(daemonCalled).toBe(false);
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: "INVALID_REQUEST", message: expect.stringContaining("accessibility identifier") }
+    });
+  });
+
   it("normalizes MCP build and launch requests before forwarding them", async () => {
     const forwarded: Array<{ method: string; sessionId: string; request: unknown }> = [];
 
