@@ -25,7 +25,7 @@ runtime dependencies.
 - Agent/operator handoff command that summarizes readiness, artifact health,
   viewer URL, blockers, and next local evidence commands.
 - Local handoff bundle output with JSON, Markdown, raw events, report, and a
-  manifest for next-agent context.
+  manifest verifier for next-agent context.
 - Viewer handoff copy controls for a compact note, next steps, CLI commands,
   and read-only daemon checks.
 - Repo-owned Swift HID helper with a stable NDJSON protocol.
@@ -149,6 +149,7 @@ npm run cli -- evidence report --session latest --out artifacts/reports/<session
 npm run cli -- evidence export --session latest --out artifacts/exports/<session-id>
 npm run cli -- events export --session latest --out artifacts/events/<session-id>.json
 npm run cli -- session handoff --session latest --bundle artifacts/handoffs/<session-id>
+npm run cli -- handoff verify --bundle artifacts/handoffs/<session-id>
 ```
 
 If a session already exists, begin with `session list`, `session status`, and
@@ -167,7 +168,9 @@ single local directory containing `handoff.json`, `handoff.md`, `README.md`,
 `manifest.json` with SHA-256/size integrity for generated files, optional
 `events.json`, and optional `evidence-report.md`; optional exports that fail
 are recorded as warnings in the manifest instead of breaking the handoff
-bundle. See
+bundle. Run `atlas-loop handoff verify --bundle <dir>` to check a bundle's
+local self-consistency; it re-checks the manifest, contained paths, regular
+files, and SHA-256/size integrity without daemon or network access. See
 [docs/handoff-workflow.md](docs/handoff-workflow.md) for the full local
 handoff checklist. The handoff output is a local operator note, not a share
 link or hosted workspace.
@@ -205,6 +208,7 @@ atlas-loop evidence report --session <id> [--out report.md]
 atlas-loop evidence export --session <id> --out <dir>
 atlas-loop session handoff --session <id|latest> [--format json|markdown] [--out handoff.md]
 atlas-loop session handoff --session <id|latest> --bundle <dir>
+atlas-loop handoff verify --bundle <dir>
 atlas-loop viewer url --session <id>
 atlas-loop viewer open --session <id> [--launch]
 atlas-loop session stop --session <id>
@@ -355,7 +359,9 @@ Use `session handoff --session latest --bundle artifacts/handoffs/<session-id>`
 when the next agent needs a local directory with both the note and machine
 readable trace context. The bundle `README.md` is for humans, while
 `manifest.json` records local-only provenance, generated file paths, warnings,
-and file integrity.
+and file integrity. Run `handoff verify --bundle artifacts/handoffs/<session-id>`
+after creating or receiving the directory to catch local path, file type, and
+hash inconsistencies before handoff.
 
 ## Verification
 

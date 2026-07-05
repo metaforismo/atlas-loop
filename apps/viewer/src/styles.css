@@ -1145,6 +1145,13 @@ h2 {
   white-space: nowrap;
 }
 
+.handoff-bundle-output .handoff-bundle-output-command code {
+  overflow: visible;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  white-space: normal;
+}
+
 .handoff-command-preview {
   display: grid;
   gap: 6px;

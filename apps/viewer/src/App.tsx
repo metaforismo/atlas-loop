@@ -1738,7 +1738,7 @@ function HandoffBundleOutput({ summary }: { summary: AgentHandoffBundleSummary }
         <span>local-only</span>
       </div>
       <p id={detailId}>{summary.detail}</p>
-      <dl aria-label="Bundle output paths">
+      <dl aria-label="Bundle output details">
         <div>
           <dt>Directory</dt>
           <dd>
@@ -1749,6 +1749,12 @@ function HandoffBundleOutput({ summary }: { summary: AgentHandoffBundleSummary }
           <dt>Manifest</dt>
           <dd>
             <code title={summary.manifestPath}>{summary.manifestPath}</code>
+          </dd>
+        </div>
+        <div className="handoff-bundle-output-command">
+          <dt>Verify</dt>
+          <dd>
+            <code title={summary.verifyCommand}>{summary.verifyCommand}</code>
           </dd>
         </div>
       </dl>

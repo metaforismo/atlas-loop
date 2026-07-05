@@ -273,6 +273,7 @@ atlas-loop evidence export --session latest --out artifacts/exports/<session-id>
 atlas-loop events export --session latest --out artifacts/events/<session-id>.json
 atlas-loop session handoff --session latest --format markdown --out artifacts/handoffs/<session-id>.md
 atlas-loop session handoff --session latest --bundle artifacts/handoffs/<session-id>
+atlas-loop handoff verify --bundle artifacts/handoffs/<session-id>
 ```
 
 The handoff bundle directory uses `schemaVersion:
@@ -283,7 +284,10 @@ for the resolved session. Missing optional files are listed in `warnings`, and
 the corresponding manifest file path is `null`. The bundle manifest records
 `localOnly: true`, `uploaded: false`, and an `integrity` object with `sha256`
 and `sizeBytes` for every generated non-manifest file present in the bundle.
-`manifest.json` intentionally does not hash itself.
+`manifest.json` intentionally does not hash itself. `atlas-loop handoff verify
+--bundle <dir>` validates this derived bundle format by checking the schema,
+local-only flags, contained regular file paths, required and optional file
+consistency, and SHA-256/size integrity for every generated non-manifest file.
 
 Reports and exports are local files. They should not be committed by default,
 and they do not upload screenshots, logs, metadata, or app bundles.
@@ -303,6 +307,10 @@ local filesystem integrity rules, but they answer different questions:
   without daemon I/O. `atlas-loop artifacts verify --session <id|latest>` uses
   the daemon summary only to find `paths.artifactDir`, then runs the same local
   validator. It is a validation helper, not a daemon health endpoint.
+- `atlas-loop handoff verify --bundle <dir>` validates a generated handoff
+  bundle rather than a raw session artifact tree. It reads `<dir>/manifest.json`
+  and returns `schemaVersion: "atlas-loop.handoff-verify.v1"` with local issue
+  counts and path/hash failures.
 
 Run:
 

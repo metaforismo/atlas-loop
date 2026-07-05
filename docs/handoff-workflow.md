@@ -111,6 +111,7 @@ npm run cli -- evidence report --session latest --out artifacts/reports/<session
 npm run cli -- evidence export --session latest --out artifacts/exports/<session-id>
 npm run cli -- events export --session latest --out artifacts/events/<session-id>.json
 npm run cli -- session handoff --session latest --bundle artifacts/handoffs/<session-id>
+npm run cli -- handoff verify --bundle artifacts/handoffs/<session-id>
 ```
 
 Use the concrete `sessionId` from `session ready` for final report and export
@@ -125,6 +126,7 @@ The preferred operator shortcut is:
 atlas-loop session handoff --session latest
 atlas-loop session handoff --session latest --format markdown --out artifacts/handoffs/<session-id>.md
 atlas-loop session handoff --session latest --bundle artifacts/handoffs/<session-id>
+atlas-loop handoff verify --bundle artifacts/handoffs/<session-id>
 ```
 
 It aligns with the same local-first contract as the multi-command flow:
@@ -145,6 +147,10 @@ It aligns with the same local-first contract as the multi-command flow:
   paths, readiness, the resolved session id, SHA-256/size integrity for
   generated non-manifest files, and warnings for optional exports that could
   not be generated.
+- Check a created or received bundle with `atlas-loop handoff verify --bundle
+  <dir>`. The verifier returns structured local JSON and exits nonzero if paths
+  escape the bundle, listed files are not regular files, required files are
+  missing, optional file metadata disagrees, or SHA-256/size integrity fails.
 - Avoid mutating disk-backed sessions and avoid uploading, committing, or
   sharing artifacts.
 
