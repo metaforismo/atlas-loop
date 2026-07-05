@@ -1,5 +1,5 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
 import { startDaemonServer, type StartedDaemon, type SimulatorApi } from "./server.ts";
@@ -870,6 +870,102 @@ describe("daemon artifact content route", () => {
 
     const manifestOnDisk = JSON.parse(await readFile(join(listed[0].path, "..", "..", "manifest.json"), "utf8"));
     expect(manifestOnDisk.artifacts[0].url).toBeUndefined();
+  });
+});
+
+describe("daemon atlas map surface", () => {
+  async function atlasDaemon() {
+    const tempRoot = await mkdtemp(join(tmpdir(), "atlas-loop-map-route-"));
+    tempDirs.push(tempRoot);
+    const artifactRoot = join(tempRoot, "sessions");
+    await mkdir(artifactRoot, { recursive: true });
+
+    const fixturePng = await readFile(resolve("tests", "fixtures", "atlas", "png", "screen-a.png"));
+    const simulator = fakeSimulator();
+    simulator.screenshot = async ({ outputPath }) => {
+      await writeFile(outputPath, fixturePng);
+      return {
+        command: "xcrun",
+        args: ["simctl", "io", "screenshot", outputPath],
+        stdout: "",
+        stderr: "",
+        exitCode: 0,
+        durationMs: 1
+      };
+    };
+
+    const daemon = await startDaemonServer({
+      port: 0,
+      artifactRoot,
+      autoScreenshot: false,
+      simulator
+    });
+    startedDaemons.push(daemon);
+    return { daemon, fixturePng };
+  }
+
+  it("derives, caches, and rebuilds the atlas map through daemon routes", async () => {
+    const { daemon } = await atlasDaemon();
+
+    const created = await requestJson<{ id: string }>(daemon.url, "/sessions", {
+      method: "POST",
+      body: JSON.stringify({ simulator: { name: "iPhone 16" } })
+    });
+    await requestJson(daemon.url, `/sessions/${created.id}/screenshot`, {
+      method: "POST",
+      body: JSON.stringify({ reason: "map-route" })
+    });
+
+    const first = await requestJson<Record<string, any>>(daemon.url, "/v1/atlas/map");
+    expect(first.source).toBe("rebuilt");
+    expect(first.map).toMatchObject({ schemaVersion: "atlas-loop.atlas-map.v1", hashThreshold: 10 });
+    expect(first.map.screens).toHaveLength(1);
+    expect(first.map.sessions).toEqual([expect.objectContaining({ sessionId: created.id, observationCount: 1 })]);
+
+    const second = await requestJson<Record<string, any>>(daemon.url, "/v1/atlas/map");
+    expect(second.source).toBe("cache");
+    expect(JSON.stringify(second.map)).toBe(JSON.stringify(first.map));
+
+    const rebuilt = await requestJson<Record<string, any>>(daemon.url, "/v1/atlas/map/rebuild", { method: "POST" });
+    expect(rebuilt.source).toBe("rebuilt");
+
+    // New evidence invalidates the cached map.
+    await requestJson(daemon.url, `/sessions/${created.id}/screenshot`, {
+      method: "POST",
+      body: JSON.stringify({ reason: "map-route-2" })
+    });
+    const refreshed = await requestJson<Record<string, any>>(daemon.url, "/v1/atlas/map");
+    expect(refreshed.source).toBe("rebuilt");
+    expect(refreshed.map.screens[0].screenshotCount).toBe(2);
+  });
+
+  it("streams atlas screen images and rejects unknown screens and variants", async () => {
+    const { daemon, fixturePng } = await atlasDaemon();
+
+    const created = await requestJson<{ id: string }>(daemon.url, "/sessions", {
+      method: "POST",
+      body: JSON.stringify({ simulator: { name: "iPhone 16" } })
+    });
+    await requestJson(daemon.url, `/sessions/${created.id}/screenshot`, {
+      method: "POST",
+      body: JSON.stringify({ reason: "map-image" })
+    });
+    const view = await requestJson<Record<string, any>>(daemon.url, "/v1/atlas/map");
+    const screenId = view.map.screens[0].id as string;
+
+    const image = await fetch(`${daemon.url}/v1/atlas/screens/${encodeURIComponent(screenId)}/image`);
+    expect(image.status).toBe(200);
+    expect(image.headers.get("content-type")).toBe("image/png");
+    expect(Buffer.from(await image.arrayBuffer()).equals(fixturePng)).toBe(true);
+
+    const variantImage = await fetch(`${daemon.url}/v1/atlas/screens/${encodeURIComponent(screenId)}/image?variant=0`);
+    expect(variantImage.status).toBe(200);
+
+    const badVariant = await fetch(`${daemon.url}/v1/atlas/screens/${encodeURIComponent(screenId)}/image?variant=9`);
+    expect(badVariant.status).toBe(404);
+
+    const unknown = await fetch(`${daemon.url}/v1/atlas/screens/screen_nope/image`);
+    expect(unknown.status).toBe(404);
   });
 });
 

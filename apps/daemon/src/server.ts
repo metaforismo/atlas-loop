@@ -1,12 +1,13 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { createReadStream } from "node:fs";
-import { readFile, rm, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
 import {
   appendActionRecord,
   artifactFromPath,
   copyScreenshot,
   createSessionArtifacts,
+  getSessionArtifactLayout,
   listPersistedSessions,
   markLatestScreenshot,
   recordTrace,
@@ -42,6 +43,7 @@ import {
   type LaunchAction,
   type LaunchRequest,
   type PerformActionRequest,
+  type AtlasMap,
   type Session,
   type SessionHistoryItem,
   type SessionHistoryResult,
@@ -51,6 +53,7 @@ import {
 import { parseTraceLine } from "@atlas-loop/traces";
 import { createSimulator, type RecordingHandle } from "@atlas-loop/simulator";
 import { validateArtifactTarget, type ValidationReport } from "../../../scripts/verify-artifacts.ts";
+import { deriveAtlasMap, loadHashCache, saveHashCache } from "@atlas-loop/atlas-map";
 import { XcuitestRunnerManager } from "@atlas-loop/xcuitest-client";
 import { createCgEventBackend } from "./backends/cgevent.ts";
 import { createXcuitestBackend, type XcuitestManagerLike } from "./backends/xcuitest.ts";
@@ -224,6 +227,22 @@ async function handleRequest(state: DaemonState, request: IncomingMessage, respo
         }
       });
       return;
+    }
+
+    if (parts[0] === "atlas") {
+      if (request.method === "GET" && parts.length === 2 && parts[1] === "map") {
+        sendJson(response, 200, { ok: true, data: await getAtlasMapView(state, false) });
+        return;
+      }
+      if (request.method === "POST" && parts.length === 3 && parts[1] === "map" && parts[2] === "rebuild") {
+        sendJson(response, 200, { ok: true, data: await getAtlasMapView(state, true) });
+        return;
+      }
+      if (request.method === "GET" && parts.length === 4 && parts[1] === "screens" && parts[3] === "image") {
+        await sendAtlasScreenImage(state, response, parts[2], url.searchParams);
+        return;
+      }
+      throw atlasError("NOT_FOUND", `route not found: ${url.pathname}`);
     }
 
     if (parts[0] !== "sessions") {
@@ -1179,6 +1198,112 @@ async function sendArtifactContent(
     createReadStream(safePath, range ? { start: range.start, end: range.end } : undefined)
       .on("error", reject)
       .on("end", resolve)
+      .pipe(response);
+  });
+}
+
+interface AtlasMapView {
+  source: "cache" | "rebuilt";
+  map: AtlasMap;
+  warnings: Array<{ sessionId?: string; path?: string; message: string }>;
+}
+
+function atlasDirFor(state: DaemonState): string {
+  return resolve(state.config.artifactRoot, "..", "atlas");
+}
+
+async function getAtlasMapView(state: DaemonState, force: boolean): Promise<AtlasMapView> {
+  const atlasDir = atlasDirFor(state);
+  const mapPath = join(atlasDir, "map.json");
+  const cachePath = join(atlasDir, "hash-cache.json");
+
+  if (!force) {
+    const cached = await tryReadCachedMap(mapPath);
+    if (cached && (await atlasMapIsFresh(state, cached))) {
+      return { source: "cache", map: cached, warnings: [] };
+    }
+  }
+
+  const hashCache = await loadHashCache(cachePath);
+  const derivation = await deriveAtlasMap({ artifactRoot: state.config.artifactRoot, hashCache });
+  await mkdir(atlasDir, { recursive: true });
+  await saveHashCache(cachePath, derivation.hashCache);
+  await writeFile(mapPath, `${JSON.stringify(derivation.map, null, 2)}\n`, "utf8");
+  return { source: "rebuilt", map: derivation.map, warnings: derivation.warnings };
+}
+
+async function tryReadCachedMap(mapPath: string): Promise<AtlasMap | undefined> {
+  try {
+    const parsed = JSON.parse(await readFile(mapPath, "utf8")) as AtlasMap;
+    return parsed.schemaVersion === "atlas-loop.atlas-map.v1" ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function atlasMapIsFresh(state: DaemonState, map: AtlasMap): Promise<boolean> {
+  const generatedAtMs = Date.parse(map.generatedAt);
+  if (!Number.isFinite(generatedAtMs)) return false;
+
+  let entries;
+  try {
+    entries = await readdir(state.config.artifactRoot, { withFileTypes: true });
+  } catch {
+    return true;
+  }
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    for (const evidenceFile of ["session.json", "actions.jsonl", "manifest.json"]) {
+      try {
+        const info = await stat(join(state.config.artifactRoot, entry.name, evidenceFile));
+        if (info.mtimeMs > generatedAtMs) return false;
+      } catch {
+        // Missing evidence files do not affect freshness.
+      }
+    }
+  }
+  return true;
+}
+
+async function sendAtlasScreenImage(
+  state: DaemonState,
+  response: ServerResponse,
+  screenId: string,
+  searchParams: URLSearchParams
+): Promise<void> {
+  const view = await getAtlasMapView(state, false);
+  const screen = view.map.screens.find((candidate) => candidate.id === screenId || candidate.screenId === screenId);
+  if (!screen) {
+    throw atlasError("NOT_FOUND", `atlas screen not found: ${screenId}`);
+  }
+
+  let shot = screen.representative;
+  const variantParam = searchParams.get("variant");
+  if (variantParam !== null) {
+    const index = Number(variantParam);
+    if (!Number.isInteger(index) || index < 0 || index >= screen.variants.length) {
+      throw atlasError("NOT_FOUND", `variant ${variantParam} not found for atlas screen ${screenId}`);
+    }
+    shot = screen.variants[index];
+  }
+
+  const layout = getSessionArtifactLayout(state.config.artifactRoot, shot.sessionId);
+  const safePath = await resolveContainedArtifactPath(layout, "screenshot", shot.path);
+  if (!safePath) {
+    throw atlasError("NOT_FOUND", `screenshot for atlas screen ${screenId} is unavailable`);
+  }
+
+  const info = await stat(safePath);
+  response.writeHead(200, {
+    "content-type": "image/png",
+    "content-length": info.size,
+    "cache-control": "no-store"
+  });
+  await new Promise<void>((resolvePipe, reject) => {
+    createReadStream(safePath)
+      .on("error", reject)
+      .on("end", resolvePipe)
       .pipe(response);
   });
 }
