@@ -265,9 +265,19 @@ export function useAtlasLoopData(params: ViewerParams) {
     };
 
     void load();
-    const timer = hasStableArtifactKey ? undefined : window.setInterval(() => void load(), 1200);
+    const timer = hasStableArtifactKey
+      ? undefined
+      : window.setInterval(() => {
+          if (document.visibilityState === "hidden") return;
+          void load();
+        }, 1200);
+    const handleVisibilityChange = (): void => {
+      if (document.visibilityState === "visible") void load();
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => {
       controller.abort();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       if (timer !== undefined) window.clearInterval(timer);
       if (retryTimer !== undefined) window.clearTimeout(retryTimer);
     };
