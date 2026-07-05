@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { createServer, type Server } from "node:http";
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -1082,6 +1082,299 @@ describe("CLI agent workflow helpers", () => {
     expect(requestedPaths).toEqual([]);
   });
 
+  it("verifies a generated local handoff bundle", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "atlas-loop-cli-handoff-verify-"));
+    const bundleDir = join(tempDir, "handoff-bundle");
+    const originalCwd = process.cwd();
+    const originalLog = console.log;
+    const logged: string[] = [];
+    let output: any;
+
+    try {
+      await generateCompleteHandoffBundle(tempDir, bundleDir);
+      console.log = (value?: unknown) => {
+        logged.push(String(value));
+      };
+      process.chdir(tempDir);
+
+      await expect(main(["handoff", "verify", "--bundle", bundleDir])).resolves.toBe(0);
+      output = JSON.parse(logged[0]);
+    } finally {
+      process.chdir(originalCwd);
+      console.log = originalLog;
+      await rm(tempDir, { recursive: true, force: true });
+    }
+
+    expect(Number.isNaN(Date.parse(output.checkedAt))).toBe(false);
+    expect(output).toEqual({
+      ok: true,
+      schemaVersion: "atlas-loop.handoff-verify.v1",
+      bundleDir,
+      manifestPath: join(bundleDir, "manifest.json"),
+      sessionId: "sess_verify_bundle",
+      checkedAt: output.checkedAt,
+      filesChecked: 5,
+      summary: {
+        errorCount: 0,
+        warningCount: 0,
+        issueCount: 0
+      },
+      issues: [],
+      localOnly: true,
+      uploaded: false
+    });
+  });
+
+  it("fails handoff bundle verification when a file hash and size are corrupted", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "atlas-loop-cli-handoff-verify-corrupt-"));
+    const bundleDir = join(tempDir, "handoff-bundle");
+    const originalCwd = process.cwd();
+    const originalLog = console.log;
+    const logged: string[] = [];
+    const handoffJsonPath = join(bundleDir, "handoff.json");
+    let output: any;
+
+    try {
+      await generateCompleteHandoffBundle(tempDir, bundleDir);
+      await writeFile(handoffJsonPath, "{\"corrupted\":true}\n", "utf8");
+      console.log = (value?: unknown) => {
+        logged.push(String(value));
+      };
+      process.chdir(tempDir);
+
+      await expect(main(["handoff", "verify", "--bundle", bundleDir])).resolves.toBe(1);
+      output = JSON.parse(logged[0]);
+    } finally {
+      process.chdir(originalCwd);
+      console.log = originalLog;
+      await rm(tempDir, { recursive: true, force: true });
+    }
+
+    expect(output).toMatchObject({
+      ok: false,
+      schemaVersion: "atlas-loop.handoff-verify.v1",
+      bundleDir,
+      manifestPath: join(bundleDir, "manifest.json"),
+      sessionId: "sess_verify_bundle",
+      filesChecked: 5,
+      summary: {
+        errorCount: 2,
+        warningCount: 0,
+        issueCount: 2
+      },
+      localOnly: true,
+      uploaded: false
+    });
+    expect(output.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        severity: "error",
+        path: handoffJsonPath,
+        message: expect.stringContaining("sha256")
+      }),
+      expect.objectContaining({
+        severity: "error",
+        path: handoffJsonPath,
+        message: expect.stringContaining("sizeBytes")
+      })
+    ]));
+  });
+
+  it("rejects handoff bundle file paths that escape the bundle directory", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "atlas-loop-cli-handoff-verify-escape-"));
+    const bundleDir = join(tempDir, "handoff-bundle");
+    const originalCwd = process.cwd();
+    const originalLog = console.log;
+    const logged: string[] = [];
+    let output: any;
+
+    try {
+      await generateCompleteHandoffBundle(tempDir, bundleDir);
+      await writeFile(join(tempDir, "escape.txt"), "outside bundle\n", "utf8");
+      await updateBundleManifest(bundleDir, (manifest) => {
+        manifest.files.handoffJson = "../escape.txt";
+      });
+      console.log = (value?: unknown) => {
+        logged.push(String(value));
+      };
+      process.chdir(tempDir);
+
+      await expect(main(["handoff", "verify", "--bundle", bundleDir])).resolves.toBe(1);
+      output = JSON.parse(logged[0]);
+    } finally {
+      process.chdir(originalCwd);
+      console.log = originalLog;
+      await rm(tempDir, { recursive: true, force: true });
+    }
+
+    expect(output.ok).toBe(false);
+    expect(output.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        severity: "error",
+        path: "../escape.txt",
+        message: expect.stringContaining("inside the bundle")
+      })
+    ]));
+  });
+
+  it("rejects handoff bundle files that are symlinks to outside targets", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "atlas-loop-cli-handoff-verify-symlink-"));
+    const bundleDir = join(tempDir, "handoff-bundle");
+    const originalCwd = process.cwd();
+    const originalLog = console.log;
+    const logged: string[] = [];
+    const handoffJsonPath = join(bundleDir, "handoff.json");
+    const outsidePath = join(tempDir, "outside-handoff.json");
+    let output: any;
+
+    try {
+      await generateCompleteHandoffBundle(tempDir, bundleDir);
+      await writeFile(outsidePath, "{\"outside\":true}\n", "utf8");
+      await rm(handoffJsonPath, { force: true });
+      await symlink(outsidePath, handoffJsonPath);
+      await updateBundleManifest(bundleDir, async (manifest) => {
+        manifest.files.handoffJson = handoffJsonPath;
+        manifest.integrity.handoffJson = await fileIntegrity(outsidePath);
+      });
+      console.log = (value?: unknown) => {
+        logged.push(String(value));
+      };
+      process.chdir(tempDir);
+
+      await expect(main(["handoff", "verify", "--bundle", bundleDir])).resolves.toBe(1);
+      output = JSON.parse(logged[0]);
+    } finally {
+      process.chdir(originalCwd);
+      console.log = originalLog;
+      await rm(tempDir, { recursive: true, force: true });
+    }
+
+    expect(output.ok).toBe(false);
+    expect(output.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        severity: "error",
+        path: handoffJsonPath,
+        message: expect.stringContaining("regular file")
+      })
+    ]));
+  });
+
+  it("rejects handoff bundle manifests that point at a different file", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "atlas-loop-cli-handoff-verify-manifest-path-"));
+    const bundleDir = join(tempDir, "handoff-bundle");
+    const originalCwd = process.cwd();
+    const originalLog = console.log;
+    const logged: string[] = [];
+    let output: any;
+
+    try {
+      await generateCompleteHandoffBundle(tempDir, bundleDir);
+      await updateBundleManifest(bundleDir, (manifest) => {
+        manifest.files.manifest = join(bundleDir, "README.md");
+      });
+      console.log = (value?: unknown) => {
+        logged.push(String(value));
+      };
+      process.chdir(tempDir);
+
+      await expect(main(["handoff", "verify", "--bundle", bundleDir])).resolves.toBe(1);
+      output = JSON.parse(logged[0]);
+    } finally {
+      process.chdir(originalCwd);
+      console.log = originalLog;
+      await rm(tempDir, { recursive: true, force: true });
+    }
+
+    expect(output.ok).toBe(false);
+    expect(output.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        severity: "error",
+        path: join(bundleDir, "README.md"),
+        message: expect.stringContaining("bundle manifest.json")
+      })
+    ]));
+  });
+
+  it("fails handoff bundle verification when optional files and integrity disagree", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "atlas-loop-cli-handoff-verify-optional-"));
+    const bundleDir = join(tempDir, "handoff-bundle");
+    const originalCwd = process.cwd();
+    const originalLog = console.log;
+    const logged: string[] = [];
+    let output: any;
+
+    try {
+      await generateCompleteHandoffBundle(tempDir, bundleDir);
+      await updateBundleManifest(bundleDir, (manifest) => {
+        manifest.files.eventsJson = null;
+      });
+      console.log = (value?: unknown) => {
+        logged.push(String(value));
+      };
+      process.chdir(tempDir);
+
+      await expect(main(["handoff", "verify", "--bundle", bundleDir])).resolves.toBe(1);
+      output = JSON.parse(logged[0]);
+    } finally {
+      process.chdir(originalCwd);
+      console.log = originalLog;
+      await rm(tempDir, { recursive: true, force: true });
+    }
+
+    expect(output.ok).toBe(false);
+    expect(output.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        severity: "error",
+        path: "integrity.eventsJson",
+        message: expect.stringContaining("without files.eventsJson")
+      })
+    ]));
+  });
+
+  it("rejects empty optional handoff bundle file paths", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "atlas-loop-cli-handoff-verify-empty-optional-"));
+    const bundleDir = join(tempDir, "handoff-bundle");
+    const originalCwd = process.cwd();
+    const originalLog = console.log;
+    const logged: string[] = [];
+    let output: any;
+
+    try {
+      await generateCompleteHandoffBundle(tempDir, bundleDir);
+      await updateBundleManifest(bundleDir, (manifest) => {
+        manifest.files.eventsJson = "";
+      });
+      console.log = (value?: unknown) => {
+        logged.push(String(value));
+      };
+      process.chdir(tempDir);
+
+      await expect(main(["handoff", "verify", "--bundle", bundleDir])).resolves.toBe(1);
+      output = JSON.parse(logged[0]);
+    } finally {
+      process.chdir(originalCwd);
+      console.log = originalLog;
+      await rm(tempDir, { recursive: true, force: true });
+    }
+
+    expect(output.ok).toBe(false);
+    expect(output.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        severity: "error",
+        path: "files.eventsJson",
+        message: expect.stringContaining("non-empty file path string")
+      })
+    ]));
+  });
+
+  it("rejects non-local handoff verification bundle paths", async () => {
+    await expect(main([
+      "handoff",
+      "verify",
+      "--bundle",
+      "https://example.com/handoff"
+    ])).rejects.toThrow("handoff bundle path must be a local filesystem path");
+  });
+
   it("prints and writes Markdown evidence reports", async () => {
     const tempDir = await mkdtemp(join(tmpdir(), "atlas-loop-cli-report-"));
     const originalCwd = process.cwd();
@@ -1702,6 +1995,87 @@ async function fileIntegrity(filePath: string): Promise<{ sha256: string; sizeBy
     sha256: createHash("sha256").update(contents).digest("hex"),
     sizeBytes: contents.byteLength
   };
+}
+
+async function generateCompleteHandoffBundle(tempDir: string, bundleDir: string): Promise<void> {
+  const originalCwd = process.cwd();
+  const originalLog = console.log;
+  const requestedPaths: string[] = [];
+  const artifactDir = join(tempDir, "artifacts", "sess-verify-bundle");
+  const latestScreenshot: ArtifactRef = {
+    id: "artifact_verify_bundle",
+    sessionId: "sess_verify_bundle",
+    type: "screenshot",
+    path: join(artifactDir, "screenshots", "latest.png"),
+    createdAt: "2026-07-04T12:00:00.000Z",
+    metadata: { actionId: "act_verify_bundle", operation: "screenshot", sizeBytes: 2048 }
+  };
+  const events = traceEvents("sess_verify_bundle");
+  const summary = sessionSummary("sess_verify_bundle", {
+    artifactDir,
+    latestScreenshot,
+    storage: { source: "memory", artifactBacked: true, warnings: [] }
+  });
+  const server = await startSessionHandoffDaemon((requestPath) => {
+    requestedPaths.push(requestPath);
+    if (requestPath === "/sessions/latest/summary" || requestPath === "/sessions/sess_verify_bundle/summary") {
+      return { ok: true, data: summary };
+    }
+    if (requestPath === "/sessions/sess_verify_bundle/artifacts/health") {
+      return {
+        ok: true,
+        data: artifactHealth("sess_verify_bundle", "sess_verify_bundle", true)
+      };
+    }
+    if (requestPath === "/sessions/sess_verify_bundle/events") {
+      return { ok: true, data: events };
+    }
+    if (requestPath === "/sessions/sess_verify_bundle/artifacts") {
+      return { ok: true, data: [latestScreenshot] };
+    }
+    return {
+      ok: false,
+      status: 404,
+      error: { code: "NOT_FOUND", message: `unexpected route ${requestPath}` }
+    };
+  });
+  const daemonUrl = `http://127.0.0.1:${server.port}`;
+
+  await writeFile(join(tempDir, "atlas-loop.config.json"), JSON.stringify({ daemonUrl }, null, 2));
+  console.log = () => undefined;
+
+  try {
+    process.chdir(tempDir);
+    await expect(main([
+      "session",
+      "handoff",
+      "--session",
+      "latest",
+      "--bundle",
+      bundleDir,
+      "--viewer-base-url",
+      "http://127.0.0.1:5176/"
+    ])).resolves.toBe(0);
+  } finally {
+    process.chdir(originalCwd);
+    console.log = originalLog;
+    await server.close();
+  }
+
+  expect(requestedPaths).toEqual([
+    "/sessions/latest/summary",
+    "/sessions/sess_verify_bundle/artifacts/health",
+    "/sessions/sess_verify_bundle/events",
+    "/sessions/sess_verify_bundle/summary",
+    "/sessions/sess_verify_bundle/artifacts"
+  ]);
+}
+
+async function updateBundleManifest(bundleDir: string, update: (manifest: any) => void | Promise<void>): Promise<void> {
+  const manifestPath = join(bundleDir, "manifest.json");
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+  await update(manifest);
+  await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
 }
 
 function sessionSummary(

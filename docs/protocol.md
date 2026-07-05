@@ -143,6 +143,8 @@ write `handoff.json`, `handoff.md`, `README.md`, optional `events.json`,
 optional `evidence-report.md`, and `manifest.json` with
 `schemaVersion: "atlas-loop.handoff-bundle.v1"`. The manifest includes
 local-only provenance plus SHA-256/size integrity for generated non-manifest
-files. The bundle is still derived local state; no handoff field should imply
-cloud sharing, hosted authentication, Android support, or a remote viewer in
-v1.
+files. `atlas-loop handoff verify --bundle <dir>` checks that bundle contract
+locally by reading `manifest.json`, enforcing contained regular files, and
+recomputing SHA-256/size integrity without daemon or network access. The bundle
+is still derived local state; no handoff field should imply cloud sharing,
+hosted authentication, Android support, or a remote viewer in v1.

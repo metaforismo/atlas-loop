@@ -122,6 +122,7 @@ export interface AgentHandoffBundleSummary {
   directory: string;
   manifestPath: string;
   command: string;
+  verifyCommand: string;
   detail: string;
 }
 
@@ -896,7 +897,7 @@ function agentHandoffCopyPayloads(
       id: "nextSteps",
       label: "Copy steps",
       ariaLabel: "Copy all handoff next steps",
-      value: numberedLines(nextSteps)
+      value: agentHandoffNextStepsPayload(nextSteps, bundleSummary)
     },
     {
       id: "commands",
@@ -923,6 +924,7 @@ function agentHandoffNote(
     ? [
         `Bundle directory: ${bundleSummary.directory}`,
         `Bundle manifest: ${bundleSummary.manifestPath}`,
+        `Bundle verify: ${bundleSummary.verifyCommand}`,
         `Bundle detail: ${bundleSummary.detail}`
       ]
     : [];
@@ -951,6 +953,7 @@ function agentHandoffBundleSummary(input: AgentHandoffInput, resolvedSessionId: 
     directory,
     manifestPath: `${directory}/manifest.json`,
     command: agentHandoffBundleCommand(input, resolvedSessionId),
+    verifyCommand: agentHandoffBundleVerifyCommand(resolvedSessionId),
     detail: "Local-only output; writes handoff.json, handoff.md, README.md, manifest.json, and optional exports."
   };
 }
@@ -973,6 +976,7 @@ function agentHandoffCommands(input: AgentHandoffInput, resolvedSessionId: strin
     "# Local atlas-loop CLI handoff commands",
     `atlas-loop artifacts health --session ${cliSession} --daemon-url ${cliDaemon}`,
     agentHandoffBundleCommand(input, rawSessionId),
+    agentHandoffBundleVerifyCommand(rawSessionId),
     `atlas-loop evidence report --session ${cliSession} --daemon-url ${cliDaemon}`,
     `atlas-loop evidence export --session ${cliSession} --out ${shellSingleQuote(`./atlas-loop-evidence/${rawSessionId}`)} --daemon-url ${cliDaemon}`,
     `atlas-loop events export --session ${cliSession} --out ${shellSingleQuote(`./atlas-loop-events/${rawSessionId}.json`)} --daemon-url ${cliDaemon}`,
@@ -995,6 +999,13 @@ function agentHandoffBundleCommand(input: AgentHandoffInput, rawSessionId: strin
   ].join(" ");
 }
 
+function agentHandoffBundleVerifyCommand(rawSessionId: string): string {
+  return [
+    "atlas-loop handoff verify",
+    `--bundle ${shellSingleQuote(`./atlas-loop-handoffs/${rawSessionId}`)}`
+  ].join(" ");
+}
+
 function agentHandoffCommandPreview(value: string | undefined): AgentHandoffCommandPreview | undefined {
   const lines = (value ?? "")
     .split("\n")
@@ -1003,7 +1014,7 @@ function agentHandoffCommandPreview(value: string | undefined): AgentHandoffComm
 
   if (lines.length === 0) return undefined;
 
-  const visibleLines = lines.slice(0, 6);
+  const visibleLines = lines.slice(0, 7);
   const hiddenLines = lines.slice(visibleLines.length);
 
   return {
@@ -1014,6 +1025,11 @@ function agentHandoffCommandPreview(value: string | undefined): AgentHandoffComm
     hiddenLineCount: hiddenLines.length,
     totalLineCount: lines.length
   };
+}
+
+function agentHandoffNextStepsPayload(nextSteps: string[], bundleSummary: AgentHandoffBundleSummary | undefined): string {
+  const steps = numberedLines(nextSteps);
+  return bundleSummary ? `${steps}\n\nBundle verify command:\n${bundleSummary.verifyCommand}` : steps;
 }
 
 function numberedLines(items: string[]): string {

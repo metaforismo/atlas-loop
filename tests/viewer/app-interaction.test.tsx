@@ -12,6 +12,8 @@ const CREATED_AT = "2026-07-04T09:00:00.000Z";
 const SCREENSHOT_TARGET_LABEL = "Select normalized tap target from screenshot; press Enter for center";
 const handoffBundleCommand = (): string =>
   `atlas-loop session handoff --session '${SESSION_ID}' --bundle './atlas-loop-handoffs/${SESSION_ID}' --viewer-base-url '${window.location.origin}' --daemon-url '${DAEMON_URL}'`;
+const handoffBundleVerifyCommand = (): string =>
+  `atlas-loop handoff verify --bundle './atlas-loop-handoffs/${SESSION_ID}'`;
 
 const screenshotArtifact: ArtifactRef = {
   id: "shot_checkout",
@@ -230,22 +232,26 @@ describe("viewer app interactions", () => {
     }, "ready handoff copy controls");
 
     const bundleOutput = getByRoleName<HTMLElement>("region", "Bundle output");
-    const bundlePaths = getByAriaLabel<HTMLElement>("Bundle output paths");
+    const bundlePaths = getByAriaLabel<HTMLElement>("Bundle output details");
     expect(bundleOutput.textContent).toContain("local-only");
     expect(bundleOutput.textContent).toContain("writes handoff.json");
     expect(bundleOutput.textContent).not.toContain("read-only");
     expect(bundlePaths.textContent).toContain(`./atlas-loop-handoffs/${SESSION_ID}`);
     expect(bundlePaths.textContent).toContain(`./atlas-loop-handoffs/${SESSION_ID}/manifest.json`);
+    expect(bundlePaths.textContent).toContain("Verify");
+    expect(bundlePaths.textContent).toContain(handoffBundleVerifyCommand());
 
     const commandPreview = getByRoleName<HTMLElement>("region", "Local handoff command preview");
     const visibleCommandLines = getByRoleName<HTMLElement>("region", "Visible local handoff command lines");
-    expect(commandPreview.textContent).toContain("6/12 lines");
+    expect(commandPreview.textContent).toContain("7/13 lines");
     expect(commandPreview.textContent).toContain(handoffBundleCommand());
+    expect(commandPreview.textContent).toContain(handoffBundleVerifyCommand());
     expect(commandPreview.textContent).toContain(`--viewer-base-url '${window.location.origin}'`);
     expect(commandPreview.textContent).toContain(
       `atlas-loop events export --session '${SESSION_ID}' --out './atlas-loop-events/${SESSION_ID}.json' --daemon-url '${DAEMON_URL}'`
     );
     expect(visibleCommandLines.textContent).toContain(handoffBundleCommand());
+    expect(visibleCommandLines.textContent).toContain(handoffBundleVerifyCommand());
     expect(commandPreview.textContent).toContain("+6 more lines: daemon checks");
     expect(commandPreview.textContent).not.toContain(`curl -fsS '${DAEMON_URL}/v1/sessions/${SESSION_ID}/summary'`);
 
@@ -268,6 +274,7 @@ describe("viewer app interactions", () => {
       expect(clipboardWriteText).toHaveBeenLastCalledWith(expect.stringContaining(`Session: ${SESSION_ID}`));
       expect(clipboardWriteText).toHaveBeenLastCalledWith(expect.stringContaining(`Bundle directory: ./atlas-loop-handoffs/${SESSION_ID}`));
       expect(clipboardWriteText).toHaveBeenLastCalledWith(expect.stringContaining(`Bundle manifest: ./atlas-loop-handoffs/${SESSION_ID}/manifest.json`));
+      expect(clipboardWriteText).toHaveBeenLastCalledWith(expect.stringContaining(`Bundle verify: ${handoffBundleVerifyCommand()}`));
       expect(clipboardWriteText).toHaveBeenLastCalledWith(expect.stringContaining("Blockers/warnings:\n- none"));
       expect(handoff.textContent).toContain("Handoff note copied.");
       return true;
@@ -279,6 +286,9 @@ describe("viewer app interactions", () => {
       expect(clipboardWriteText).toHaveBeenLastCalledWith(
         expect.stringContaining("1. Pass the daemon URL and resolved session id to the next agent.")
       );
+      expect(clipboardWriteText).toHaveBeenLastCalledWith(
+        expect.stringContaining(`Bundle verify command:\n${handoffBundleVerifyCommand()}`)
+      );
       expect(handoff.textContent).toContain("Next steps copied.");
       return true;
     }, "handoff next steps copied");
@@ -287,6 +297,7 @@ describe("viewer app interactions", () => {
 
     await waitFor(() => {
       expect(clipboardWriteText).toHaveBeenLastCalledWith(expect.stringContaining(handoffBundleCommand()));
+      expect(clipboardWriteText).toHaveBeenLastCalledWith(expect.stringContaining(handoffBundleVerifyCommand()));
       expect(clipboardWriteText).toHaveBeenLastCalledWith(
         expect.stringContaining(`atlas-loop events export --session '${SESSION_ID}' --out './atlas-loop-events/${SESSION_ID}.json' --daemon-url '${DAEMON_URL}'`)
       );
