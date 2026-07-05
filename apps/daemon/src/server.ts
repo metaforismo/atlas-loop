@@ -319,6 +319,10 @@ async function handleRequest(state: DaemonState, request: IncomingMessage, respo
 
     if (request.method === "GET" && parts.length === 3 && parts[2] === "events") {
       const sessionState = await resolveReadableSessionState(state, sessionId);
+      if ((request.headers.accept ?? "").includes("text/event-stream")) {
+        await sendEventStream(request, response, sessionState);
+        return;
+      }
       sendJson(response, 200, { ok: true, data: await readEvents(sessionState) });
       return;
     }
@@ -956,6 +960,49 @@ async function sendLatestScreenshotImage(response: ServerResponse, sessionState:
       .on("end", resolve)
       .pipe(response);
   });
+}
+
+const SSE_POLL_INTERVAL_MS = 400;
+const SSE_HEARTBEAT_INTERVAL_MS = 15000;
+
+async function sendEventStream(request: IncomingMessage, response: ServerResponse, sessionState: SessionState): Promise<void> {
+  response.writeHead(200, {
+    "content-type": "text/event-stream",
+    "cache-control": "no-store",
+    connection: "keep-alive"
+  });
+  response.write(": connected\n\n");
+
+  let sentCount = 0;
+  let pushing = false;
+  const pushNewEvents = async (): Promise<void> => {
+    if (pushing || response.writableEnded) return;
+    pushing = true;
+    try {
+      const events = await readEvents(sessionState);
+      for (const event of events.slice(sentCount)) {
+        response.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+      }
+      sentCount = Math.max(sentCount, events.length);
+    } catch {
+      // Transient trace read failures resolve on the next poll; keep the stream open.
+    } finally {
+      pushing = false;
+    }
+  };
+
+  await pushNewEvents();
+  const pollTimer = setInterval(() => void pushNewEvents(), SSE_POLL_INTERVAL_MS);
+  const heartbeatTimer = setInterval(() => {
+    if (!response.writableEnded) response.write(": heartbeat\n\n");
+  }, SSE_HEARTBEAT_INTERVAL_MS);
+
+  await new Promise<void>((resolve) => {
+    request.on("close", resolve);
+  });
+  clearInterval(pollTimer);
+  clearInterval(heartbeatTimer);
+  if (!response.writableEnded) response.end();
 }
 
 async function readEvents(sessionState: SessionState): Promise<TraceEvent[]> {

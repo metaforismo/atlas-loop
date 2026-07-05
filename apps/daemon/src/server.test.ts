@@ -869,6 +869,98 @@ describe("daemon artifact content route", () => {
   });
 });
 
+describe("daemon events stream", () => {
+  it("streams existing and newly appended trace events over SSE", async () => {
+    const artifactRoot = await mkdtemp(join(tmpdir(), "atlas-loop-sse-"));
+    tempDirs.push(artifactRoot);
+    const daemon = await startDaemonServer({
+      port: 0,
+      artifactRoot,
+      simulator: fakeSimulator()
+    });
+    startedDaemons.push(daemon);
+
+    const created = await requestJson<{ id: string }>(daemon.url, "/sessions", {
+      method: "POST",
+      body: JSON.stringify({ simulator: { name: "iPhone 16" } })
+    });
+    await requestJson(daemon.url, `/sessions/${created.id}/screenshot`, {
+      method: "POST",
+      body: JSON.stringify({ reason: "sse-initial" })
+    });
+
+    const controller = new AbortController();
+    const response = await fetch(`${daemon.url}/v1/sessions/${created.id}/events`, {
+      headers: { accept: "text/event-stream" },
+      signal: controller.signal
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("text/event-stream");
+
+    const reader = response.body!.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    const readUntil = async (predicate: () => boolean, timeoutMs = 5000): Promise<void> => {
+      const deadline = Date.now() + timeoutMs;
+      while (!predicate()) {
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) throw new Error(`timed out waiting for SSE data; buffer so far:\n${buffer}`);
+        const chunk = await Promise.race([
+          reader.read(),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`SSE read timed out; buffer so far:\n${buffer}`)), remaining))
+        ]);
+        if (chunk.done) break;
+        buffer += decoder.decode(chunk.value, { stream: true });
+      }
+      if (!predicate()) throw new Error(`SSE stream ended before expected data; buffer so far:\n${buffer}`);
+    };
+
+    try {
+      await readUntil(() =>
+        buffer.includes("event: session.created") &&
+        buffer.includes("event: action.completed") &&
+        buffer.includes("sse-initial")
+      );
+
+      await requestJson(daemon.url, `/sessions/${created.id}/screenshot`, {
+        method: "POST",
+        body: JSON.stringify({ reason: "sse-follow" })
+      });
+      await readUntil(() => buffer.includes("sse-follow"));
+
+      const framedEvent = buffer.split("\n\n").find((frame) => frame.includes("event: session.created"));
+      expect(framedEvent).toBeDefined();
+      const dataLine = framedEvent!.split("\n").find((line) => line.startsWith("data: "));
+      expect(dataLine).toBeDefined();
+      expect(dataLine).toContain(created.id);
+      expect(JSON.parse(dataLine!.slice("data: ".length))).toMatchObject({ type: "session.created" });
+    } finally {
+      controller.abort();
+    }
+  });
+
+  it("keeps returning a JSON event array without the SSE accept header", async () => {
+    const artifactRoot = await mkdtemp(join(tmpdir(), "atlas-loop-sse-json-"));
+    tempDirs.push(artifactRoot);
+    const daemon = await startDaemonServer({
+      port: 0,
+      artifactRoot,
+      simulator: fakeSimulator()
+    });
+    startedDaemons.push(daemon);
+
+    const created = await requestJson<{ id: string }>(daemon.url, "/sessions", {
+      method: "POST",
+      body: JSON.stringify({ simulator: { name: "iPhone 16" } })
+    });
+
+    const events = await requestJson<Array<{ type: string }>>(daemon.url, `/v1/sessions/${created.id}/events`);
+    expect(Array.isArray(events)).toBe(true);
+    expect(events.some((event) => event.type === "session.created")).toBe(true);
+  });
+});
+
 async function requestJson<T>(baseUrl: string, path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(`${baseUrl}${path}`, {
     ...init,
