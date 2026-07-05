@@ -11,8 +11,10 @@ import {
   listPersistedSessions,
   readPersistedSession,
   recordTrace,
+  verifySessionHandoffBundle,
   writeManifest,
   writeSession,
+  type SessionHandoffBundleManifest,
   type SessionArtifacts
 } from "./index.ts";
 
@@ -306,6 +308,239 @@ describe("session artifact export", () => {
   });
 });
 
+describe("session handoff bundle verification", () => {
+  it("verifies a complete local handoff bundle", async () => {
+    const bundleDir = await writeCompleteHandoffBundle();
+
+    const result = await verifySessionHandoffBundle({ bundleDir });
+
+    expect(Number.isNaN(Date.parse(result.checkedAt))).toBe(false);
+    expect(result).toEqual({
+      ok: true,
+      schemaVersion: "atlas-loop.handoff-verify.v1",
+      bundleDir,
+      manifestPath: join(bundleDir, "manifest.json"),
+      sessionId: "sess_verify_bundle",
+      checkedAt: result.checkedAt,
+      filesChecked: 5,
+      summary: {
+        errorCount: 0,
+        warningCount: 0,
+        issueCount: 0
+      },
+      issues: [],
+      localOnly: true,
+      uploaded: false
+    });
+  });
+
+  it("fails when a file hash and size are corrupted", async () => {
+    const bundleDir = await writeCompleteHandoffBundle();
+    const handoffJsonPath = join(bundleDir, "handoff.json");
+    await writeFile(handoffJsonPath, "{\"corrupted\":true}\n", "utf8");
+
+    const result = await verifySessionHandoffBundle({ bundleDir });
+
+    expect(result).toMatchObject({
+      ok: false,
+      schemaVersion: "atlas-loop.handoff-verify.v1",
+      bundleDir,
+      manifestPath: join(bundleDir, "manifest.json"),
+      sessionId: "sess_verify_bundle",
+      filesChecked: 5,
+      summary: {
+        errorCount: 2,
+        warningCount: 0,
+        issueCount: 2
+      },
+      localOnly: true,
+      uploaded: false
+    });
+    expect(result.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        severity: "error",
+        path: handoffJsonPath,
+        message: expect.stringContaining("sha256")
+      }),
+      expect.objectContaining({
+        severity: "error",
+        path: handoffJsonPath,
+        message: expect.stringContaining("sizeBytes")
+      })
+    ]));
+  });
+
+  it("rejects handoff bundle manifests with missing or malformed metadata", async () => {
+    const bundleDir = await writeCompleteHandoffBundle();
+    await updateHandoffBundleManifest(bundleDir, (manifest) => {
+      const mutable = manifest as unknown as Record<string, unknown>;
+      delete mutable.sessionId;
+      mutable.createdAt = "not-a-date";
+      mutable.ready = "yes";
+      delete mutable.viewerUrl;
+      mutable.artifactDir = "https://example.com/artifacts/sess_verify_bundle";
+      mutable.bundleDir = join(bundleDir, "other-bundle");
+      mutable.warnings = ["kept", 42];
+    });
+
+    const result = await verifySessionHandoffBundle({ bundleDir });
+
+    expect(result.ok).toBe(false);
+    expect(result.sessionId).toBeNull();
+    expect(result.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        severity: "error",
+        path: "sessionId",
+        message: expect.stringContaining("non-empty string")
+      }),
+      expect.objectContaining({
+        severity: "error",
+        path: "createdAt",
+        message: expect.stringContaining("valid timestamp")
+      }),
+      expect.objectContaining({
+        severity: "error",
+        path: "ready",
+        message: expect.stringContaining("boolean")
+      }),
+      expect.objectContaining({
+        severity: "error",
+        path: "viewerUrl",
+        message: expect.stringContaining("non-empty string")
+      }),
+      expect.objectContaining({
+        severity: "error",
+        path: "artifactDir",
+        message: expect.stringContaining("local filesystem path")
+      }),
+      expect.objectContaining({
+        severity: "error",
+        path: "bundleDir",
+        message: expect.stringContaining("verified handoff bundle directory")
+      }),
+      expect.objectContaining({
+        severity: "error",
+        path: "warnings.1",
+        message: expect.stringContaining("strings")
+      })
+    ]));
+  });
+
+  it("rejects handoff bundle file paths that escape the bundle directory", async () => {
+    const bundleDir = await writeCompleteHandoffBundle();
+    const tempRoot = join(bundleDir, "..");
+    await writeFile(join(tempRoot, "escape.txt"), "outside bundle\n", "utf8");
+    await updateHandoffBundleManifest(bundleDir, (manifest) => {
+      manifest.files.handoffJson = "../escape.txt";
+    });
+
+    const result = await verifySessionHandoffBundle({ bundleDir });
+
+    expect(result.ok).toBe(false);
+    expect(result.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        severity: "error",
+        path: "../escape.txt",
+        message: expect.stringContaining("inside the bundle")
+      })
+    ]));
+  });
+
+  it("rejects handoff bundle manifests that point at a different file", async () => {
+    const bundleDir = await writeCompleteHandoffBundle();
+    await updateHandoffBundleManifest(bundleDir, (manifest) => {
+      manifest.files.manifest = join(bundleDir, "README.md");
+    });
+
+    const result = await verifySessionHandoffBundle({ bundleDir });
+
+    expect(result.ok).toBe(false);
+    expect(result.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        severity: "error",
+        path: join(bundleDir, "README.md"),
+        message: expect.stringContaining("bundle manifest.json")
+      })
+    ]));
+  });
+
+  it("fails when optional file paths and integrity entries disagree", async () => {
+    const bundleDir = await writeCompleteHandoffBundle();
+    await updateHandoffBundleManifest(bundleDir, (manifest) => {
+      manifest.files.eventsJson = null;
+    });
+
+    const result = await verifySessionHandoffBundle({ bundleDir });
+
+    expect(result.ok).toBe(false);
+    expect(result.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        severity: "error",
+        path: "integrity.eventsJson",
+        message: expect.stringContaining("without files.eventsJson")
+      })
+    ]));
+  });
+
+  it("rejects empty optional handoff bundle file paths", async () => {
+    const bundleDir = await writeCompleteHandoffBundle();
+    await updateHandoffBundleManifest(bundleDir, (manifest) => {
+      manifest.files.eventsJson = "";
+    });
+
+    const result = await verifySessionHandoffBundle({ bundleDir });
+
+    expect(result.ok).toBe(false);
+    expect(result.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        severity: "error",
+        path: "files.eventsJson",
+        message: expect.stringContaining("non-empty file path string")
+      })
+    ]));
+  });
+
+  it("rejects symlinks and non-regular bundle entries", async () => {
+    const symlinkBundleDir = await writeCompleteHandoffBundle();
+    const outsidePath = join(symlinkBundleDir, "..", "outside-handoff.json");
+    const handoffJsonPath = join(symlinkBundleDir, "handoff.json");
+    await writeFile(outsidePath, "{\"outside\":true}\n", "utf8");
+    await rm(handoffJsonPath, { force: true });
+    await symlink(outsidePath, handoffJsonPath);
+    await updateHandoffBundleManifest(symlinkBundleDir, async (manifest) => {
+      manifest.files.handoffJson = handoffJsonPath;
+      manifest.integrity.handoffJson = await handoffFileIntegrity(outsidePath);
+    });
+
+    const symlinkResult = await verifySessionHandoffBundle({ bundleDir: symlinkBundleDir });
+
+    expect(symlinkResult.ok).toBe(false);
+    expect(symlinkResult.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        severity: "error",
+        path: handoffJsonPath,
+        message: expect.stringContaining("regular file")
+      })
+    ]));
+
+    const directoryBundleDir = await writeCompleteHandoffBundle();
+    const readmePath = join(directoryBundleDir, "README.md");
+    await rm(readmePath, { force: true });
+    await mkdir(readmePath);
+
+    const directoryResult = await verifySessionHandoffBundle({ bundleDir: directoryBundleDir });
+
+    expect(directoryResult.ok).toBe(false);
+    expect(directoryResult.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        severity: "error",
+        path: readmePath,
+        message: expect.stringContaining("regular file")
+      })
+    ]));
+  });
+});
+
 async function makeTempRoot(prefix = "atlas-artifacts-read-"): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), prefix));
   tempRoots.push(root);
@@ -345,4 +580,72 @@ function artifactRef(
     path,
     createdAt
   };
+}
+
+async function writeCompleteHandoffBundle(): Promise<string> {
+  const root = await makeTempRoot("atlas-artifacts-handoff-");
+  const bundleDir = join(root, "handoff-bundle");
+  const manifestPath = join(bundleDir, "manifest.json");
+  const handoffJsonPath = join(bundleDir, "handoff.json");
+  const handoffMarkdownPath = join(bundleDir, "handoff.md");
+  const readmePath = join(bundleDir, "README.md");
+  const eventsJsonPath = join(bundleDir, "events.json");
+  const evidenceReportPath = join(bundleDir, "evidence-report.md");
+
+  await mkdir(bundleDir, { recursive: true });
+  await writeFile(handoffJsonPath, "{\"sessionId\":\"sess_verify_bundle\"}\n", "utf8");
+  await writeFile(handoffMarkdownPath, "# Handoff\n", "utf8");
+  await writeFile(readmePath, "# Bundle\n", "utf8");
+  await writeFile(eventsJsonPath, "{\"events\":[]}\n", "utf8");
+  await writeFile(evidenceReportPath, "# Evidence\n", "utf8");
+
+  const manifest: SessionHandoffBundleManifest = {
+    schemaVersion: "atlas-loop.handoff-bundle.v1",
+    sessionId: "sess_verify_bundle",
+    requestedSessionId: "latest",
+    createdAt: "2026-07-04T12:00:00.000Z",
+    exportedAt: "2026-07-04T12:00:01.000Z",
+    ready: true,
+    localOnly: true,
+    uploaded: false,
+    viewerUrl: "http://127.0.0.1:5173?sessionId=sess_verify_bundle",
+    artifactDir: "/tmp/atlas-loop/sess-verify-bundle",
+    bundleDir,
+    files: {
+      manifest: manifestPath,
+      handoffJson: handoffJsonPath,
+      handoffMarkdown: handoffMarkdownPath,
+      readme: readmePath,
+      eventsJson: eventsJsonPath,
+      evidenceReport: evidenceReportPath
+    },
+    integrity: {
+      handoffJson: await handoffFileIntegrity(handoffJsonPath),
+      handoffMarkdown: await handoffFileIntegrity(handoffMarkdownPath),
+      readme: await handoffFileIntegrity(readmePath),
+      eventsJson: await handoffFileIntegrity(eventsJsonPath),
+      evidenceReport: await handoffFileIntegrity(evidenceReportPath)
+    },
+    warnings: []
+  };
+  await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+  return bundleDir;
+}
+
+async function handoffFileIntegrity(filePath: string): Promise<{ sha256: string; sizeBytes: number }> {
+  const contents = await readFile(filePath);
+  return {
+    sha256: createHash("sha256").update(contents).digest("hex"),
+    sizeBytes: contents.byteLength
+  };
+}
+
+async function updateHandoffBundleManifest(
+  bundleDir: string,
+  update: (manifest: SessionHandoffBundleManifest) => void | Promise<void>
+): Promise<void> {
+  const manifestPath = join(bundleDir, "manifest.json");
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as SessionHandoffBundleManifest;
+  await update(manifest);
+  await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
 }

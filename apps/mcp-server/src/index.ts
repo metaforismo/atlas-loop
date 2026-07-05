@@ -3,7 +3,7 @@ import { createInterface } from "node:readline";
 import { mkdir, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { exportSessionArtifacts } from "@atlas-loop/artifacts";
+import { exportSessionArtifacts, verifySessionHandoffBundle } from "@atlas-loop/artifacts";
 import { loadConfig as loadAtlasLoopConfig } from "@atlas-loop/config";
 import {
   buildEvidenceMarkdownReport,
@@ -189,6 +189,11 @@ export const tools = [
     inputSchema: verifyArtifactsSchema()
   },
   {
+    name: "atlas.verifyHandoffBundle",
+    description: "Validate an explicit local handoff bundle directory. Local-only: does not call the daemon, open network connections, or upload data.",
+    inputSchema: verifyHandoffBundleSchema()
+  },
+  {
     name: "atlas.getArtifactHealth",
     description: "Inspect daemon-backed artifact health for a session and return the structured health report.",
     inputSchema: sessionIdSchema()
@@ -287,6 +292,10 @@ export async function callToolWithEnvelope(name: string, args: Record<string, un
 }
 
 async function callTool(name: string, args: Record<string, unknown>, runtime: ToolRuntime): Promise<unknown> {
+  if (name === "atlas.verifyHandoffBundle") {
+    return verifyHandoffBundle(args);
+  }
+
   const client = runtime.client ?? await defaultDaemonClient(args, runtime);
   switch (name) {
     case "atlas.health":
@@ -669,6 +678,11 @@ export function buildViewerUrl(params: { daemonUrl: string; sessionId: string; v
   return `${viewerBaseUrl}?daemonUrl=${encodeURIComponent(params.daemonUrl)}&sessionId=${encodeURIComponent(params.sessionId)}`;
 }
 
+async function verifyHandoffBundle(args: Record<string, unknown>): Promise<unknown> {
+  const bundleDir = resolveLocalPath(requireString(args, "bundleDir"), "handoff bundle path");
+  return verifySessionHandoffBundle({ bundleDir });
+}
+
 function requireString(args: Record<string, unknown>, key: string): string {
   const value = args[key];
   if (typeof value !== "string" || !value) throw new Error(`${key} is required`);
@@ -948,6 +962,15 @@ function verifyArtifactsSchema(): Record<string, unknown> {
     ],
     additionalProperties: false
   };
+}
+
+function verifyHandoffBundleSchema(): Record<string, unknown> {
+  return objectSchema(["bundleDir"], {
+    bundleDir: {
+      type: "string",
+      description: "Local handoff bundle directory to verify. Local-only: does not call the daemon or upload data."
+    }
+  });
 }
 
 function performActionSchema(): Record<string, unknown> {

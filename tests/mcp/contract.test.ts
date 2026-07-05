@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -16,7 +17,8 @@ describe("MCP contract documentation", () => {
       "atlas.createSession",
       "atlas.performAction",
       "atlas.getSession",
-      "atlas.endSession"
+      "atlas.endSession",
+      "atlas.verifyHandoffBundle"
     ]) {
       expect(daemonApi).toContain(requiredText);
     }
@@ -32,6 +34,7 @@ describe("MCP contract documentation", () => {
       "atlas.getArtifactPath",
       "atlas.getLatestScreenshotPath",
       "atlas.verifyArtifacts",
+      "atlas.verifyHandoffBundle",
       "atlas.getArtifactHealth",
       "atlas.getViewerUrl",
       "atlas.getEvidence",
@@ -50,6 +53,7 @@ describe("MCP contract documentation", () => {
     const listEvents = schemaFor("atlas.listEvents");
     const exportEvents = schemaFor("atlas.exportEvents");
     const verifyArtifacts = schemaFor("atlas.verifyArtifacts");
+    const verifyHandoffBundle = schemaFor("atlas.verifyHandoffBundle");
     const artifactHealth = schemaFor("atlas.getArtifactHealth");
 
     expect(createSession.properties).toMatchObject({
@@ -137,6 +141,16 @@ describe("MCP contract documentation", () => {
       { required: ["sessionId"] },
       { required: ["path"] }
     ]));
+    expect(verifyHandoffBundle).toMatchObject({
+      required: ["bundleDir"],
+      properties: {
+        bundleDir: {
+          type: "string",
+          description: expect.stringContaining("does not call the daemon")
+        }
+      },
+      additionalProperties: false
+    });
     expect(artifactHealth).toMatchObject({
       required: ["sessionId"],
       properties: {
@@ -825,6 +839,134 @@ describe("MCP contract documentation", () => {
     });
   });
 
+  it("verifies a minimal local handoff bundle without daemon I/O", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "atlas-loop-mcp-handoff-verify-"));
+    const bundleDir = join(tempDir, "handoff-bundle");
+    const paths = await writeMinimalHandoffBundle(bundleDir);
+
+    try {
+      const result = await callToolWithEnvelope("atlas.verifyHandoffBundle", { bundleDir }, {
+        loadConfig: async () => {
+          throw new Error("daemon config should not be loaded");
+        }
+      });
+
+      if (!result.ok) throw new Error(result.error.message);
+      const data = result.data as any;
+      expect(Number.isNaN(Date.parse(data.checkedAt))).toBe(false);
+      expect(data).toEqual({
+        ok: true,
+        schemaVersion: "atlas-loop.handoff-verify.v1",
+        bundleDir,
+        manifestPath: paths.manifestPath,
+        sessionId: "sess_verify_handoff",
+        checkedAt: data.checkedAt,
+        filesChecked: 3,
+        summary: {
+          errorCount: 0,
+          warningCount: 0,
+          issueCount: 0
+        },
+        issues: [],
+        localOnly: true,
+        uploaded: false
+      });
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("returns handoff verification failures inside data.ok without daemon I/O", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "atlas-loop-mcp-handoff-verify-fail-"));
+    const bundleDir = join(tempDir, "handoff-bundle");
+    const paths = await writeMinimalHandoffBundle(bundleDir);
+    const missingBundleDir = join(tempDir, "missing-bundle");
+
+    try {
+      await writeFile(paths.handoffJsonPath, "{\"corrupted\":true}\n", "utf8");
+
+      const corruptResult = await callToolWithEnvelope("atlas.verifyHandoffBundle", { bundleDir }, {
+        loadConfig: async () => {
+          throw new Error("daemon config should not be loaded");
+        }
+      });
+      const missingResult = await callToolWithEnvelope("atlas.verifyHandoffBundle", { bundleDir: missingBundleDir }, {
+        loadConfig: async () => {
+          throw new Error("daemon config should not be loaded");
+        }
+      });
+
+      expect(corruptResult).toMatchObject({
+        ok: true,
+        data: {
+          ok: false,
+          schemaVersion: "atlas-loop.handoff-verify.v1",
+          bundleDir,
+          manifestPath: paths.manifestPath,
+          sessionId: "sess_verify_handoff",
+          summary: {
+            errorCount: 2,
+            warningCount: 0,
+            issueCount: 2
+          },
+          localOnly: true,
+          uploaded: false
+        }
+      });
+      if (!corruptResult.ok) throw new Error(corruptResult.error.message);
+      expect((corruptResult.data as any).issues).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          severity: "error",
+          path: paths.handoffJsonPath,
+          message: expect.stringContaining("sha256")
+        }),
+        expect.objectContaining({
+          severity: "error",
+          path: paths.handoffJsonPath,
+          message: expect.stringContaining("sizeBytes")
+        })
+      ]));
+      expect(missingResult).toMatchObject({
+        ok: true,
+        data: {
+          ok: false,
+          schemaVersion: "atlas-loop.handoff-verify.v1",
+          bundleDir: missingBundleDir,
+          manifestPath: join(missingBundleDir, "manifest.json"),
+          sessionId: null,
+          filesChecked: 0,
+          summary: {
+            errorCount: 1,
+            warningCount: 0,
+            issueCount: 1
+          },
+          localOnly: true,
+          uploaded: false
+        }
+      });
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects malformed handoff bundle paths before daemon I/O", async () => {
+    const result = await callToolWithEnvelope("atlas.verifyHandoffBundle", {
+      bundleDir: "https://example.com/handoff"
+    }, {
+      loadConfig: async () => {
+        throw new Error("daemon config should not be loaded");
+      }
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: "INVALID_REQUEST",
+        message: "handoff bundle path must be a local filesystem path"
+      }
+    });
+  });
+
   it("builds viewer URLs locally for agents without requiring daemon I/O", async () => {
     const result = await callToolWithEnvelope("atlas.getViewerUrl", { sessionId: "sess/with slash" }, {
       loadConfig: async () => ({ daemonUrl: "http://127.0.0.1:4317" }),
@@ -1121,6 +1263,66 @@ describe("MCP contract documentation", () => {
     });
   });
 });
+
+async function writeMinimalHandoffBundle(bundleDir: string): Promise<{
+  manifestPath: string;
+  handoffJsonPath: string;
+}> {
+  await mkdir(bundleDir, { recursive: true });
+
+  const manifestPath = join(bundleDir, "manifest.json");
+  const handoffJsonPath = join(bundleDir, "handoff.json");
+  const handoffMarkdownPath = join(bundleDir, "handoff.md");
+  const readmePath = join(bundleDir, "README.md");
+  const createdAt = "2026-07-04T12:00:00.000Z";
+
+  await writeFile(handoffJsonPath, `${JSON.stringify({
+    sessionId: "sess_verify_handoff",
+    requestedSessionId: "latest",
+    ready: true,
+    viewerUrl: "http://127.0.0.1:5173?sessionId=sess_verify_handoff"
+  }, null, 2)}\n`, "utf8");
+  await writeFile(handoffMarkdownPath, "# Atlas Loop Session Handoff\n\nReady.\n", "utf8");
+  await writeFile(readmePath, "# Atlas Loop Handoff Bundle\n\nLocal-only handoff bundle.\n", "utf8");
+
+  await writeFile(manifestPath, `${JSON.stringify({
+    schemaVersion: "atlas-loop.handoff-bundle.v1",
+    sessionId: "sess_verify_handoff",
+    requestedSessionId: "latest",
+    createdAt,
+    exportedAt: createdAt,
+    ready: true,
+    localOnly: true,
+    uploaded: false,
+    viewerUrl: "http://127.0.0.1:5173?sessionId=sess_verify_handoff",
+    artifactDir: null,
+    bundleDir,
+    files: {
+      manifest: manifestPath,
+      handoffJson: handoffJsonPath,
+      handoffMarkdown: handoffMarkdownPath,
+      readme: readmePath,
+      eventsJson: null,
+      evidenceReport: null
+    },
+    integrity: {
+      handoffJson: await fileIntegrity(handoffJsonPath),
+      handoffMarkdown: await fileIntegrity(handoffMarkdownPath),
+      readme: await fileIntegrity(readmePath)
+    },
+    warnings: []
+  }, null, 2)}\n`, "utf8");
+
+  return { manifestPath, handoffJsonPath };
+}
+
+async function fileIntegrity(filePath: string): Promise<{ sha256: string; sizeBytes: number }> {
+  const contents = await readFile(filePath);
+  return {
+    sha256: createHash("sha256").update(contents).digest("hex"),
+    sizeBytes: contents.byteLength
+  };
+}
 
 async function startFakeMcpDaemon(summaryForPath: (requestPath: string) => unknown): Promise<{
   port: number;

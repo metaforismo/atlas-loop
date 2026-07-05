@@ -129,6 +129,7 @@ describe("viewer presentation helpers", () => {
     const bundleCommand =
       "atlas-loop session handoff --session 'sess_1' --bundle './atlas-loop-handoffs/sess_1' --viewer-base-url 'http://127.0.0.1:5173' --daemon-url 'http://127.0.0.1:4317'";
     const bundleVerifyCommand = "atlas-loop handoff verify --bundle './atlas-loop-handoffs/sess_1'";
+    const mcpVerifyToolCall = 'atlas.verifyHandoffBundle({"bundleDir":"./atlas-loop-handoffs/sess_1"})';
 
     expect(brief).toMatchObject({
       readiness: "ready",
@@ -164,11 +165,17 @@ describe("viewer presentation helpers", () => {
     expect(brief.copyPayloads.find((payload) => payload.id === "nextSteps")?.value).toContain(
       `Bundle verify command:\n${bundleVerifyCommand}`
     );
+    expect(brief.copyPayloads.find((payload) => payload.id === "nextSteps")?.value).toContain(
+      `MCP verify tool:\n${mcpVerifyToolCall}`
+    );
     expect(brief.copyPayloads.find((payload) => payload.id === "commands")?.value).toContain(
       bundleCommand
     );
     expect(brief.copyPayloads.find((payload) => payload.id === "commands")?.value).toContain(
       bundleVerifyCommand
+    );
+    expect(brief.copyPayloads.find((payload) => payload.id === "commands")?.value).toContain(
+      mcpVerifyToolCall
     );
     expect(brief.copyPayloads.find((payload) => payload.id === "commands")?.value).toContain(
       "atlas-loop events export --session 'sess_1' --out './atlas-loop-events/sess_1.json' --daemon-url 'http://127.0.0.1:4317'"
@@ -182,6 +189,7 @@ describe("viewer presentation helpers", () => {
       manifestPath: "./atlas-loop-handoffs/sess_1/manifest.json",
       command: bundleCommand,
       verifyCommand: bundleVerifyCommand,
+      mcpVerifyToolCall,
       detail: expect.stringContaining("Local-only output")
     });
     expect(brief.bundleSummary?.detail).toContain("writes handoff.json");
@@ -195,15 +203,19 @@ describe("viewer presentation helpers", () => {
     expect(brief.copyPayloads.find((payload) => payload.id === "note")?.value).toContain(
       `Bundle verify: ${bundleVerifyCommand}`
     );
+    expect(brief.copyPayloads.find((payload) => payload.id === "note")?.value).toContain(
+      `MCP verify: ${mcpVerifyToolCall}`
+    );
     expect(brief.commandPreview).toMatchObject({
       label: "Local handoff command preview",
       hiddenLineCount: 6,
-      totalLineCount: 13
+      totalLineCount: 14
     });
     expect(brief.commandPreview?.visibleLines).toEqual(
       expect.arrayContaining([
         bundleCommand,
         bundleVerifyCommand,
+        mcpVerifyToolCall,
         "atlas-loop events export --session 'sess_1' --out './atlas-loop-events/sess_1.json' --daemon-url 'http://127.0.0.1:4317'"
       ])
     );
@@ -264,10 +276,12 @@ describe("viewer presentation helpers", () => {
       directory: `./atlas-loop-handoffs/${longSessionId}`,
       manifestPath: `./atlas-loop-handoffs/${longSessionId}/manifest.json`,
       verifyCommand: `atlas-loop handoff verify --bundle './atlas-loop-handoffs/${longSessionId}'`,
+      mcpVerifyToolCall: `atlas.verifyHandoffBundle({"bundleDir":"./atlas-loop-handoffs/${longSessionId}"})`,
       detail: expect.stringContaining("README.md")
     });
     expect(brief.bundleSummary?.command).toContain(`--session '${longSessionId}'`);
     expect(brief.bundleSummary?.verifyCommand).toContain(`--bundle './atlas-loop-handoffs/${longSessionId}'`);
+    expect(brief.bundleSummary?.mcpVerifyToolCall).toContain(`./atlas-loop-handoffs/${longSessionId}`);
     expect(brief.copyPayloads.find((payload) => payload.id === "note")?.value).toContain(
       `Bundle manifest: ./atlas-loop-handoffs/${longSessionId}/manifest.json`
     );

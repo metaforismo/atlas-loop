@@ -104,6 +104,10 @@ npm run cli -- session handoff --session latest --bundle artifacts/handoffs/<ses
 npm run cli -- handoff verify --bundle artifacts/handoffs/<session-id>
 ```
 
+MCP runtimes can run the same bundle check with `atlas.verifyHandoffBundle`
+and `bundleDir`; it is local self-consistency verification and does not call
+the daemon or upload data.
+
 Or use the aggregate command:
 
 ```sh
@@ -131,8 +135,9 @@ atlas-loop events export --session latest --type action.completed --limit 20 --o
 
 MCP clients can use `atlas.listEvents` for the same read-only trace inspection
 or `atlas.exportEvents` when the verification handoff needs a local JSON event
-file. Do not treat `artifacts health`, `session ready`, or `evidence report` as
-raw event dumps; they are summary and handoff read models.
+file. MCP clients can use `atlas.verifyHandoffBundle` after a handoff bundle is
+created or received. Do not treat `artifacts health`, `session ready`, or
+`evidence report` as raw event dumps; they are summary and handoff read models.
 
 ## Reading Artifact Results
 

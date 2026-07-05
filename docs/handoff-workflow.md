@@ -151,14 +151,18 @@ It aligns with the same local-first contract as the multi-command flow:
   <dir>`. The verifier returns structured local JSON and exits nonzero if paths
   escape the bundle, listed files are not regular files, required files are
   missing, optional file metadata disagrees, or SHA-256/size integrity fails.
+  MCP callers can run the same local check with `atlas.verifyHandoffBundle`
+  and a `bundleDir` input; verification failures are reported as
+  `data.ok: false` inside a successful tool call.
 - Avoid mutating disk-backed sessions and avoid uploading, committing, or
   sharing artifacts.
 
 For MCP callers, the matching shortcut is `atlas.getSessionHandoff`. Compose
 the same response from `atlas.sessionReady`, `atlas.getArtifactHealth`,
 `atlas.getViewerUrl`, `atlas.listEvents`, `atlas.exportEvents`,
-`atlas.getEvidenceReport`, and `atlas.exportEvidence` when an agent needs those
-individual pieces instead of the aggregate handoff.
+`atlas.getEvidenceReport`, `atlas.exportEvidence`, and
+`atlas.verifyHandoffBundle` when an agent needs those individual pieces instead
+of the aggregate handoff.
 
 ## Handoff Note Checklist
 

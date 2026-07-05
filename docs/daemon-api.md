@@ -112,6 +112,7 @@ Recommended additional tool names:
 - `atlas.getArtifactPath`
 - `atlas.getLatestScreenshotPath`
 - `atlas.verifyArtifacts`
+- `atlas.verifyHandoffBundle`
 - `atlas.getViewerUrl`
 - `atlas.getEvidence`
 - `atlas.getEvidenceReport`
@@ -369,6 +370,35 @@ the resolved absolute target paths; `requestedPath` preserves the caller's
 original path input when `path` mode is used. Supplying both fields or neither
 field is an `INVALID_REQUEST`.
 
+`atlas.verifyHandoffBundle` validates a local handoff bundle directory using
+the same structured verifier as `atlas-loop handoff verify --bundle <dir>`:
+
+```json
+{
+  "ok": true,
+  "schemaVersion": "atlas-loop.handoff-verify.v1",
+  "bundleDir": "/absolute/path/to/artifacts/handoffs/sess_123",
+  "manifestPath": "/absolute/path/to/artifacts/handoffs/sess_123/manifest.json",
+  "sessionId": "sess_123",
+  "checkedAt": "2026-07-05T12:00:00.000Z",
+  "filesChecked": 5,
+  "summary": {
+    "errorCount": 0,
+    "warningCount": 0,
+    "issueCount": 0
+  },
+  "issues": [],
+  "localOnly": true,
+  "uploaded": false
+}
+```
+
+The only input is required `bundleDir`. It must be a local filesystem path.
+The MCP call does not call the daemon, open network connections, or upload
+data. A corrupt bundle still returns a successful MCP envelope with
+`data.ok: false` and structured `issues`; malformed URL-like inputs are
+rejected before verification.
+
 Use health for the daemon session view and `latest` alias resolution. Use
 verification for direct local validation, especially CI checks and explicit
 filesystem targets. Both use local filesystem validation and neither implies
@@ -414,8 +444,9 @@ Markdown is for readable local notes. `--bundle` writes a local directory with
 `evidence-report.md`, and `manifest.json` containing generated file paths,
 warnings, and SHA-256/size integrity for non-manifest files. `handoff verify`
 is a local filesystem check for that derived bundle; it does not call the
-daemon. None of these forms creates a new cloud, team sharing, Android, or
-hosted-dashboard contract.
+daemon. MCP callers can run the same check with `atlas.verifyHandoffBundle`
+and `bundleDir`. None of these forms creates a new cloud, provenance signing,
+team sharing, Android, or hosted-dashboard contract.
 
 For MCP runtimes, the matching helper is `atlas.getSessionHandoff`. Agents can
 still call `atlas.sessionReady`, `atlas.getArtifactHealth`,
