@@ -1,7 +1,8 @@
 #!/usr/bin/env tsx
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { exportSessionArtifacts } from "@atlas-loop/artifacts";
@@ -96,8 +97,22 @@ interface SessionHandoffBundleFiles {
   manifest: string;
   handoffJson: string;
   handoffMarkdown: string;
+  readme: string;
   eventsJson: string | null;
   evidenceReport: string | null;
+}
+
+interface SessionHandoffBundleFileIntegrity {
+  sha256: string;
+  sizeBytes: number;
+}
+
+interface SessionHandoffBundleIntegrity {
+  handoffJson: SessionHandoffBundleFileIntegrity;
+  handoffMarkdown: SessionHandoffBundleFileIntegrity;
+  readme: SessionHandoffBundleFileIntegrity;
+  eventsJson?: SessionHandoffBundleFileIntegrity;
+  evidenceReport?: SessionHandoffBundleFileIntegrity;
 }
 
 interface SessionHandoffBundleManifest {
@@ -113,6 +128,7 @@ interface SessionHandoffBundleManifest {
   artifactDir: string | null;
   bundleDir: string;
   files: SessionHandoffBundleFiles;
+  integrity: SessionHandoffBundleIntegrity;
   warnings: string[];
 }
 
@@ -127,6 +143,7 @@ interface SessionHandoffBundleResult {
   localOnly: true;
   uploaded: false;
   files: SessionHandoffBundleFiles;
+  integrity: SessionHandoffBundleIntegrity;
   warnings: string[];
 }
 
@@ -600,6 +617,7 @@ async function outputSessionHandoffBundle(
   const manifestPath = join(bundleDir, "manifest.json");
   const handoffJsonPath = join(bundleDir, "handoff.json");
   const handoffMarkdownPath = join(bundleDir, "handoff.md");
+  const readmePath = join(bundleDir, "README.md");
   const eventsJsonPath = join(bundleDir, "events.json");
   const evidenceReportPath = join(bundleDir, "evidence-report.md");
   const warnings: string[] = [];
@@ -639,9 +657,12 @@ async function outputSessionHandoffBundle(
     manifest: manifestPath,
     handoffJson: handoffJsonPath,
     handoffMarkdown: handoffMarkdownPath,
+    readme: readmePath,
     eventsJson,
     evidenceReport
   };
+  await writeFile(readmePath, buildSessionHandoffBundleReadme(handoff, bundleDir, files, warnings), "utf8");
+  const integrity = await buildSessionHandoffBundleIntegrity(files);
   const manifest: SessionHandoffBundleManifest = {
     schemaVersion: "atlas-loop.handoff-bundle.v1",
     sessionId: handoff.sessionId,
@@ -655,6 +676,7 @@ async function outputSessionHandoffBundle(
     artifactDir: handoff.artifactDir,
     bundleDir,
     files,
+    integrity,
     warnings
   };
   await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
@@ -670,9 +692,69 @@ async function outputSessionHandoffBundle(
     localOnly: true,
     uploaded: false,
     files,
+    integrity,
     warnings
   };
   printJson(result);
+}
+
+function buildSessionHandoffBundleReadme(
+  handoff: SessionHandoff,
+  bundleDir: string,
+  files: SessionHandoffBundleFiles,
+  warnings: string[]
+): string {
+  const lines = [
+    "# Atlas Loop Handoff Bundle",
+    "",
+    "Local-only handoff bundle. Nothing in this directory is uploaded.",
+    "",
+    "## Session",
+    `- Resolved session: ${code(handoff.sessionId)}`,
+    `- Requested session: ${code(handoff.requestedSessionId)}`,
+    `- Viewer URL: ${handoff.viewerUrl}`
+  ];
+
+  if (handoff.artifactDir) lines.push(`- Artifact directory: ${code(handoff.artifactDir)}`);
+
+  lines.push(
+    "",
+    "## Available Files",
+    `- ${code(relative(bundleDir, files.manifest))}: bundle metadata and integrity`,
+    `- ${code(relative(bundleDir, files.handoffJson))}: structured handoff JSON`,
+    `- ${code(relative(bundleDir, files.handoffMarkdown))}: Markdown handoff note`,
+    `- ${code(relative(bundleDir, files.readme))}: local bundle instructions`
+  );
+
+  if (files.eventsJson) lines.push(`- ${code(relative(bundleDir, files.eventsJson))}: exported daemon events`);
+  if (files.evidenceReport) lines.push(`- ${code(relative(bundleDir, files.evidenceReport))}: Markdown evidence report`);
+
+  if (warnings.length > 0) {
+    lines.push("", "## Warnings");
+    for (const warning of warnings) lines.push(`- ${markdownText(warning)}`);
+  }
+
+  lines.push("", "Open the viewer URL from this machine and use `manifest.json` to verify file hashes and sizes.");
+  return `${lines.join("\n")}\n`;
+}
+
+async function buildSessionHandoffBundleIntegrity(files: SessionHandoffBundleFiles): Promise<SessionHandoffBundleIntegrity> {
+  const integrity: SessionHandoffBundleIntegrity = {
+    handoffJson: await readFileIntegrity(files.handoffJson),
+    handoffMarkdown: await readFileIntegrity(files.handoffMarkdown),
+    readme: await readFileIntegrity(files.readme)
+  };
+  if (files.eventsJson) integrity.eventsJson = await readFileIntegrity(files.eventsJson);
+  if (files.evidenceReport) integrity.evidenceReport = await readFileIntegrity(files.evidenceReport);
+  return integrity;
+}
+
+async function readFileIntegrity(filePath: string): Promise<SessionHandoffBundleFileIntegrity> {
+  const contents = await readFile(filePath);
+  return {
+    sha256: createHash("sha256").update(contents).digest("hex"),
+    sizeBytes: contents.byteLength
+  };
 }
 
 export async function exportLocalEvidence(
@@ -952,6 +1034,22 @@ function formatErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   if (typeof error === "string") return error;
   return JSON.stringify(error);
+}
+
+function code(value: string): string {
+  return `\`${value.replaceAll("`", "\\`")}\``;
+}
+
+function markdownText(value: string): string {
+  return value
+    .replace(/\s+/g, " ")
+    .trim()
+    .replaceAll("\\", "\\\\")
+    .replaceAll("`", "\\`")
+    .replaceAll("*", "\\*")
+    .replaceAll("_", "\\_")
+    .replaceAll("[", "\\[")
+    .replaceAll("]", "\\]");
 }
 
 function mapSourcePathToBundle(sourceDir: string, bundleDir: string, sourcePath: string): string | null {

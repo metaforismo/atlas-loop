@@ -53,6 +53,7 @@ import {
   timelineFilterOptions,
   visibleArtifactHealth,
   type AgentHandoffBrief,
+  type AgentHandoffBundleSummary,
   type AgentHandoffCommandPreview,
   type AgentHandoffCopyPayload,
   type ArtifactHealthStatus,
@@ -1669,6 +1670,7 @@ function AgentHandoffPanel({ brief }: { brief: AgentHandoffBrief }) {
         {copyStatus}
       </p>
 
+      {brief.bundleSummary ? <HandoffBundleOutput summary={brief.bundleSummary} /> : null}
       {brief.commandPreview ? <HandoffCommandPreview preview={brief.commandPreview} /> : null}
 
       <div className="handoff-signal-grid">
@@ -1721,6 +1723,35 @@ function AgentHandoffPanel({ brief }: { brief: AgentHandoffBrief }) {
           ))}
         </ul>
       </div>
+    </section>
+  );
+}
+
+function HandoffBundleOutput({ summary }: { summary: AgentHandoffBundleSummary }) {
+  const headingId = useId();
+  const detailId = useId();
+
+  return (
+    <section className="handoff-bundle-output" role="region" aria-labelledby={headingId} aria-describedby={detailId}>
+      <div className="handoff-bundle-output-head">
+        <strong id={headingId}>{summary.label}</strong>
+        <span>local-only</span>
+      </div>
+      <p id={detailId}>{summary.detail}</p>
+      <dl aria-label="Bundle output paths">
+        <div>
+          <dt>Directory</dt>
+          <dd>
+            <code title={summary.directory}>{summary.directory}</code>
+          </dd>
+        </div>
+        <div>
+          <dt>Manifest</dt>
+          <dd>
+            <code title={summary.manifestPath}>{summary.manifestPath}</code>
+          </dd>
+        </div>
+      </dl>
     </section>
   );
 }

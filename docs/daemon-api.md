@@ -409,9 +409,10 @@ The shortcut aggregates the same readiness, health, viewer URL, blockers, and
 copy-paste next commands, including a local bundle command and a local
 `events export` command for raw trace JSON. JSON is the compatibility default;
 Markdown is for readable local notes. `--bundle` writes a local directory with
-`handoff.json`, `handoff.md`, optional `events.json`, optional
-`evidence-report.md`, and `manifest.json`. None of these forms creates a new
-cloud, team sharing, Android, or hosted-dashboard contract.
+`handoff.json`, `handoff.md`, `README.md`, optional `events.json`, optional
+`evidence-report.md`, and `manifest.json` containing generated file paths,
+warnings, and SHA-256/size integrity for non-manifest files. None of these
+forms creates a new cloud, team sharing, Android, or hosted-dashboard contract.
 
 For MCP runtimes, the matching helper is `atlas.getSessionHandoff`. Agents can
 still call `atlas.sessionReady`, `atlas.getArtifactHealth`,

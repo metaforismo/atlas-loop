@@ -163,10 +163,11 @@ commands that otherwise come from the explicit commands above, including a raw
 event export for agent-readable trace handoff. JSON remains the default output;
 use `--format markdown` for a readable local note and `--out <path>` to persist
 the selected output. Use `--bundle <dir>` when the next agent should receive a
-single local directory containing `handoff.json`, `handoff.md`, optional
-`events.json`, optional `evidence-report.md`, and `manifest.json`; optional
-exports that fail are recorded as warnings in the manifest instead of breaking
-the handoff bundle. See
+single local directory containing `handoff.json`, `handoff.md`, `README.md`,
+`manifest.json` with SHA-256/size integrity for generated files, optional
+`events.json`, and optional `evidence-report.md`; optional exports that fail
+are recorded as warnings in the manifest instead of breaking the handoff
+bundle. See
 [docs/handoff-workflow.md](docs/handoff-workflow.md) for the full local
 handoff checklist. The handoff output is a local operator note, not a share
 link or hosted workspace.
@@ -352,7 +353,9 @@ note locally. Keep the note explicit about host-gated input behavior so a
 launch-argument smoke proof is not mistaken for primitive HID success.
 Use `session handoff --session latest --bundle artifacts/handoffs/<session-id>`
 when the next agent needs a local directory with both the note and machine
-readable trace context.
+readable trace context. The bundle `README.md` is for humans, while
+`manifest.json` records local-only provenance, generated file paths, warnings,
+and file integrity.
 
 ## Verification
 

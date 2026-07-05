@@ -139,11 +139,12 @@ It aligns with the same local-first contract as the multi-command flow:
 - Optionally persist the selected JSON or Markdown handoff output to a local
   path with `--out`.
 - Optionally write a local bundle with `--bundle <dir>`. The bundle contains
-  `handoff.json`, `handoff.md`, optional `events.json`, optional
+  `handoff.json`, `handoff.md`, `README.md`, optional `events.json`, optional
   `evidence-report.md`, and `manifest.json` with `schemaVersion:
   "atlas-loop.handoff-bundle.v1"`, `localOnly: true`, `uploaded: false`, file
-  paths, readiness, the resolved session id, and warnings for optional exports
-  that could not be generated.
+  paths, readiness, the resolved session id, SHA-256/size integrity for
+  generated non-manifest files, and warnings for optional exports that could
+  not be generated.
 - Avoid mutating disk-backed sessions and avoid uploading, committing, or
   sharing artifacts.
 

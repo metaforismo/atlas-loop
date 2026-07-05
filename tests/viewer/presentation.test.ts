@@ -169,6 +169,21 @@ describe("viewer presentation helpers", () => {
     expect(brief.copyPayloads.find((payload) => payload.id === "commands")?.value).toContain(
       "curl -fsS 'http://127.0.0.1:4317/v1/sessions/sess_1/summary'"
     );
+    expect(brief.bundleSummary).toMatchObject({
+      label: "Bundle output",
+      directory: "./atlas-loop-handoffs/sess_1",
+      manifestPath: "./atlas-loop-handoffs/sess_1/manifest.json",
+      command: bundleCommand,
+      detail: expect.stringContaining("Local-only output")
+    });
+    expect(brief.bundleSummary?.detail).toContain("writes handoff.json");
+    expect(brief.bundleSummary?.detail).toContain("README.md");
+    expect(brief.copyPayloads.find((payload) => payload.id === "note")?.value).toContain(
+      "Bundle directory: ./atlas-loop-handoffs/sess_1"
+    );
+    expect(brief.copyPayloads.find((payload) => payload.id === "note")?.value).toContain(
+      "Bundle manifest: ./atlas-loop-handoffs/sess_1/manifest.json"
+    );
     expect(brief.commandPreview).toMatchObject({
       label: "Local handoff command preview",
       hiddenLineCount: 6,
@@ -212,6 +227,36 @@ describe("viewer presentation helpers", () => {
       source: "loading",
       tone: "neutral"
     });
+    expect(brief.bundleSummary).toBeUndefined();
+  });
+
+  it("keeps long resolved session ids readable in bundle handoff summaries", () => {
+    const longSessionId = "sess_checkout_flow_with_a_very_long_runtime_identifier_20260705T115900Z";
+    const longSession: Session = { ...baseSession, id: longSessionId };
+    const longSummary: SessionSummary = {
+      ...baseSummary,
+      session: longSession,
+      paths: {
+        ...baseSummary.paths,
+        artifactDir: `/tmp/atlas-loop/${longSessionId}`
+      }
+    };
+    const brief = buildAgentHandoffBrief(
+      handoffInput({
+        session: longSession,
+        sessionSummary: longSummary
+      })
+    );
+
+    expect(brief.bundleSummary).toMatchObject({
+      directory: `./atlas-loop-handoffs/${longSessionId}`,
+      manifestPath: `./atlas-loop-handoffs/${longSessionId}/manifest.json`,
+      detail: expect.stringContaining("README.md")
+    });
+    expect(brief.bundleSummary?.command).toContain(`--session '${longSessionId}'`);
+    expect(brief.copyPayloads.find((payload) => payload.id === "note")?.value).toContain(
+      `Bundle manifest: ./atlas-loop-handoffs/${longSessionId}/manifest.json`
+    );
   });
 
   it("promotes failed actions and artifact health errors into handoff blockers", () => {
