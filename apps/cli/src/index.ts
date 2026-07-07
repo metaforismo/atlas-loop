@@ -25,6 +25,7 @@ import {
   type CompactEvidenceSummary,
   DaemonClient,
   DaemonClientError,
+  evidenceHtmlAtlasFromMapView,
   evidenceReportDataFromSessionSummary,
   type EvidenceReportData,
   type SessionHandoff,
@@ -728,10 +729,11 @@ async function outputEvidenceHtmlReport(
 ): Promise<void> {
   const outPath = stringFlag(flags, "out");
   const reportPath = outPath ? resolve(outPath) : undefined;
-  const [artifacts, events, metrics] = await Promise.all([
+  const [artifacts, events, metrics, atlasMapView] = await Promise.all([
     client.listArtifacts(evidence.sessionId),
     client.events(evidence.sessionId),
-    client.getSessionMetrics(evidence.sessionId).catch(() => ({ active: false, sampleCount: 0, samples: [] }))
+    client.getSessionMetrics(evidence.sessionId).catch(() => ({ active: false, sampleCount: 0, samples: [] })),
+    client.getAtlasMap().catch(() => undefined)
   ]);
 
   const assets = await collectEvidenceHtmlAssets({
@@ -742,6 +744,8 @@ async function outputEvidenceHtmlReport(
     readFile: (path) => readFile(path),
     videoPathResolver: (path) => (reportPath ? relative(dirname(reportPath), path) : path)
   });
+  const atlas = evidenceHtmlAtlasFromMapView(atlasMapView, evidence.sessionId);
+  if (atlas) assets.atlas = atlas;
   const html = buildEvidenceHtmlReport(evidence, assets, { generatedAt: new Date().toISOString() });
 
   if (!reportPath) {
@@ -758,7 +762,8 @@ async function outputEvidenceHtmlReport(
     sessionId: evidence.sessionId,
     screenshotCount: assets.screenshots.length,
     truncatedScreenshots: assets.truncatedScreenshots,
-    videoRelativePath: assets.videoRelativePath ?? null
+    videoRelativePath: assets.videoRelativePath ?? null,
+    atlasScreenCount: assets.atlas?.screens.length ?? 0
   });
 }
 

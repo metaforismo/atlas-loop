@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildEvidenceHtmlReport,
   collectEvidenceHtmlAssets,
+  evidenceHtmlAtlasFromMapView,
   type EvidenceReportData
 } from "./index.ts";
 import type { ArtifactRef, TraceEvent } from "@atlas-loop/protocol";
@@ -103,6 +104,59 @@ describe("collectEvidenceHtmlAssets", () => {
   });
 });
 
+const atlasMapView = {
+  source: "cache",
+  map: {
+    generatedAt: "2026-07-05T11:59:00.000Z",
+    screens: [
+      {
+        id: "confirmation",
+        screenId: "confirmation",
+        screenshotCount: 3,
+        sessionIds: ["sess_html", "sess_other"],
+        lastSeenAt: "2026-07-05T10:01:00.000Z"
+      },
+      { id: "screen_b200000000000060", screenshotCount: 1, sessionIds: ["sess_html"], lastSeenAt: "2026-07-05T10:00:00.000Z" },
+      { id: "cart", screenId: "cart", screenshotCount: 5, sessionIds: ["sess_other"], lastSeenAt: "2026-07-05T09:00:00.000Z" }
+    ],
+    transitions: [
+      { from: "screen_b200000000000060", to: "confirmation", actionSignature: "tap:cart.continue", count: 2, sessionIds: ["sess_html"] },
+      { from: "__launch__", to: "screen_b200000000000060", actionSignature: "launch:app.demo", count: 4, sessionIds: ["sess_html", "sess_other"] },
+      { from: "cart", to: "confirmation", actionSignature: "tap:pay", count: 9, sessionIds: ["sess_other"] }
+    ]
+  }
+};
+
+describe("evidenceHtmlAtlasFromMapView", () => {
+  it("filters the map to the report's session and sorts transitions by count", () => {
+    const atlas = evidenceHtmlAtlasFromMapView(atlasMapView, "sess_html");
+
+    expect(atlas).toBeDefined();
+    expect(atlas!.generatedAt).toBe("2026-07-05T11:59:00.000Z");
+    expect(atlas!.screens.map((screen) => screen.name)).toEqual(["confirmation", "screen b2000000"]);
+    expect(atlas!.screens.map((screen) => screen.named)).toEqual([true, false]);
+    expect(atlas!.transitions).toEqual([
+      { from: "launch", to: "screen b2000000", actionSignature: "launch:app.demo", count: 4 },
+      { from: "screen b2000000", to: "confirmation", actionSignature: "tap:cart.continue", count: 2 }
+    ]);
+    expect(atlas!.omittedTransitions).toBe(0);
+  });
+
+  it("caps transitions and reports the omission", () => {
+    const atlas = evidenceHtmlAtlasFromMapView(atlasMapView, "sess_html", 1);
+    expect(atlas!.transitions).toHaveLength(1);
+    expect(atlas!.transitions[0].count).toBe(4);
+    expect(atlas!.omittedTransitions).toBe(1);
+  });
+
+  it("returns undefined for malformed payloads and unknown sessions", () => {
+    expect(evidenceHtmlAtlasFromMapView(undefined, "sess_html")).toBeUndefined();
+    expect(evidenceHtmlAtlasFromMapView({ map: {} }, "sess_html")).toBeUndefined();
+    expect(evidenceHtmlAtlasFromMapView({ map: { screens: "nope", transitions: [] } }, "sess_html")).toBeUndefined();
+    expect(evidenceHtmlAtlasFromMapView(atlasMapView, "sess_never_seen")).toBeUndefined();
+  });
+});
+
 describe("buildEvidenceHtmlReport", () => {
   it("produces one self-contained dark HTML document", async () => {
     const html = buildEvidenceHtmlReport(evidence, await assets(), { generatedAt: "2026-07-05T12:00:00.000Z" });
@@ -118,6 +172,26 @@ describe("buildEvidenceHtmlReport", () => {
     expect(html).not.toMatch(/src="https?:\/\//);
     expect(html).not.toMatch(/href=/);
     expect(html).not.toContain("<script");
+  });
+
+  it("renders the Atlas map section when atlas assets are present, skips it otherwise", async () => {
+    const withAtlas = { ...(await assets()), atlas: evidenceHtmlAtlasFromMapView(atlasMapView, "sess_html") };
+    const html = buildEvidenceHtmlReport(evidence, withAtlas, { generatedAt: "2026-07-05T12:00:00.000Z" });
+
+    expect(html).toContain("Atlas map");
+    expect(html).toContain("2 screens observed in this session · 1 named");
+    expect(html).toContain("<code>confirmation</code>");
+    expect(html).toContain("screen b2000000");
+    expect(html).toContain("Top transitions");
+    expect(html).toContain("tap:cart.continue");
+    // cart was never observed in this session.
+    expect(html).not.toContain("tap:pay");
+    // Still self-contained.
+    expect(html).not.toMatch(/src="https?:\/\//);
+    expect(html).not.toContain("<script");
+
+    const withoutAtlas = buildEvidenceHtmlReport(evidence, await assets(), { generatedAt: "2026-07-05T12:00:00.000Z" });
+    expect(withoutAtlas).not.toContain("Atlas map");
   });
 
   it("escapes HTML-sensitive evidence values", async () => {
