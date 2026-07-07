@@ -760,12 +760,35 @@ export interface EvidenceHtmlMetricsSample {
   rssBytes: number;
 }
 
+export interface EvidenceHtmlAtlasScreen {
+  name: string;
+  named: boolean;
+  screenshotCount: number;
+  sessionCount: number;
+  lastSeenAt?: string;
+}
+
+export interface EvidenceHtmlAtlasTransition {
+  from: string;
+  to: string;
+  actionSignature: string;
+  count: number;
+}
+
+export interface EvidenceHtmlAtlas {
+  generatedAt?: string;
+  screens: EvidenceHtmlAtlasScreen[];
+  transitions: EvidenceHtmlAtlasTransition[];
+  omittedTransitions: number;
+}
+
 export interface EvidenceHtmlAssets {
   screenshots: EvidenceHtmlScreenshot[];
   actions: EvidenceHtmlAction[];
   metrics: EvidenceHtmlMetricsSample[];
   videoRelativePath?: string;
   truncatedScreenshots: number;
+  atlas?: EvidenceHtmlAtlas;
 }
 
 export interface CollectEvidenceHtmlAssetsOptions {
@@ -845,6 +868,62 @@ export async function collectEvidenceHtmlAssets(options: CollectEvidenceHtmlAsse
   };
 }
 
+/**
+ * Extracts the session-relevant slice of an atlas map view (as returned by the
+ * daemon's atlas map route) for the HTML report. Returns undefined when the
+ * payload is malformed or the session never appears in the map, so callers can
+ * skip the section gracefully.
+ */
+export function evidenceHtmlAtlasFromMapView(view: unknown, sessionId: string, maxTransitions = 10): EvidenceHtmlAtlas | undefined {
+  const map = (view as { map?: { generatedAt?: string; screens?: unknown; transitions?: unknown } } | null | undefined)?.map;
+  if (!map || !Array.isArray(map.screens) || !Array.isArray(map.transitions)) return undefined;
+
+  const allScreens = map.screens.filter(
+    (screen): screen is { id: string; screenId?: string; screenshotCount?: number; sessionIds?: unknown; lastSeenAt?: string } =>
+      typeof (screen as { id?: unknown })?.id === "string"
+  );
+  const nameFor = (nodeId: string): { name: string; named: boolean } => {
+    if (nodeId === "__launch__") return { name: "launch", named: true };
+    const screen = allScreens.find((candidate) => candidate.id === nodeId);
+    if (screen?.screenId) return { name: screen.screenId, named: true };
+    return { name: `screen ${nodeId.replace(/^screen_/, "").slice(0, 8)}`, named: false };
+  };
+  const observedHere = (sessionIds: unknown): boolean => Array.isArray(sessionIds) && sessionIds.includes(sessionId);
+
+  const screens: EvidenceHtmlAtlasScreen[] = allScreens
+    .filter((screen) => observedHere(screen.sessionIds))
+    .map((screen) => ({
+      ...nameFor(screen.id),
+      screenshotCount: typeof screen.screenshotCount === "number" ? screen.screenshotCount : 0,
+      sessionCount: Array.isArray(screen.sessionIds) ? screen.sessionIds.length : 0,
+      ...(typeof screen.lastSeenAt === "string" ? { lastSeenAt: screen.lastSeenAt } : {})
+    }));
+
+  const sessionTransitions = map.transitions
+    .filter(
+      (transition): transition is { from: string; to: string; actionSignature?: string; count?: number; sessionIds?: unknown } =>
+        typeof (transition as { from?: unknown })?.from === "string" &&
+        typeof (transition as { to?: unknown })?.to === "string" &&
+        observedHere((transition as { sessionIds?: unknown }).sessionIds)
+    )
+    .map((transition) => ({
+      from: nameFor(transition.from).name,
+      to: nameFor(transition.to).name,
+      actionSignature: typeof transition.actionSignature === "string" ? transition.actionSignature : "",
+      count: typeof transition.count === "number" ? transition.count : 0
+    }))
+    .sort((left, right) => right.count - left.count || left.from.localeCompare(right.from) || left.to.localeCompare(right.to));
+
+  if (screens.length === 0 && sessionTransitions.length === 0) return undefined;
+
+  return {
+    ...(typeof map.generatedAt === "string" ? { generatedAt: map.generatedAt } : {}),
+    screens,
+    transitions: sessionTransitions.slice(0, maxTransitions),
+    omittedTransitions: Math.max(0, sessionTransitions.length - maxTransitions)
+  };
+}
+
 function metadataText(artifact: ArtifactRef, key: string): string | undefined {
   const value = artifact.metadata?.[key];
   return typeof value === "string" && value ? value : typeof value === "number" ? String(value) : undefined;
@@ -918,6 +997,59 @@ ${rows}
 </section>`);
   }
 
+  if (assets.atlas && (assets.atlas.screens.length > 0 || assets.atlas.transitions.length > 0)) {
+    const atlas = assets.atlas;
+    const namedCount = atlas.screens.filter((screen) => screen.named).length;
+    const screenRows = atlas.screens
+      .map(
+        (screen) => `      <tr>
+        <td>${screen.named ? `<code>${escapeHtml(screen.name)}</code>` : escapeHtml(screen.name)}</td>
+        <td>${screen.screenshotCount}</td>
+        <td>${screen.sessionCount}</td>
+        <td>${escapeHtml(screen.lastSeenAt ?? "--")}</td>
+      </tr>`
+      )
+      .join("\n");
+    const transitionRows = atlas.transitions
+      .map(
+        (transition) => `      <tr>
+        <td>${escapeHtml(transition.from)}</td>
+        <td><code>${escapeHtml(transition.actionSignature)}</code></td>
+        <td>${escapeHtml(transition.to)}</td>
+        <td>${transition.count}</td>
+      </tr>`
+      )
+      .join("\n");
+    sections.push(`<section>
+  <h2>Atlas map <small>${atlas.screens.length} screen${atlas.screens.length === 1 ? "" : "s"} observed in this session${namedCount > 0 ? ` · ${namedCount} named` : ""}${atlas.generatedAt ? ` · map generated ${escapeHtml(atlas.generatedAt)}` : ""}</small></h2>
+${
+  atlas.screens.length > 0
+    ? `  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Screen</th><th>Screenshots</th><th>Sessions</th><th>Last seen</th></tr></thead>
+      <tbody>
+${screenRows}
+      </tbody>
+    </table>
+  </div>`
+    : ""
+}
+${
+  atlas.transitions.length > 0
+    ? `  <h3>Top transitions${atlas.omittedTransitions > 0 ? ` <small>${atlas.omittedTransitions} more omitted</small>` : ""}</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>From</th><th>Action</th><th>To</th><th>Count</th></tr></thead>
+      <tbody>
+${transitionRows}
+      </tbody>
+    </table>
+  </div>`
+    : ""
+}
+</section>`);
+  }
+
   if (assets.metrics.length > 1) {
     const cpu = assets.metrics.map((sample) => sample.cpuPercent);
     const rssMb = assets.metrics.map((sample) => sample.rssBytes / (1024 * 1024));
@@ -979,6 +1111,8 @@ body { margin: 0; padding: 32px; background: #0b0f16; color: #e6e9ef; font: 14px
 h1 { margin: 4px 0 6px; }
 h2 { margin: 32px 0 12px; font-size: 16px; }
 h2 small { font-weight: 400; color: #8b93a3; font-size: 12px; }
+h3 { margin: 18px 0 8px; font-size: 13px; }
+h3 small { font-weight: 400; color: #8b93a3; font-size: 11px; }
 .meta { color: #8b93a3; font-size: 12px; }
 code { background: rgba(74,179,216,.12); padding: 1px 5px; border-radius: 5px; font-size: 12px; }
 .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin: 0; }

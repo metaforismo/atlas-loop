@@ -13,6 +13,7 @@ import {
   type CompactEvidenceSummary,
   DaemonClient,
   DaemonClientError,
+  evidenceHtmlAtlasFromMapView,
   evidenceReportDataFromSessionSummary,
   type EvidenceReportData,
   type SessionSummary
@@ -698,10 +699,11 @@ async function getEvidenceReport(
   const format = args.format === "html" ? "html" : "markdown";
   const evidence = await getEvidenceReportData(client, args, runtime);
   if (format === "html") {
-    const [artifacts, events, metrics] = await Promise.all([
+    const [artifacts, events, metrics, atlasMapView] = await Promise.all([
       client.listArtifacts(evidence.sessionId) as Promise<import("@atlas-loop/protocol").ArtifactRef[]>,
       client.events(evidence.sessionId),
-      client.getSessionMetrics?.(evidence.sessionId).catch(() => ({ samples: [] })) ?? Promise.resolve({ samples: [] })
+      client.getSessionMetrics?.(evidence.sessionId).catch(() => ({ samples: [] })) ?? Promise.resolve({ samples: [] }),
+      client.getAtlasMap?.(false).catch(() => undefined) ?? Promise.resolve(undefined)
     ]);
     const assets = await collectEvidenceHtmlAssets({
       artifacts,
@@ -710,6 +712,8 @@ async function getEvidenceReport(
       maxScreenshots: typeof args.maxScreenshots === "number" ? args.maxScreenshots : 20,
       readFile: (path) => readFile(path)
     });
+    const atlas = evidenceHtmlAtlasFromMapView(atlasMapView, evidence.sessionId);
+    if (atlas) assets.atlas = atlas;
     return { evidence, report: buildEvidenceHtmlReport(evidence, assets), format };
   }
   return {
