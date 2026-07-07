@@ -1,5 +1,7 @@
+import { useState } from "react";
 import type { ActionEvidencePair } from "../viewerPresentation.js";
 import { formatTime } from "../viewerPresentation.js";
+import { ImageLightbox } from "./ImageLightbox.js";
 
 export function ActionDetailPanel({
   pairs,
@@ -72,11 +74,18 @@ function EvidenceShot({
   artifact: ActionEvidencePair["before"];
   tap?: { x: number; y: number };
 }) {
+  const [zoomed, setZoomed] = useState(false);
+
   return (
     <figure className="action-evidence-shot">
       <figcaption>{title}</figcaption>
       {artifact?.url ? (
-        <div className="action-evidence-frame">
+        <button
+          type="button"
+          className="action-evidence-frame"
+          aria-label={`Zoom into the ${title.toLowerCase()} screenshot`}
+          onClick={() => setZoomed(true)}
+        >
           <img src={artifact.url} alt={`${title} screenshot`} loading="lazy" />
           {tap ? (
             <span
@@ -85,10 +94,13 @@ function EvidenceShot({
               aria-hidden="true"
             />
           ) : null}
-        </div>
+        </button>
       ) : (
         <div className="action-evidence-empty">{artifact ? "No daemon URL" : "No screenshot"}</div>
       )}
+      {zoomed && artifact?.url ? (
+        <ImageLightbox src={artifact.url} alt={`${title} screenshot`} caption={artifact.path} onClose={() => setZoomed(false)} />
+      ) : null}
     </figure>
   );
 }

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { ImageLightbox } from "./ImageLightbox.js";
 import type { TimelineItem } from "../timeline.js";
 import type { ArtifactRef } from "../types.js";
 import { artifactDetailRows, artifactDisplayName, formatDateTime } from "../viewerPresentation.js";
@@ -55,9 +56,11 @@ export function ArtifactRow({ id, artifact, selected, onSelect }: { id: string; 
 
 export function ArtifactDetails({ artifact }: { artifact: ArtifactRef | undefined }) {
   const [copyState, setCopyState] = useState<CopyState>({ status: "idle" });
+  const [zoomed, setZoomed] = useState(false);
 
   useEffect(() => {
     setCopyState({ status: "idle" });
+    setZoomed(false);
   }, [artifact?.id]);
 
   if (!artifact) {
@@ -113,7 +116,17 @@ export function ArtifactDetails({ artifact }: { artifact: ArtifactRef | undefine
       </div>
 
       {href && artifactKind(artifact) === "screenshot" ? (
-        <img className="artifact-preview-image" src={href} alt={`Preview of ${artifactDisplayName(artifact)}`} loading="lazy" />
+        <button
+          type="button"
+          className="artifact-preview-button"
+          aria-label={`Zoom into ${artifactDisplayName(artifact)}`}
+          onClick={() => setZoomed(true)}
+        >
+          <img className="artifact-preview-image" src={href} alt={`Preview of ${artifactDisplayName(artifact)}`} loading="lazy" />
+        </button>
+      ) : null}
+      {zoomed && href ? (
+        <ImageLightbox src={href} alt={artifactDisplayName(artifact)} caption={artifact.path} onClose={() => setZoomed(false)} />
       ) : null}
 
       <div className="artifact-detail-summary" aria-label="Artifact quick facts">
