@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { ActionEvidencePair } from "../viewerPresentation.js";
 import { formatTime } from "../viewerPresentation.js";
+import { CompareView } from "./CompareView.js";
 import { ImageLightbox } from "./ImageLightbox.js";
 
 export function ActionDetailPanel({
@@ -12,6 +13,8 @@ export function ActionDetailPanel({
   selectedActionId?: string;
   onSelect: (actionId: string) => void;
 }) {
+  const [diffing, setDiffing] = useState(false);
+
   if (pairs.length === 0) return null;
 
   const selectedIndex = Math.max(
@@ -20,6 +23,7 @@ export function ActionDetailPanel({
   );
   const pair = pairs[selectedIndex] ?? pairs[pairs.length - 1];
   const tone = pair.ok === false ? "bad" : pair.ok === true ? "good" : "neutral";
+  const canDiff = Boolean(pair.before?.url && pair.after?.url);
 
   const selectAt = (index: number): void => {
     const next = pairs[Math.min(pairs.length - 1, Math.max(0, index))];
@@ -55,7 +59,26 @@ export function ActionDetailPanel({
             {pair.ok === undefined ? "no result" : pair.ok ? "passed" : "failed"} · {formatTime(pair.at)}
           </span>
         </div>
+        <button
+          type="button"
+          className="action-evidence-diff"
+          disabled={!canDiff}
+          title={canDiff ? "Compare before and after pixel by pixel" : "Needs both before and after screenshots"}
+          onClick={() => setDiffing(true)}
+        >
+          Diff
+        </button>
       </div>
+
+      {diffing && pair.before?.url && pair.after?.url ? (
+        <CompareView
+          beforeUrl={pair.before.url}
+          afterUrl={pair.after.url}
+          beforeLabel="Before"
+          afterLabel={`After · ${pair.label}`}
+          onClose={() => setDiffing(false)}
+        />
+      ) : null}
 
       <div className="action-evidence-grid">
         <EvidenceShot title="Before" artifact={pair.before} tap={pair.tap} />
