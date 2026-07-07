@@ -4,11 +4,34 @@ import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promi
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { buildEvidenceSummary, buildSessionReadiness, buildViewerUrl, main } from "../../apps/cli/src/index.ts";
+import { buildEvidenceSummary, buildSessionReadiness, buildViewerUrl, main, parseBootedDevices } from "../../apps/cli/src/index.ts";
 import { startDaemonServer } from "../../apps/daemon/src/server.ts";
 import type { SessionSummary } from "@atlas-loop/daemon-client";
 import type { SessionHandoffBundleVerification } from "@atlas-loop/artifacts";
 import type { ArtifactRef, Session, TraceEvent } from "@atlas-loop/protocol";
+
+describe("doctor helpers", () => {
+  it("parses booted devices across runtimes and tolerates malformed output", () => {
+    const stdout = JSON.stringify({
+      devices: {
+        "com.apple.CoreSimulator.SimRuntime.iOS-26-5": [
+          { udid: "UDID-A", name: "iPhone 17 Pro", state: "Booted" },
+          { udid: "UDID-B", name: "iPhone 17e", state: "Shutdown" }
+        ],
+        "com.apple.CoreSimulator.SimRuntime.watchOS-26-2": [
+          { udid: "UDID-C", name: "Watch", state: "Booted" }
+        ]
+      }
+    });
+
+    expect(parseBootedDevices(stdout)).toEqual([
+      { udid: "UDID-A", name: "iPhone 17 Pro" },
+      { udid: "UDID-C", name: "Watch" }
+    ]);
+    expect(parseBootedDevices("not json")).toEqual([]);
+    expect(parseBootedDevices("{}")).toEqual([]);
+  });
+});
 
 describe("CLI agent workflow helpers", () => {
   it("builds compact evidence with a resolved latest session id", async () => {
