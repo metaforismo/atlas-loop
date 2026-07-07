@@ -230,6 +230,19 @@ export function buildViewerActionRequest(draft: ViewerActionDraft): ViewerAction
           }
         }
       };
+    case "tapElement":
+    case "assertVisible": {
+      const identifier = draft.identifier.trim();
+      if (!identifier) throw new ApiError(`${draft.kind} requires an accessibility identifier`);
+      const timeoutMs =
+        draft.timeoutMs === undefined || draft.timeoutMs === ""
+          ? undefined
+          : parseNonNegativeDuration(draft.timeoutMs, `${draft.kind} timeout`);
+      return {
+        endpoint: "actions",
+        body: { action: { kind: draft.kind, identifier, ...(timeoutMs !== undefined ? { timeoutMs } : {}) } }
+      };
+    }
   }
 }
 

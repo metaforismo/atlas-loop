@@ -3233,3 +3233,8 @@ h2 {
   stroke: color-mix(in srgb, var(--warn) 45%, transparent);
   stroke-width: 1;
 }
+
+.action-element-buttons {
+  display: flex;
+  gap: 6px;
+}

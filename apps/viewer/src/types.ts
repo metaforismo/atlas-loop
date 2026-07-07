@@ -181,14 +181,16 @@ export interface NormalizedPoint {
   y: number;
 }
 
-export type ViewerActionKind = "screenshot" | "wait" | "tap" | "typeText" | "swipe";
+export type ViewerActionKind = "screenshot" | "wait" | "tap" | "typeText" | "swipe" | "tapElement" | "assertVisible";
 
 export type ViewerActionInput =
   | { kind: "screenshot"; reason?: string }
   | { kind: "wait"; durationMs: number }
   | { kind: "tap"; x: number; y: number }
   | { kind: "typeText"; text: string }
-  | { kind: "swipe"; from: NormalizedPoint; to: NormalizedPoint; durationMs: number };
+  | { kind: "swipe"; from: NormalizedPoint; to: NormalizedPoint; durationMs: number }
+  | { kind: "tapElement"; identifier: string; timeoutMs?: number }
+  | { kind: "assertVisible"; identifier: string; timeoutMs?: number };
 
 export type ViewerNumericInput = number | string;
 
@@ -202,7 +204,9 @@ export type ViewerActionDraft =
       from: { x: ViewerNumericInput; y: ViewerNumericInput };
       to: { x: ViewerNumericInput; y: ViewerNumericInput };
       durationMs: ViewerNumericInput;
-    };
+    }
+  | { kind: "tapElement"; identifier: string; timeoutMs?: ViewerNumericInput }
+  | { kind: "assertVisible"; identifier: string; timeoutMs?: ViewerNumericInput };
 
 export interface ViewerActionRequest {
   endpoint: "actions" | "screenshot";
