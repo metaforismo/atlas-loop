@@ -304,7 +304,8 @@ export async function main(args: Args): Promise<number> {
     return action(client, flags, {
       kind: "assertVisible",
       identifier: identifierFlag(flags),
-      timeoutMs: numberFlag(flags, "timeout-ms")
+      timeoutMs: numberFlag(flags, "timeout-ms"),
+      ...(booleanFlag(flags, "screen") ? { markScreen: true } : {})
     } as ActionInput);
   }
 
@@ -1259,7 +1260,7 @@ Usage:
   atlas-loop launch --session <id|latest> --bundle-id <bundle>
   atlas-loop tap --session <id|latest> --x 0.5 --y 0.5
   atlas-loop tap-element --session <id|latest> --id cart.continue [--timeout-ms 5000]
-  atlas-loop assert-visible --session <id|latest> --id confirmation [--timeout-ms 5000]
+  atlas-loop assert-visible --session <id|latest> --id confirmation [--timeout-ms 5000] [--screen]
   atlas-loop type --session <id|latest> --text "Ada Lovelace"
   atlas-loop swipe --session <id|latest> --from 0.5,0.8 --to 0.5,0.2 --duration-ms 350
   atlas-loop edge --session <id|latest> --edge left --distance 0.75 --duration-ms 350

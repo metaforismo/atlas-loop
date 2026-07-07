@@ -800,7 +800,7 @@ async function performAction(
             })
           ];
           if (state.config.autoScreenshot && !options.skipScreenshot) {
-            const afterShot = await tryCaptureActionScreenshot(state, sessionState, action);
+            const afterShot = await tryCaptureActionScreenshot(state, sessionState, action, actionDetail);
             if (afterShot) artifacts.push(afterShot);
           }
           return artifacts;
@@ -971,13 +971,16 @@ async function captureScreenshotArtifact(
 async function tryCaptureActionScreenshot(
   state: DaemonState,
   sessionState: SessionState,
-  action: InputAction
+  action: InputAction,
+  actionDetail?: Record<string, unknown>
 ): Promise<ArtifactRef | undefined> {
+  const screenId = screenIdFromActionDetail(action, actionDetail);
   try {
     return await captureScreenshotArtifact(state, sessionState, {
       ...actionMetadata(action),
       role: "after",
-      ...actionCoordinateMetadata(action)
+      ...actionCoordinateMetadata(action),
+      ...(screenId ? { screenId } : {})
     });
   } catch (error) {
     // Evidence enrichment must not fail the action; leave a trace instead.
@@ -989,6 +992,19 @@ async function tryCaptureActionScreenshot(
     }).catch(() => undefined);
     return undefined;
   }
+}
+
+/**
+ * Asserting a screen-level container names the screen: the driver reports
+ * coversScreen when the asserted element fills most of the app window, and
+ * that identifier becomes the Atlas map screen id for the after-screenshot.
+ */
+function screenIdFromActionDetail(action: InputAction, actionDetail?: Record<string, unknown>): string | undefined {
+  if (action.kind !== "assertVisible") return undefined;
+  if (action.markScreen === true) return action.identifier;
+  const driverData = actionDetail?.driverData;
+  if (!driverData || typeof driverData !== "object") return undefined;
+  return (driverData as { coversScreen?: unknown }).coversScreen === true ? action.identifier : undefined;
 }
 
 function actionCoordinateMetadata(action: InputAction): Record<string, unknown> {

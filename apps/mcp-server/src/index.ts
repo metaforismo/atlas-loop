@@ -926,7 +926,8 @@ function normalizeActionInput(kind: string, record: Record<string, unknown>): Ac
       return {
         kind,
         identifier: stringField(record, "identifier"),
-        ...(typeof timeoutMs === "number" ? { timeoutMs } : {})
+        ...(typeof timeoutMs === "number" ? { timeoutMs } : {}),
+        ...(kind === "assertVisible" && record.markScreen === true ? { markScreen: true } : {})
       };
     }
     case "screenshot": {
@@ -1133,7 +1134,8 @@ function performActionSchema(): Record<string, unknown> {
         objectSchema(["kind", "identifier"], {
           kind: { const: "assertVisible" },
           identifier: { type: "string", minLength: 1 },
-          timeoutMs: { type: "number", minimum: 0 }
+          timeoutMs: { type: "number", minimum: 0 },
+          markScreen: { type: "boolean", description: "Mark the asserted element as a screen-level container for Atlas map naming." }
         }),
         objectSchema(["kind"], {
           kind: { const: "screenshot" },

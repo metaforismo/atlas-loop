@@ -107,6 +107,8 @@ export interface AssertVisibleAction extends BaseAction {
   kind: "assertVisible";
   identifier: string;
   timeoutMs?: number;
+  /** Marks the asserted element as a screen-level container for Atlas map naming. */
+  markScreen?: boolean;
 }
 
 export interface ScreenshotAction extends BaseAction {

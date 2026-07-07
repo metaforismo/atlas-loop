@@ -1410,6 +1410,79 @@ describe("daemon xcuitest backend wiring", () => {
     });
   });
 
+  it("names atlas screens from screen-covering assertVisible results", async () => {
+    const log: FakeManagerLog = { ensured: [], targets: [], actions: [], closed: false };
+    const manager = {
+      ensureRunner: async (udid: string) => {
+        log.ensured.push(udid);
+        return { udid, port: 4711, alive: true, restarts: 0, xctestrunPath: "/dd/AtlasDriverRunner_sim.xctestrun" };
+      },
+      setTarget: async (udid: string, bundleId: string) => {
+        log.targets.push({ udid, bundleId });
+        return { bundleId };
+      },
+      performAction: async (udid: string, action: Record<string, any>) => {
+        log.actions.push({ udid, action });
+        if (action.kind === "assertVisible") {
+          return { identifier: action.identifier, exists: true, isHittable: false, coversScreen: action.identifier === "catalog" };
+        }
+        return { identifier: action.identifier, frame: { x: 0, y: 0, width: 40, height: 20 } };
+      },
+      close: async () => {
+        log.closed = true;
+      }
+    };
+
+    const artifactRoot = await mkdtemp(join(tmpdir(), "atlas-loop-xcuitest-screenid-"));
+    tempDirs.push(artifactRoot);
+    const daemon = await startDaemonServer({
+      port: 0,
+      artifactRoot,
+      simulator: fakeSimulator(),
+      xcuitestManagerFactory: () => manager as never
+    });
+    startedDaemons.push(daemon);
+
+    const created = await requestJson<Record<string, any>>(daemon.url, "/sessions", {
+      method: "POST",
+      body: JSON.stringify({ simulator: { udid: "SIM-SCREEN" }, inputBackend: "xcuitest" })
+    });
+    await requestJson(daemon.url, `/sessions/${created.id}/launch`, {
+      method: "POST",
+      body: JSON.stringify({ bundleId: "app.atlasloop.CommerceDemo" })
+    });
+
+    const screenAssert = await requestJson<Record<string, any>>(daemon.url, `/sessions/${created.id}/actions`, {
+      method: "POST",
+      body: JSON.stringify({ action: { kind: "assertVisible", identifier: "catalog" } })
+    });
+    const elementAssert = await requestJson<Record<string, any>>(daemon.url, `/sessions/${created.id}/actions`, {
+      method: "POST",
+      body: JSON.stringify({ action: { kind: "assertVisible", identifier: "cart.continue" } })
+    });
+    const markedAssert = await requestJson<Record<string, any>>(daemon.url, `/sessions/${created.id}/actions`, {
+      method: "POST",
+      body: JSON.stringify({ action: { kind: "assertVisible", identifier: "confirmation", markScreen: true } })
+    });
+    const elementTap = await requestJson<Record<string, any>>(daemon.url, `/sessions/${created.id}/actions`, {
+      method: "POST",
+      body: JSON.stringify({ action: { kind: "tapElement", identifier: "catalog" } })
+    });
+
+    const screenShot = screenAssert.artifacts.find((artifact: Record<string, any>) => artifact.type === "screenshot");
+    expect(screenShot.metadata).toMatchObject({ role: "after", screenId: "catalog" });
+
+    const elementShot = elementAssert.artifacts.find((artifact: Record<string, any>) => artifact.type === "screenshot");
+    expect(elementShot.metadata.screenId).toBeUndefined();
+
+    // Explicit markScreen overrides the coverage heuristic (sparse screens).
+    const markedShot = markedAssert.artifacts.find((artifact: Record<string, any>) => artifact.type === "screenshot");
+    expect(markedShot.metadata).toMatchObject({ screenId: "confirmation" });
+
+    const tapShot = elementTap.artifacts.find((artifact: Record<string, any>) => artifact.type === "screenshot");
+    expect(tapShot.metadata.screenId).toBeUndefined();
+  });
+
   it("self-heals once when the driver runner dies mid-session and re-targets the app", async () => {
     const log: FakeManagerLog = { ensured: [], targets: [], actions: [], closed: false };
     let restarts = -1;
