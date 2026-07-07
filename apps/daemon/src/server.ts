@@ -200,7 +200,12 @@ export async function startDaemonServer(options: DaemonOptions = {}): Promise<St
     url,
     close: async () => {
       await state.xcuitestManager?.close();
-      await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+        // Long-lived responses (SSE event streams) would otherwise keep
+        // close() waiting forever; severing them triggers their own cleanup.
+        server.closeAllConnections();
+      });
     }
   };
 }

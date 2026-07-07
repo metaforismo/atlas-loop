@@ -1595,6 +1595,37 @@ describe("daemon events stream", () => {
     }
   });
 
+  it("closes promptly even while an SSE stream is open", async () => {
+    const artifactRoot = await mkdtemp(join(tmpdir(), "atlas-loop-sse-close-"));
+    tempDirs.push(artifactRoot);
+    const daemon = await startDaemonServer({
+      port: 0,
+      artifactRoot,
+      simulator: fakeSimulator()
+    });
+
+    const created = await requestJson<{ id: string }>(daemon.url, "/sessions", {
+      method: "POST",
+      body: JSON.stringify({ simulator: { name: "iPhone 16" } })
+    });
+
+    // Open a live SSE stream and read its first bytes so the connection is
+    // fully established before we ask the daemon to shut down.
+    const response = await fetch(`${daemon.url}/v1/sessions/${created.id}/events`, {
+      headers: { accept: "text/event-stream" }
+    });
+    const reader = response.body!.getReader();
+    await reader.read();
+
+    const outcome = await Promise.race([
+      daemon.close().then(() => "closed" as const),
+      new Promise<"timeout">((resolveTimeout) => setTimeout(() => resolveTimeout("timeout"), 1_500))
+    ]);
+
+    expect(outcome).toBe("closed");
+    await reader.cancel().catch(() => undefined);
+  });
+
   it("keeps returning a JSON event array without the SSE accept header", async () => {
     const artifactRoot = await mkdtemp(join(tmpdir(), "atlas-loop-sse-json-"));
     tempDirs.push(artifactRoot);
