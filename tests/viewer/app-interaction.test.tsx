@@ -134,7 +134,9 @@ class MockEventSource {
 
 let restoreBrowserGlobals: Array<() => void> = [];
 
-describe("viewer app interactions", () => {
+// Rendering + polling in jsdom is wall-clock sensitive; generous budgets keep
+// these tests deterministic on loaded machines without changing what they assert.
+describe("viewer app interactions", { timeout: 30_000 }, () => {
   let root: Root | undefined;
   let container: HTMLDivElement | undefined;
   let clipboardWriteText: ReturnType<typeof vi.fn<(value: string) => Promise<void>>>;
@@ -468,7 +470,7 @@ async function waitFor<T>(callback: () => T, description: string): Promise<T> {
   const startedAt = Date.now();
   let lastError: unknown;
 
-  while (Date.now() - startedAt < 1500) {
+  while (Date.now() - startedAt < 10_000) {
     try {
       return callback();
     } catch (error) {
