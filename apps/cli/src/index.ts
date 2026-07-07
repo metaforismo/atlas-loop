@@ -2,7 +2,7 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
@@ -1001,6 +1001,12 @@ async function doctor(): Promise<number> {
   const simulator = createSimulator();
   const checks = await simulator.doctor();
   const helperExists = existsSync(config.hidHelperPath);
+  const driverProjectExists = existsSync(config.driverRunnerProjectPath);
+  const xctestrunPath = await findDriverXctestrun(config.driverRunnerDerivedData);
+  const bootedSimulators = await listBootedSimulators(simulator);
+  const demoProjectPath = resolve("apps", "ios-commerce-demo", "CommerceDemo.xcodeproj");
+  const demoExists = existsSync(demoProjectPath);
+
   printJson({
     ok: checks.ok,
     checks: [
@@ -1008,11 +1014,75 @@ async function doctor(): Promise<number> {
       {
         name: "ios-hid-helper",
         ok: helperExists,
-        message: helperExists ? config.hidHelperPath : `missing helper at ${config.hidHelperPath}`
+        message: helperExists
+          ? config.hidHelperPath
+          : `missing helper at ${config.hidHelperPath}; build with: swift build --package-path native/ios-hid-helper`
+      },
+      {
+        name: "xcuitest-driver-project",
+        ok: driverProjectExists,
+        message: driverProjectExists
+          ? config.driverRunnerProjectPath
+          : `missing driver runner project at ${config.driverRunnerProjectPath}; the xcuitest input backend needs it`
+      },
+      {
+        name: "xcuitest-driver-cache",
+        ok: true,
+        message: xctestrunPath
+          ? `cached: ${xctestrunPath}`
+          : "no cached xctestrun; the first xcuitest input action will run build-for-testing (roughly 1-3 minutes)"
+      },
+      {
+        name: "booted-simulator",
+        ok: bootedSimulators.length > 0,
+        message:
+          bootedSimulators.length > 0
+            ? bootedSimulators.map((device) => `${device.name} (${device.udid})`).join(", ")
+            : "no booted iOS Simulator; boot one with: xcrun simctl boot <udid> (or open Simulator.app)"
+      },
+      {
+        name: "commerce-demo",
+        ok: true,
+        message: demoExists
+          ? demoProjectPath
+          : "demo project not present in this checkout; smoke runs that build it will skip"
       }
     ]
   });
   return checks.ok ? 0 : 1;
+}
+
+async function findDriverXctestrun(derivedDataPath: string): Promise<string | undefined> {
+  try {
+    const productsDir = join(derivedDataPath, "Build", "Products");
+    const entries = await readdir(productsDir);
+    const match = entries.filter((entry) => entry.startsWith("AtlasDriverRunner_") && entry.endsWith(".xctestrun")).sort()[0];
+    return match ? join(productsDir, match) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function parseBootedDevices(stdout: string): Array<{ udid: string; name: string }> {
+  try {
+    const parsed = JSON.parse(stdout) as { devices?: Record<string, Array<{ udid?: string; name?: string; state?: string }>> };
+    return Object.values(parsed.devices ?? {})
+      .flat()
+      .filter((device) => device.state === "Booted" && typeof device.udid === "string")
+      .map((device) => ({ udid: device.udid as string, name: device.name ?? "unknown" }));
+  } catch {
+    return [];
+  }
+}
+
+async function listBootedSimulators(simulator: ReturnType<typeof createSimulator>): Promise<Array<{ udid: string; name: string }>> {
+  try {
+    const result = await simulator.runCommand("xcrun", ["simctl", "list", "devices", "booted", "-j"], { timeoutMs: 15_000 });
+    if (result.exitCode !== 0) return [];
+    return parseBootedDevices(result.stdout);
+  } catch {
+    return [];
+  }
 }
 
 function parseFlags(args: Args): Map<string, string | boolean> {
