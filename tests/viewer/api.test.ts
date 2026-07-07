@@ -62,6 +62,23 @@ describe("viewer api normalizers", () => {
     });
   });
 
+  it("serializes element action drafts with trimmed identifiers and optional timeouts", () => {
+    expect(buildViewerActionRequest({ kind: "tapElement", identifier: " cart.continue ", timeoutMs: "4000" })).toEqual({
+      endpoint: "actions",
+      body: { action: { kind: "tapElement", identifier: "cart.continue", timeoutMs: 4000 } }
+    });
+    expect(buildViewerActionRequest({ kind: "assertVisible", identifier: "confirmation", timeoutMs: "" })).toEqual({
+      endpoint: "actions",
+      body: { action: { kind: "assertVisible", identifier: "confirmation" } }
+    });
+    expect(() => buildViewerActionRequest({ kind: "tapElement", identifier: "  " })).toThrow(
+      "tapElement requires an accessibility identifier"
+    );
+    expect(() => buildViewerActionRequest({ kind: "assertVisible", identifier: "x", timeoutMs: "-1" })).toThrow(
+      "assertVisible timeout must be"
+    );
+  });
+
   it("rejects invalid local viewer action values before posting", () => {
     expect(() => buildViewerActionRequest({ kind: "tap", x: "1.2", y: "0.5" })).toThrow("tap x must be between 0 and 1");
     expect(() => buildViewerActionRequest({ kind: "tap", x: "", y: "0.5" })).toThrow("tap x is required");

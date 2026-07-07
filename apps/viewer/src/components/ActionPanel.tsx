@@ -10,7 +10,9 @@ const VIEWER_ACTION_LABELS: Record<ViewerActionKind, string> = {
   wait: "Wait",
   tap: "Tap",
   typeText: "Type",
-  swipe: "Swipe"
+  swipe: "Swipe",
+  tapElement: "Tap element",
+  assertVisible: "Assert visible"
 };
 
 export interface ViewerActionFormState {
@@ -19,6 +21,8 @@ export interface ViewerActionFormState {
   tapX: string;
   tapY: string;
   typeText: string;
+  elementIdentifier: string;
+  elementTimeoutMs: string;
   swipeFromX: string;
   swipeFromY: string;
   swipeToX: string;
@@ -60,6 +64,8 @@ export const DEFAULT_ACTION_FORM: ViewerActionFormState = {
   tapX: "0.5",
   tapY: "0.5",
   typeText: "",
+  elementIdentifier: "",
+  elementTimeoutMs: "5000",
   swipeFromX: "0.5",
   swipeFromY: "0.82",
   swipeToX: "0.5",
@@ -192,6 +198,49 @@ export function ActionPanel({
             />
           </div>
           <ActionSubmitButton label={VIEWER_ACTION_LABELS.tap} pending={isPending} disabled={submitDisabled} disabledReason={mutationState.title} />
+        </form>
+
+        <form
+          className="action-row action-row-wide"
+          onSubmit={onSubmit(
+            { kind: "tapElement", identifier: form.elementIdentifier, timeoutMs: form.elementTimeoutMs },
+            VIEWER_ACTION_LABELS.tapElement
+          )}
+        >
+          <div className="action-coordinate-pair">
+            <ActionTextInput
+              id="action-element-identifier"
+              label="Accessibility id"
+              value={form.elementIdentifier}
+              placeholder="cart.continue"
+              onChange={(value) => onFieldChange("elementIdentifier", value)}
+            />
+            <ActionNumberInput
+              id="action-element-timeout"
+              label="Timeout ms"
+              value={form.elementTimeoutMs}
+              min={0}
+              step={500}
+              onChange={(value) => onFieldChange("elementTimeoutMs", value)}
+            />
+          </div>
+          <div className="action-element-buttons">
+            <ActionSubmitButton label={VIEWER_ACTION_LABELS.tapElement} pending={isPending} disabled={submitDisabled} disabledReason={mutationState.title} />
+            <button
+              type="button"
+              disabled={submitDisabled}
+              title={submitDisabled && !isPending ? mutationState.title : undefined}
+              onClick={() => {
+                if (submitDisabled) return;
+                void submitAction(
+                  { kind: "assertVisible", identifier: form.elementIdentifier, timeoutMs: form.elementTimeoutMs },
+                  VIEWER_ACTION_LABELS.assertVisible
+                );
+              }}
+            >
+              {isPending ? "Pending" : VIEWER_ACTION_LABELS.assertVisible}
+            </button>
+          </div>
         </form>
 
         <form className="action-row" onSubmit={onSubmit({ kind: "typeText", text: form.typeText }, VIEWER_ACTION_LABELS.typeText)}>
