@@ -2,7 +2,7 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
@@ -32,7 +32,7 @@ import {
 } from "@atlas-loop/daemon-client";
 import { startDaemonServer } from "../../daemon/src/server.ts";
 import type { ActionInput, ArtifactRef, AtlasMap, TraceEvent } from "@atlas-loop/protocol";
-import { deriveAtlasMap, loadHashCache, saveHashCache } from "@atlas-loop/atlas-map";
+import { decodePng, deriveAtlasMap, diffPngs, encodePng, loadHashCache, saveHashCache, DEFAULT_DIFF_THRESHOLD } from "@atlas-loop/atlas-map";
 import { validateArtifactTarget, type ValidationReport } from "../../../scripts/verify-artifacts.ts";
 
 export { verifySessionHandoffBundle };
@@ -334,6 +334,97 @@ export async function main(args: Args): Promise<number> {
   if (command === "screenshot") {
     printJson(await client.screenshot(requireFlag(flags, "session"), stringFlag(flags, "reason")));
     return 0;
+  }
+
+  if (command === "baseline") {
+    const config = await loadConfig();
+    const baselinesDir = resolve(stringFlag(flags, "artifact-root") ?? config.artifactRoot, "..", "baselines");
+
+    if (subcommand === "save") {
+      const name = baselineNameFlag(flags);
+      const artifact = await resolveScreenshotArtifact(client, requireFlag(flags, "session"), stringFlag(flags, "artifact"));
+      const pngData = await readFile(artifact.path);
+      const decoded = decodePng(pngData);
+
+      await mkdir(baselinesDir, { recursive: true });
+      const baselinePath = join(baselinesDir, `${name}.png`);
+      await copyFile(artifact.path, baselinePath);
+      const metadata = {
+        schemaVersion: "atlas-loop.baseline.v1",
+        name,
+        savedAt: new Date().toISOString(),
+        baselinePath,
+        sourceSessionId: artifact.sessionId,
+        sourceArtifactId: artifact.id,
+        sha256: artifact.sha256,
+        width: decoded.width,
+        height: decoded.height
+      };
+      await writeFile(join(baselinesDir, `${name}.json`), `${JSON.stringify(metadata, null, 2)}\n`, "utf8");
+      printJson({ ok: true, ...metadata });
+      return 0;
+    }
+
+    if (subcommand === "compare") {
+      const name = baselineNameFlag(flags);
+      const baselinePath = join(baselinesDir, `${name}.png`);
+      let baselineData: Buffer;
+      try {
+        baselineData = await readFile(baselinePath);
+      } catch {
+        throw new Error(`no baseline named ${name} at ${baselinePath}; save one with: atlas-loop baseline save --session latest --name ${name}`);
+      }
+
+      const artifact = await resolveScreenshotArtifact(client, requireFlag(flags, "session"), stringFlag(flags, "artifact"));
+      const threshold = numberFlag(flags, "threshold") ?? DEFAULT_DIFF_THRESHOLD;
+      const maxDiffRatio = numberFlag(flags, "max-diff-ratio") ?? 0.005;
+      const result = diffPngs(baselineData, await readFile(artifact.path), threshold);
+      const pass = result.changedRatio <= maxDiffRatio;
+
+      let maskPath: string | undefined;
+      const outPath = stringFlag(flags, "out");
+      if (outPath) {
+        maskPath = resolve(outPath);
+        await mkdir(dirname(maskPath), { recursive: true });
+        await writeFile(maskPath, encodePng(result.mask, result.width, result.height));
+      }
+
+      printJson({
+        ok: pass,
+        pass,
+        name,
+        changedRatio: result.changedRatio,
+        changedPercent: Number((result.changedRatio * 100).toFixed(4)),
+        changedCount: result.changedCount,
+        totalCount: result.totalCount,
+        threshold,
+        maxDiffRatio,
+        baselinePath,
+        screenshotPath: artifact.path,
+        screenshotArtifactId: artifact.id,
+        ...(maskPath ? { maskPath } : {})
+      });
+      return pass ? 0 : 1;
+    }
+
+    if (subcommand === "list" || subcommand === "ls") {
+      let entries: string[] = [];
+      try {
+        entries = await readdir(baselinesDir);
+      } catch {
+        entries = [];
+      }
+      const baselines = [];
+      for (const entry of entries.filter((candidate) => candidate.endsWith(".json")).sort()) {
+        try {
+          baselines.push(JSON.parse(await readFile(join(baselinesDir, entry), "utf8")));
+        } catch {
+          baselines.push({ name: entry.replace(/\.json$/, ""), error: "unreadable baseline metadata" });
+        }
+      }
+      printJson({ baselinesDir, count: baselines.length, baselines });
+      return 0;
+    }
   }
 
   if (command === "map" && subcommand === "build") {
@@ -1137,6 +1228,29 @@ function numberFlagRequired(flags: Map<string, string | boolean>, name: string):
   return value;
 }
 
+function baselineNameFlag(flags: Map<string, string | boolean>): string {
+  const name = requireFlag(flags, "name");
+  if (!/^[a-z0-9][a-z0-9._-]{0,63}$/i.test(name)) {
+    throw new Error("--name must be 1-64 chars of letters, digits, dot, dash, or underscore");
+  }
+  return name;
+}
+
+async function resolveScreenshotArtifact(
+  client: DaemonClient,
+  sessionId: string,
+  artifactId: string | undefined
+): Promise<ArtifactRef> {
+  if (artifactId) {
+    const artifacts = await client.listArtifacts(sessionId);
+    const artifact = artifacts.find((candidate) => candidate.id === artifactId);
+    if (!artifact) throw new Error(`artifact ${artifactId} not found in session ${sessionId}`);
+    if (artifact.type !== "screenshot") throw new Error(`artifact ${artifactId} is ${artifact.type}, not a screenshot`);
+    return artifact;
+  }
+  return client.latestScreenshot(sessionId);
+}
+
 function atlasMapSummary(map: AtlasMap): Record<string, unknown> {
   return {
     schemaVersion: map.schemaVersion,
@@ -1316,6 +1430,9 @@ Usage:
   atlas-loop recording stop --session <id|latest>
   atlas-loop map build [--sessions id,id] [--threshold 10] [--out artifacts/atlas/map.json] [--json]
   atlas-loop map show [--json]
+  atlas-loop baseline save --session <id|latest> --name <name> [--artifact <artifactId>]
+  atlas-loop baseline compare --session <id|latest> --name <name> [--threshold 24] [--max-diff-ratio 0.005] [--out mask.png]
+  atlas-loop baseline list
   atlas-loop session list [--json]
   atlas-loop session history [--limit 20]
   atlas-loop session latest

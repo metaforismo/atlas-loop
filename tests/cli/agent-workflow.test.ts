@@ -338,6 +338,101 @@ describe("CLI agent workflow helpers", () => {
     expect(captured).toHaveLength(3);
   });
 
+  it("saves and compares visual regression baselines end to end", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "atlas-loop-cli-baseline-"));
+    const artifactRoot = join(tempDir, "artifacts", "sessions");
+    const originalCwd = process.cwd();
+    const originalLog = console.log;
+    const logged: string[] = [];
+    const fixturesDir = join(originalCwd, "tests", "fixtures", "atlas", "png");
+    const screenA = await readFile(join(fixturesDir, "screen-a.png"));
+    const screenB = await readFile(join(fixturesDir, "screen-b.png"));
+    let nextScreenshot = screenA;
+
+    const daemon = await startDaemonServer({
+      port: 0,
+      artifactRoot,
+      autoScreenshot: false,
+      simulator: {
+        runCommand: async (command: string, args: string[] = []) => ({ command, args, stdout: "", stderr: "", exitCode: 0, durationMs: 1 }),
+        doctor: async () => ({ ok: true, checks: [] }),
+        build: async () => ({ command: "xcodebuild", args: [], stdout: "", stderr: "", exitCode: 0, durationMs: 1 }),
+        boot: async () => ({ command: "xcrun", args: [], stdout: "", stderr: "", exitCode: 0, durationMs: 1 }),
+        install: async () => ({ command: "xcrun", args: [], stdout: "", stderr: "", exitCode: 0, durationMs: 1 }),
+        launch: async () => ({ command: "xcrun", args: [], stdout: "", stderr: "", exitCode: 0, durationMs: 1 }),
+        screenshot: async ({ outputPath }: { outputPath: string }) => {
+          await writeFile(outputPath, nextScreenshot);
+          return { command: "xcrun", args: [], stdout: "", stderr: "", exitCode: 0, durationMs: 1 };
+        },
+        recordVideo: async () => ({ command: "xcrun", args: [], stdout: "", stderr: "", exitCode: 0, durationMs: 1 }),
+        startRecordVideo: () => {
+          throw new Error("not used");
+        },
+        version: async () => ({
+          xcodebuild: { command: "xcodebuild", args: [], stdout: "", stderr: "", exitCode: 0, durationMs: 1 },
+          simctl: { command: "xcrun", args: [], stdout: "", stderr: "", exitCode: 0, durationMs: 1 }
+        })
+      } as never
+    });
+
+    console.log = (value?: unknown) => {
+      logged.push(String(value));
+    };
+
+    try {
+      await writeFile(join(tempDir, "atlas-loop.config.json"), JSON.stringify({ daemonUrl: daemon.url }));
+      process.chdir(tempDir);
+
+      const createResponse = await fetch(`${daemon.url}/v1/sessions`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ simulator: { name: "iPhone 16" } })
+      });
+      const created = (await createResponse.json() as { data: { id: string } }).data;
+      const takeScreenshot = () =>
+        fetch(`${daemon.url}/v1/sessions/${created.id}/screenshot`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ reason: "baseline" })
+        });
+
+      await takeScreenshot();
+      await expect(main(["baseline", "save", "--session", created.id, "--name", "home"])).resolves.toBe(0);
+      const saved = JSON.parse(logged.at(-1) ?? "{}");
+      expect(saved).toMatchObject({ ok: true, name: "home", width: 60, height: 120, sourceSessionId: created.id });
+
+      // Identical screenshot passes.
+      await takeScreenshot();
+      await expect(main(["baseline", "compare", "--session", created.id, "--name", "home"])).resolves.toBe(0);
+      expect(JSON.parse(logged.at(-1) ?? "{}")).toMatchObject({ pass: true, changedCount: 0 });
+
+      // A different screen fails and writes the mask.
+      nextScreenshot = screenB;
+      await takeScreenshot();
+      const maskPath = join(tempDir, "diff", "home-mask.png");
+      await expect(
+        main(["baseline", "compare", "--session", created.id, "--name", "home", "--out", maskPath])
+      ).resolves.toBe(1);
+      const failed = JSON.parse(logged.at(-1) ?? "{}");
+      expect(failed.pass).toBe(false);
+      expect(failed.changedRatio).toBeGreaterThan(0.3);
+      expect(failed.maskPath).toBe(maskPath);
+      expect((await readFile(maskPath)).subarray(1, 4).toString("latin1")).toBe("PNG");
+
+      // A tightened ratio ceiling would also fail the identical-variant case; list shows the baseline.
+      await expect(main(["baseline", "list"])).resolves.toBe(0);
+      expect(JSON.parse(logged.at(-1) ?? "{}")).toMatchObject({ count: 1, baselines: [expect.objectContaining({ name: "home" })] });
+
+      await expect(main(["baseline", "compare", "--session", created.id, "--name", "missing"])).rejects.toThrow(/no baseline named missing/);
+      await expect(main(["baseline", "save", "--session", created.id, "--name", "bad name!"])).rejects.toThrow(/--name must be/);
+    } finally {
+      process.chdir(originalCwd);
+      console.log = originalLog;
+      await daemon.close();
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it("writes a self-contained HTML evidence report from live daemon evidence", async () => {
     const tempDir = await mkdtemp(join(tmpdir(), "atlas-loop-cli-html-"));
     const artifactRoot = join(tempDir, "artifacts", "sessions");
