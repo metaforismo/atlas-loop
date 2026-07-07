@@ -50,6 +50,10 @@ export function readViewerParams(search: string, viewerBaseUrl?: string): Viewer
   const view = normalizeViewerView(params.get("view"));
   if (view === "atlas") result.view = view;
   if (normalizedViewerBaseUrl) result.viewerBaseUrl = normalizedViewerBaseUrl;
+  const actionId = params.get("actionId")?.trim();
+  if (actionId) result.actionId = actionId;
+  const artifactId = params.get("artifactId")?.trim();
+  if (artifactId) result.artifactId = artifactId;
   return result;
 }
 
@@ -58,6 +62,10 @@ export function writeViewerSearch(params: ViewerParams): string {
   search.set("daemonUrl", normalizeDaemonUrl(params.daemonUrl));
   search.set("sessionId", normalizeSessionId(params.sessionId));
   if (normalizeViewerView(params.view) === "atlas") search.set("view", "atlas");
+  const actionId = params.actionId?.trim();
+  if (actionId) search.set("actionId", actionId);
+  const artifactId = params.artifactId?.trim();
+  if (artifactId) search.set("artifactId", artifactId);
   return `?${search.toString()}`;
 }
 

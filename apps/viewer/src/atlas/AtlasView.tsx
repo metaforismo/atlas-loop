@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ViewerParams } from "../types.js";
 import { formatDateTime } from "../viewerPresentation.js";
-import { fetchAtlasMap, screenDisplayName, screenImageUrl, type AtlasMapViewLike, type AtlasScreenLike } from "./atlasApi.js";
+import { fetchAtlasMap, screenDisplayName, screenImageUrl, type AtlasMapViewLike, type AtlasScreenLike, type OpenSessionHandler } from "./atlasApi.js";
 import { MapGraph } from "./MapGraph.js";
 import { ScreenDetail } from "./ScreenDetail.js";
 import { ScreensGrid } from "./ScreensGrid.js";
@@ -18,7 +18,7 @@ export function AtlasView({
 }: {
   params: ViewerParams;
   onSwitchToSessions: () => void;
-  onOpenSession: (sessionId: string) => void;
+  onOpenSession: OpenSessionHandler;
 }) {
   const [state, setState] = useState<AtlasLoadState>({ status: "loading" });
   const [selectedScreenId, setSelectedScreenId] = useState<string | undefined>();

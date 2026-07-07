@@ -27,7 +27,10 @@ const atlasView = {
         firstSeenAt: "2026-07-05T10:00:00.000Z",
         lastSeenAt: "2026-07-05T11:00:00.000Z",
         hashes: ["aaaaaaaaaaaaaaaa"],
-        variants: [{ sessionId: "sess_one", artifactId: "shot_1", createdAt: "2026-07-05T10:00:00.000Z" }]
+        variants: [
+          { sessionId: "sess_one", artifactId: "shot_1", createdAt: "2026-07-05T10:00:00.000Z" },
+          { sessionId: "sess_two", artifactId: "shot_3", createdAt: "2026-07-05T10:30:00.000Z" }
+        ]
       },
       {
         id: "confirmation",
@@ -42,7 +45,15 @@ const atlasView = {
     ],
     transitions: [
       { id: "__launch__->screen_aaaa#launch:app.demo", from: "__launch__", to: "screen_aaaa", actionSignature: "launch:app.demo", count: 2, sessionIds: ["sess_one", "sess_two"] },
-      { id: "screen_aaaa->confirmation#tap:cart.continue", from: "screen_aaaa", to: "confirmation", actionSignature: "tap:cart.continue", count: 1, sessionIds: ["sess_one"] }
+      {
+        id: "screen_aaaa->confirmation#tap:cart.continue",
+        from: "screen_aaaa",
+        to: "confirmation",
+        actionSignature: "tap:cart.continue",
+        count: 1,
+        sessionIds: ["sess_one"],
+        examples: [{ sessionId: "sess_one", actionId: "act_continue", at: "2026-07-05T10:05:30.000Z" }]
+      }
     ]
   }
 };
@@ -57,6 +68,22 @@ describe("viewer params view toggle", () => {
     expect(atlasSearch).toContain("view=atlas");
     expect(readViewerParams(atlasSearch).view).toBe("atlas");
     expect(writeViewerSearch({ daemonUrl: DAEMON_URL, sessionId: "latest" })).not.toContain("view=");
+  });
+
+  it("round-trips deep-link action and artifact ids", () => {
+    const search = writeViewerSearch({ daemonUrl: DAEMON_URL, sessionId: "sess_one", actionId: "act_9", artifactId: "shot_7" });
+    expect(search).toContain("actionId=act_9");
+    expect(search).toContain("artifactId=shot_7");
+
+    const parsed = readViewerParams(search);
+    expect(parsed.actionId).toBe("act_9");
+    expect(parsed.artifactId).toBe("shot_7");
+
+    expect(readViewerParams("?actionId=%20&artifactId=").actionId).toBeUndefined();
+    expect(readViewerParams("?actionId=%20&artifactId=").artifactId).toBeUndefined();
+    const plain = writeViewerSearch({ daemonUrl: DAEMON_URL, sessionId: "sess_one", actionId: "  ", artifactId: undefined });
+    expect(plain).not.toContain("actionId=");
+    expect(plain).not.toContain("artifactId=");
   });
 });
 
@@ -94,14 +121,14 @@ describe("AtlasView", () => {
   });
 
   it("renders screen cards, opens details, and links back to sessions", async () => {
-    const openedSessions: string[] = [];
+    const openedSessions: Array<{ sessionId: string; target?: { actionId?: string; artifactId?: string } }> = [];
 
     await act(async () => {
       root.render(
         <AtlasView
           params={{ daemonUrl: DAEMON_URL, sessionId: "latest", view: "atlas" }}
           onSwitchToSessions={() => undefined}
-          onOpenSession={(sessionId) => openedSessions.push(sessionId)}
+          onOpenSession={(sessionId, target) => openedSessions.push({ sessionId, target })}
         />
       );
     });
@@ -124,6 +151,42 @@ describe("AtlasView", () => {
     await act(async () => {
       sessionButton!.click();
     });
-    expect(openedSessions).toEqual(["sess_one"]);
+    expect(openedSessions).toEqual([{ sessionId: "sess_one", target: undefined }]);
+
+    const exampleButton = detail!.querySelector<HTMLButtonElement>(".atlas-transition-example");
+    expect(exampleButton).not.toBeNull();
+    expect(exampleButton!.getAttribute("aria-label")).toBe("Open example of tap:cart.continue in session sess_one");
+    await act(async () => {
+      exampleButton!.click();
+    });
+    expect(openedSessions.at(-1)).toEqual({ sessionId: "sess_one", target: { actionId: "act_continue" } });
+  });
+
+  it("deep links screen variants into their source session and artifact", async () => {
+    const openedSessions: Array<{ sessionId: string; target?: { actionId?: string; artifactId?: string } }> = [];
+
+    await act(async () => {
+      root.render(
+        <AtlasView
+          params={{ daemonUrl: DAEMON_URL, sessionId: "latest", view: "atlas" }}
+          onSwitchToSessions={() => undefined}
+          onOpenSession={(sessionId, target) => openedSessions.push({ sessionId, target })}
+        />
+      );
+    });
+
+    const cards = container.querySelectorAll<HTMLButtonElement>("button.atlas-screen-card");
+    await act(async () => {
+      cards[0].click();
+    });
+
+    const variantButtons = container.querySelectorAll<HTMLButtonElement>(".atlas-variant-link");
+    expect(variantButtons).toHaveLength(2);
+    expect(variantButtons[1].getAttribute("aria-label")).toBe("Open variant 2 in session sess_two");
+
+    await act(async () => {
+      variantButtons[1].click();
+    });
+    expect(openedSessions).toEqual([{ sessionId: "sess_two", target: { artifactId: "shot_3" } }]);
   });
 });

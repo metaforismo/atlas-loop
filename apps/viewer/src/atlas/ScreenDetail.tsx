@@ -1,4 +1,4 @@
-import { screenDisplayName, screenImageUrl, type AtlasScreenLike, type AtlasTransitionLike } from "./atlasApi.js";
+import { screenDisplayName, screenImageUrl, type AtlasScreenLike, type AtlasTransitionLike, type OpenSessionHandler } from "./atlasApi.js";
 import { formatDateTime } from "../viewerPresentation.js";
 
 export function ScreenDetail({
@@ -15,7 +15,7 @@ export function ScreenDetail({
   transitions: AtlasTransitionLike[];
   screens: AtlasScreenLike[];
   onSelectScreen: (screenId: string) => void;
-  onOpenSession: (sessionId: string) => void;
+  onOpenSession: OpenSessionHandler;
   onClose: () => void;
 }) {
   const inbound = transitions.filter((transition) => transition.to === screen.id);
@@ -60,13 +60,22 @@ export function ScreenDetail({
       {screen.variants.length > 1 ? (
         <div className="atlas-detail-variants" aria-label="Screen variants">
           {screen.variants.map((variant, index) => (
-            <img key={`${variant.artifactId}:${index}`} src={screenImageUrl(daemonUrl, screen.id, index)} alt={`Variant ${index + 1}`} loading="lazy" />
+            <button
+              key={`${variant.artifactId}:${index}`}
+              type="button"
+              className="atlas-variant-link"
+              onClick={() => onOpenSession(variant.sessionId, { artifactId: variant.artifactId })}
+              aria-label={`Open variant ${index + 1} in session ${variant.sessionId}`}
+              title={`Open ${variant.artifactId} in session ${variant.sessionId}`}
+            >
+              <img src={screenImageUrl(daemonUrl, screen.id, index)} alt={`Variant ${index + 1}`} loading="lazy" />
+            </button>
           ))}
         </div>
       ) : null}
 
-      <TransitionList title="Arrives from" transitions={inbound} pick={(transition) => transition.from} nameFor={nameFor} onSelectScreen={onSelectScreen} />
-      <TransitionList title="Leads to" transitions={outbound} pick={(transition) => transition.to} nameFor={nameFor} onSelectScreen={onSelectScreen} />
+      <TransitionList title="Arrives from" transitions={inbound} pick={(transition) => transition.from} nameFor={nameFor} onSelectScreen={onSelectScreen} onOpenSession={onOpenSession} />
+      <TransitionList title="Leads to" transitions={outbound} pick={(transition) => transition.to} nameFor={nameFor} onSelectScreen={onSelectScreen} onOpenSession={onOpenSession} />
 
       <div className="atlas-detail-sessions">
         <strong>Observed in</strong>
@@ -89,13 +98,15 @@ function TransitionList({
   transitions,
   pick,
   nameFor,
-  onSelectScreen
+  onSelectScreen,
+  onOpenSession
 }: {
   title: string;
   transitions: AtlasTransitionLike[];
   pick: (transition: AtlasTransitionLike) => string;
   nameFor: (nodeId: string) => string;
   onSelectScreen: (screenId: string) => void;
+  onOpenSession: OpenSessionHandler;
 }) {
   return (
     <div className="atlas-detail-transitions">
@@ -106,6 +117,7 @@ function TransitionList({
         <ul>
           {transitions.map((transition) => {
             const nodeId = pick(transition);
+            const example = transition.examples?.[0];
             return (
               <li key={transition.id}>
                 {nodeId === "__launch__" ? (
@@ -117,6 +129,17 @@ function TransitionList({
                 )}
                 <code>{transition.actionSignature}</code>
                 <small>×{transition.count}</small>
+                {example ? (
+                  <button
+                    type="button"
+                    className="atlas-transition-example"
+                    onClick={() => onOpenSession(example.sessionId, { actionId: example.actionId })}
+                    aria-label={`Open example of ${transition.actionSignature} in session ${example.sessionId}`}
+                    title={`Open action ${example.actionId} in session ${example.sessionId}`}
+                  >
+                    example
+                  </button>
+                ) : null}
               </li>
             );
           })}

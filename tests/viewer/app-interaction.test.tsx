@@ -221,6 +221,22 @@ describe("viewer app interactions", { timeout: 30_000 }, () => {
     }, "copy id confirmation");
   });
 
+  it("preselects a deep-linked artifact over the default first artifact", async () => {
+    window.history.replaceState(
+      null,
+      "",
+      `/?daemonUrl=${encodeURIComponent(DAEMON_URL)}&sessionId=${SESSION_ID}&artifactId=${logArtifact.id}`
+    );
+
+    await act(async () => root?.render(<App />));
+
+    await waitFor(() => {
+      const selected = getSelectedArtifactOption();
+      expect(selected.textContent).toContain("debug.log");
+      return selected;
+    }, "deep-linked artifact selection");
+  });
+
   it("renders compact evidence chips from session history rows", async () => {
     await act(async () => root?.render(<App />));
 

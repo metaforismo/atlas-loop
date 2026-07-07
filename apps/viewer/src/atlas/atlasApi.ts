@@ -18,7 +18,16 @@ export interface AtlasTransitionLike {
   actionSignature: string;
   count: number;
   sessionIds: string[];
+  examples?: Array<{ sessionId: string; actionId: string; at: string }>;
 }
+
+/** Deep-link target passed alongside a session id when jumping into the sessions view. */
+export interface SessionDeepLinkTarget {
+  actionId?: string;
+  artifactId?: string;
+}
+
+export type OpenSessionHandler = (sessionId: string, target?: SessionDeepLinkTarget) => void;
 
 export interface AtlasMapLike {
   generatedAt: string;
