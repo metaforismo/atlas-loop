@@ -268,6 +268,10 @@ export interface ViewerParams {
   sessionId: string;
   viewerBaseUrl?: string;
   view?: ViewerView;
+  /** Deep link: preselect this action's evidence pair in the session view. */
+  actionId?: string;
+  /** Deep link: preselect this artifact in the session view. */
+  artifactId?: string;
 }
 
 export type HealthState = "checking" | "online" | "offline";

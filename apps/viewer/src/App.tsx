@@ -91,11 +91,11 @@ export function App() {
   useEffect(() => {
     setArtifactTypeFilter("all");
     setArtifactQuery("");
-    setSelectedArtifactId(undefined);
-    setSelectedActionId(undefined);
+    setSelectedArtifactId(params.artifactId);
+    setSelectedActionId(params.actionId);
     setTimelineFilter("all");
     setTimelineQuery("");
-  }, [params.daemonUrl, params.sessionId]);
+  }, [params.daemonUrl, params.sessionId, params.artifactId, params.actionId]);
 
   const latestArtifact = artifacts[0];
   const latestScreenshotArtifact = useMemo(() => latestArtifactOfType(artifacts, "screenshot"), [artifacts]);
@@ -161,10 +161,9 @@ export function App() {
   );
 
   useEffect(() => {
-    if (!selectedArtifact) {
-      if (selectedArtifactId) setSelectedArtifactId(undefined);
-      return;
-    }
+    // No clearing when the list is empty: a deep-linked artifactId must survive
+    // until artifacts finish loading.
+    if (!selectedArtifact) return;
 
     if (selectedArtifact.id !== selectedArtifactId) setSelectedArtifactId(selectedArtifact.id);
   }, [selectedArtifact, selectedArtifactId]);
@@ -252,7 +251,7 @@ export function App() {
       <AtlasView
         params={params}
         onSwitchToSessions={() => applyViewerParams({ daemonUrl: params.daemonUrl, sessionId: params.sessionId })}
-        onOpenSession={(sessionId) => applyViewerParams({ daemonUrl: params.daemonUrl, sessionId })}
+        onOpenSession={(sessionId, target) => applyViewerParams({ daemonUrl: params.daemonUrl, sessionId, ...target })}
       />
     );
   }
