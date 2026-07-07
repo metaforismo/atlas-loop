@@ -3324,3 +3324,54 @@ button.action-evidence-frame {
   align-items: center;
   gap: 8px;
 }
+
+.compare-panel {
+  width: min(1200px, 96vw);
+}
+
+.compare-grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  overflow: auto;
+}
+
+.compare-grid figure {
+  margin: 0;
+  min-width: 0;
+}
+
+.compare-grid figcaption {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, currentColor 60%, transparent);
+  margin-bottom: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compare-grid img,
+.compare-grid canvas {
+  width: 100%;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.compare-threshold {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: color-mix(in srgb, currentColor 65%, transparent);
+}
+
+.action-evidence-diff {
+  margin-left: auto;
+  padding: 4px 12px;
+  border-radius: 8px;
+  font-size: 11px;
+}
