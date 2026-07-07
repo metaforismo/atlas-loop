@@ -23,11 +23,21 @@ runtime dependencies.
   with a viewer replay panel: action markers on the scrubber, click-to-seek.
 - The Atlas map: screens and transitions derived from local session evidence
   (`map build`, `GET /v1/atlas/map`, MCP `atlas.getMap`) with a screens grid
-  and transition graph in the viewer (`?view=atlas`).
+  and transition graph in the viewer (`?view=atlas`). Screens are named by
+  screen-level assertions (`assert-visible --screen`), and map details deep
+  link back into the sessions and actions that produced them
+  (`?actionId=` / `?artifactId=` preselect evidence in the session view).
+- Visual regression baselines: `baseline save|compare|list` pixel-diffs a
+  session screenshot against a named local baseline and exits non-zero on
+  failure (CI-gate friendly); MCP agents get the same via
+  `atlas.compareBaseline`.
+- Screenshot inspection: zoom/pan lightbox and a before/after pixel diff view
+  for action evidence pairs.
 - Per-session app metrics (CPU/RSS sampled from the launched pid) with viewer
   sparklines and a `GET /v1/sessions/:id/metrics` route.
 - Self-contained HTML evidence reports (`evidence report --format html`) with
-  inlined screenshots, action table, and metrics; shareable as a single file.
+  inlined screenshots, action table, metrics, and the session's slice of the
+  Atlas map; shareable as a single file.
 - CLI commands for session lifecycle, app build/install/launch, tap/type/swipe,
   screenshots, and viewer startup.
 - Local MCP-compatible stdio server exposing the same runtime controls.
@@ -222,11 +232,14 @@ atlas-loop install --session <id> --app <path-to-app>
 atlas-loop launch --session <id> --bundle-id app.atlasloop.CommerceDemo
 atlas-loop tap --session <id> --x 0.5 --y 0.8
 atlas-loop tap-element --session <id> --id cart.continue [--timeout-ms 5000]
-atlas-loop assert-visible --session <id> --id confirmation [--timeout-ms 5000]
+atlas-loop assert-visible --session <id> --id confirmation [--timeout-ms 5000] [--screen]
 atlas-loop recording start --session <id|latest>
 atlas-loop recording stop --session <id|latest>
 atlas-loop map build [--sessions id,id] [--threshold 10] [--json]
 atlas-loop map show [--json]
+atlas-loop baseline save --session <id|latest> --name <name> [--artifact <artifactId>]
+atlas-loop baseline compare --session <id|latest> --name <name> [--threshold 24] [--max-diff-ratio 0.005] [--out mask.png]
+atlas-loop baseline list
 atlas-loop type --session <id> --text "Ada Lovelace"
 atlas-loop swipe --session <id> --from 0.5,0.8 --to 0.5,0.2 --duration-ms 450
 atlas-loop edge --session <id> --edge left --distance 0.75 --duration-ms 350
@@ -276,9 +289,12 @@ optional `limit`. `atlas.listEvents` returns structured, read-only trace events
 for agent handoffs and audits. `atlas.exportEvents`
 writes the same filtered event view to a caller-chosen local JSON file and
 returns the file metadata. `atlas.getMap` returns the Atlas screen map (or a
-compact summary) derived from local evidence; `atlas.startRecording` and
+compact summary) derived from local evidence; `atlas.compareBaseline`
+pixel-diffs a session screenshot against a saved local baseline and reports
+pass/fail; `atlas.startRecording` and
 `atlas.stopRecording` control session video capture; `atlas.getEvidenceReport`
-accepts `format: "html"` for a self-contained report with inlined screenshots.
+accepts `format: "html"` for a self-contained report with inlined screenshots
+and the session's Atlas map slice.
 `atlas.getArtifactHealth` validates the daemon-resolved local artifact
 directory for one readable session, including persisted sessions discovered
 after a restart. It does not upload artifacts. `atlas.verifyArtifacts`
