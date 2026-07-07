@@ -22,6 +22,7 @@ import {
 import { AtlasView } from "./atlas/AtlasView.js";
 import { ActionDetailPanel } from "./components/ActionDetailPanel.js";
 import { EmptyState, ErrorNotice, MetricTile, StatusRow } from "./components/common.js";
+import { ImageLightbox } from "./components/ImageLightbox.js";
 import { EvidenceHealthPanel } from "./components/EvidenceHealthPanel.js";
 import { AgentHandoffPanel } from "./components/HandoffPanel.js";
 import { MetadataGrid, MetadataSkeleton, SummaryEvidence } from "./components/MetadataPanel.js";
@@ -81,6 +82,7 @@ export function App() {
   const [actionForm, setActionForm] = useState<ViewerActionFormState>(DEFAULT_ACTION_FORM);
   const [tapTarget, setTapTarget] = useState<ScreenshotTapTarget | undefined>();
   const [selectedActionId, setSelectedActionId] = useState<string | undefined>();
+  const [stageZoomed, setStageZoomed] = useState(false);
 
   useEffect(() => {
     setDraft(params);
@@ -379,11 +381,24 @@ export function App() {
           <div className="viewport-footer">
             <span>{latestScreenshotArtifact ? `Artifact ${latestScreenshotArtifact.id}` : "No screenshot artifact reported"}</span>
             {screenshotIsDisplayable ? (
-              <a href={screenshot.src} target="_blank" rel="noreferrer">
-                Open image
-              </a>
+              <span className="viewport-footer-actions">
+                <button type="button" onClick={() => setStageZoomed(true)}>
+                  Zoom
+                </button>
+                <a href={screenshot.src} target="_blank" rel="noreferrer">
+                  Open image
+                </a>
+              </span>
             ) : null}
           </div>
+          {stageZoomed && screenshotIsDisplayable ? (
+            <ImageLightbox
+              src={screenshot.src}
+              alt="Latest simulator screenshot"
+              caption={latestScreenshotArtifact?.path}
+              onClose={() => setStageZoomed(false)}
+            />
+          ) : null}
 
           {replayModel ? <ReplayPanel replay={replayModel} /> : null}
           <MetricsPanel params={params} sessionStatus={session?.status} events={events} />
