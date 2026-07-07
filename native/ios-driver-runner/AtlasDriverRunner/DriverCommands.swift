@@ -104,12 +104,20 @@ final class DriverController {
             return ["identifier": identifierText(json), "frame": frameDictionary(frame), "wasHittable": wasHittable]
         case "assertVisible":
             let (element, frame) = try resolveElement(json: json, kind: kind)
+            let app = try requireTargetApp()
+            let appFrame = app.frame
+            // A screen-level container (vs a button or row) covers most of the
+            // app window; callers use this to name Atlas map screens.
+            let coverage = appFrame.width > 0 && appFrame.height > 0
+                ? Double((frame.width * frame.height) / (appFrame.width * appFrame.height))
+                : 0
             return [
                 "identifier": identifierText(json),
                 "exists": true,
                 "isHittable": element.isHittable,
                 "label": element.label,
-                "frame": frameDictionary(frame)
+                "frame": frameDictionary(frame),
+                "coversScreen": coverage >= 0.7
             ]
         default:
             throw DriverError(.unknownCommand, "unknown command kind: \(kind)")

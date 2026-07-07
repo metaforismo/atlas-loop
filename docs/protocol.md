@@ -41,7 +41,7 @@ Supported action kinds:
 - `swipe`: `from`, `to`, and non-negative `durationMs`.
 - `edgeGesture`: `edge`, `distance` from `0` to `1`, and non-negative `durationMs`.
 - `tapElement`: `identifier` is a non-empty accessibility identifier; optional non-negative `timeoutMs` bounds the wait for the element. Requires an element-capable input backend (`xcuitest`).
-- `assertVisible`: same fields as `tapElement`; asserts the element exists and reports its visibility state as evidence. Requires an element-capable input backend (`xcuitest`).
+- `assertVisible`: same fields as `tapElement`, plus optional `markScreen` to declare the asserted element a screen-level container; asserts the element exists and reports its visibility state (including whether it covers most of the app window) as evidence. Screen-level assertions name the corresponding Atlas map screen, either explicitly via `markScreen` or automatically when the element covers >= 70% of the window. Requires an element-capable input backend (`xcuitest`).
 - `screenshot`: optional `reason`.
 - `install`: `appPath`.
 - `launch`: `bundleId`, optional `arguments`, optional `environment`.
