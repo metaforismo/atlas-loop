@@ -18,6 +18,7 @@ import {
   type SessionSummary
 } from "@atlas-loop/daemon-client";
 import { validateActionInput, type ActionInput, type ArtifactRef, type AtlasLoopError, type BuildRequest, type Edge, type LaunchRequest, type TraceEvent } from "@atlas-loop/protocol";
+import { DEFAULT_DIFF_THRESHOLD, diffPngs } from "@atlas-loop/atlas-map";
 import { validateArtifactTarget, type ValidationReport } from "../../../scripts/verify-artifacts.ts";
 
 const DEFAULT_VIEWER_BASE_URL = "http://127.0.0.1:5173";
@@ -190,6 +191,17 @@ export const tools = [
     inputSchema: eventExportSchema()
   },
   { name: "atlas.performAction", description: "Perform tap/type/swipe/tapElement/assertVisible/wait/screenshot action.", inputSchema: performActionSchema() },
+  {
+    name: "atlas.compareBaseline",
+    description: "Compare a session screenshot against a locally saved baseline (visual regression); returns changed-pixel ratio and pass/fail.",
+    inputSchema: objectSchema(["sessionId", "name"], {
+      ...sessionIdProperty(),
+      name: { type: "string", minLength: 1, description: "Baseline name saved with: atlas-loop baseline save" },
+      artifactId: { type: "string", description: "Compare a specific screenshot artifact instead of the latest." },
+      threshold: { type: "number", minimum: 0, description: "Per-pixel channel delta threshold (default 24)." },
+      maxDiffRatio: { type: "number", minimum: 0, maximum: 1, description: "Maximum passing changed-pixel ratio (default 0.005)." }
+    })
+  },
   {
     name: "atlas.getMap",
     description: "Return the Atlas screen map derived from local session evidence: screens, transitions, and observing sessions.",
@@ -373,6 +385,8 @@ async function callTool(name: string, args: Record<string, unknown>, runtime: To
       });
     case "atlas.endSession":
       return client.endSession(requireString(args, "sessionId"));
+    case "atlas.compareBaseline":
+      return compareBaseline(client, args, runtime);
     case "atlas.getMap": {
       if (!client.getAtlasMap) throw new Error("daemon client does not support getAtlasMap");
       const view = (await client.getAtlasMap(args.rebuild === true)) as {
@@ -618,6 +632,61 @@ async function getEvidence(
     viewerUrl: viewer.url,
     daemonUrl: viewer.daemonUrl,
     viewerBaseUrl: viewer.viewerBaseUrl
+  };
+}
+
+async function compareBaseline(
+  client: McpDaemonClient,
+  args: Record<string, unknown>,
+  runtime: ToolRuntime
+): Promise<Record<string, unknown>> {
+  const sessionId = requireString(args, "sessionId");
+  const name = requireString(args, "name");
+  if (!/^[a-z0-9][a-z0-9._-]{0,63}$/i.test(name)) {
+    throw new Error("baseline name must be 1-64 chars of letters, digits, dot, dash, or underscore");
+  }
+  void runtime;
+
+  const config = await loadAtlasLoopConfig();
+  const baselinePath = join(resolve(config.artifactRoot, ".."), "baselines", `${name}.png`);
+  let baselineData: Buffer;
+  try {
+    baselineData = await readFile(baselinePath);
+  } catch {
+    throw new Error(`no baseline named ${name} at ${baselinePath}; save one with: atlas-loop baseline save --session latest --name ${name}`);
+  }
+
+  let artifact: Partial<ArtifactRef>;
+  const artifactId = typeof args.artifactId === "string" ? args.artifactId : undefined;
+  if (artifactId) {
+    const artifacts = (await client.listArtifacts(sessionId)) as ArtifactRef[];
+    const match = artifacts.find((candidate) => candidate.id === artifactId);
+    if (!match) throw new Error(`artifact ${artifactId} not found in session ${sessionId}`);
+    if (match.type !== "screenshot") throw new Error(`artifact ${artifactId} is ${match.type}, not a screenshot`);
+    artifact = match;
+  } else {
+    artifact = await client.latestScreenshot(sessionId);
+  }
+  if (!artifact.path) throw new Error("screenshot artifact has no local path");
+
+  const threshold = typeof args.threshold === "number" ? args.threshold : DEFAULT_DIFF_THRESHOLD;
+  const maxDiffRatio = typeof args.maxDiffRatio === "number" ? args.maxDiffRatio : 0.005;
+  const result = diffPngs(baselineData, await readFile(artifact.path), threshold);
+  const pass = result.changedRatio <= maxDiffRatio;
+
+  return {
+    pass,
+    name,
+    changedRatio: result.changedRatio,
+    changedPercent: Number((result.changedRatio * 100).toFixed(4)),
+    changedCount: result.changedCount,
+    totalCount: result.totalCount,
+    threshold,
+    maxDiffRatio,
+    baselinePath,
+    screenshotPath: artifact.path,
+    screenshotArtifactId: artifact.id,
+    localOnly: true
   };
 }
 

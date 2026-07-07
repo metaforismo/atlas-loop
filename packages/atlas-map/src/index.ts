@@ -11,3 +11,10 @@ export {
   type DeriveAtlasMapOptions
 } from "./derive.ts";
 export { loadHashCache, saveHashCache } from "./cache.ts";
+export {
+  DEFAULT_DIFF_THRESHOLD,
+  diffDecodedPngs,
+  diffPngs,
+  encodePng,
+  type PixelDiffResult
+} from "./diff.ts";
