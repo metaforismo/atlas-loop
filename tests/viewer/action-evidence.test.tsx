@@ -117,4 +117,15 @@ describe("ActionDetailPanel", () => {
     expect(container.textContent).toContain("2/2");
     expect(container.textContent).toContain("No screenshot");
   });
+
+  it("falls back to the latest action when a stale deep link is not present", () => {
+    const pairs = buildActionEvidencePairs(events, [launchScreenshot, afterTap, afterElement]);
+
+    act(() => {
+      root.render(<ActionDetailPanel pairs={pairs} selectedActionId="act_from_another_session" onSelect={() => undefined} />);
+    });
+
+    expect(container.textContent).toContain("2/2");
+    expect(container.textContent).toContain("tap cart.continue");
+  });
 });

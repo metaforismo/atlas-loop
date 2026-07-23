@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from "react";
 import { IDENTITY_TRANSFORM, panBy, zoomAt, type ImageTransform } from "../imageTransform.js";
+import { useModalDialog } from "../useModalDialog.js";
 
 export function ImageLightbox({
   src,
@@ -16,14 +17,7 @@ export function ImageLightbox({
   const [transform, setTransform] = useState<ImageTransform>(IDENTITY_TRANSFORM);
   const dragRef = useRef<{ pointerId: number; lastX: number; lastY: number } | undefined>(undefined);
   const frameRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
+  const { dialogRef, initialFocusRef } = useModalDialog(onClose);
 
   const handleWheel = (event: ReactWheelEvent<HTMLDivElement>): void => {
     event.preventDefault();
@@ -54,8 +48,8 @@ export function ImageLightbox({
   };
 
   return (
-    <div className="lightbox-backdrop" role="dialog" aria-modal="true" aria-label={`Zoomed view of ${alt}`} onClick={onClose}>
-      <div className="lightbox-panel" onClick={(event) => event.stopPropagation()}>
+    <div className="lightbox-backdrop" onClick={onClose}>
+      <div ref={dialogRef} className="lightbox-panel" role="dialog" aria-modal="true" aria-label={`Zoomed view of ${alt}`} tabIndex={-1} onClick={(event) => event.stopPropagation()}>
         <div className="lightbox-toolbar">
           <span className="lightbox-caption" title={caption ?? alt}>
             {caption ?? alt}
@@ -64,7 +58,7 @@ export function ImageLightbox({
           <button type="button" onClick={() => setTransform(IDENTITY_TRANSFORM)}>
             Reset
           </button>
-          <button type="button" aria-label="Close zoomed view" onClick={onClose}>
+          <button ref={initialFocusRef} type="button" aria-label="Close zoomed view" onClick={onClose}>
             ✕
           </button>
         </div>

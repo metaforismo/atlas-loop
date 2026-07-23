@@ -39,6 +39,29 @@ describe("timeline helpers", () => {
     expect(items[0].detail).toBe("0.500, 0.750");
   });
 
+  it("presents element actions as human-readable flow steps", () => {
+    const items = buildTimelineItems(
+      [
+        {
+          type: "action.started",
+          at: "2026-07-04T09:00:01.000Z",
+          action: { id: "act_tap", kind: "tapElement", identifier: "cart.continue" }
+        },
+        {
+          type: "action.started",
+          at: "2026-07-04T09:00:02.000Z",
+          action: { id: "act_assert", kind: "assertVisible", identifier: "checkout.confirmation" }
+        }
+      ],
+      []
+    );
+
+    expect(items.map(({ title, detail }) => ({ title, detail }))).toEqual([
+      { title: "Tap element", detail: "cart.continue" },
+      { title: "Assert visible", detail: "checkout.confirmation" }
+    ]);
+  });
+
   it("merges SSE and polling events by stable event identity", () => {
     const first: TraceEvent = {
       type: "action.completed",

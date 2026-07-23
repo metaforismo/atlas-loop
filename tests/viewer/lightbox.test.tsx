@@ -51,7 +51,7 @@ describe("image transform math", () => {
 
 describe("ImageLightbox", () => {
   let container: HTMLDivElement;
-  let root: Root;
+  let root: Root | undefined;
 
   beforeEach(() => {
     container = document.createElement("div");
@@ -60,7 +60,7 @@ describe("ImageLightbox", () => {
   });
 
   afterEach(() => {
-    act(() => root.unmount());
+    act(() => root?.unmount());
     container.remove();
   });
 
@@ -68,7 +68,7 @@ describe("ImageLightbox", () => {
     let closed = 0;
 
     act(() => {
-      root.render(<ImageLightbox src="data:image/png;base64,Zg==" alt="shot" caption="screenshots/x.png" onClose={() => (closed += 1)} />);
+      root!.render(<ImageLightbox src="data:image/png;base64,Zg==" alt="shot" caption="screenshots/x.png" onClose={() => (closed += 1)} />);
     });
 
     const img = container.querySelector<HTMLImageElement>(".lightbox-frame img");
@@ -91,5 +91,32 @@ describe("ImageLightbox", () => {
       container.querySelector<HTMLDivElement>(".lightbox-panel")!.click();
     });
     expect(closed).toBe(2);
+  });
+
+  it("moves focus into the dialog, traps Tab, locks scroll, and restores focus", () => {
+    const trigger = document.createElement("button");
+    trigger.textContent = "Open image";
+    document.body.prepend(trigger);
+    trigger.focus();
+
+    act(() => {
+      root!.render(<ImageLightbox src="data:image/png;base64,Zg==" alt="shot" onClose={() => undefined} />);
+    });
+
+    const reset = container.querySelector<HTMLButtonElement>(".lightbox-toolbar button:first-of-type")!;
+    const close = container.querySelector<HTMLButtonElement>("[aria-label='Close zoomed view']")!;
+    expect(document.activeElement).toBe(close);
+    expect(document.body.style.overflow).toBe("hidden");
+
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", cancelable: true }));
+    });
+    expect(document.activeElement).toBe(reset);
+
+    act(() => root!.unmount());
+    root = undefined;
+    expect(document.activeElement).toBe(trigger);
+    expect(document.body.style.overflow).toBe("");
+    trigger.remove();
   });
 });

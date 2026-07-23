@@ -60,6 +60,10 @@ describe("viewer api normalizers", () => {
         }
       }
     });
+    expect(buildViewerActionRequest({ kind: "edgeGesture", edge: "left", distance: "0.55", durationMs: "320" })).toEqual({
+      endpoint: "actions",
+      body: { action: { kind: "edgeGesture", edge: "left", distance: 0.55, durationMs: 320 } }
+    });
   });
 
   it("serializes element action drafts with trimmed identifiers and optional timeouts", () => {
@@ -95,6 +99,9 @@ describe("viewer api normalizers", () => {
         durationMs: "300"
       })
     ).toThrow("swipe to y must be between 0 and 1");
+    expect(() => buildViewerActionRequest({ kind: "edgeGesture", edge: "right", distance: "1.1", durationMs: "320" })).toThrow(
+      "edge gesture distance must be between 0 and 1"
+    );
   });
 
   it("posts viewer actions and preserves daemon error messages", async () => {

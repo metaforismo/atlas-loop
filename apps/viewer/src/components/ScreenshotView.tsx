@@ -16,11 +16,13 @@ type ScreenshotTargetStyle = CSSProperties & {
 export function ScreenshotView({
   screenshot,
   emptyMessage,
+  emptyAction,
   tapTarget,
   onTapTarget
 }: {
   screenshot: ScreenshotState;
   emptyMessage?: string;
+  emptyAction?: { label: string; onSelect: () => void };
   tapTarget?: ScreenshotTapTarget;
   onTapTarget: (target: ScreenshotTapTarget) => void;
 }) {
@@ -97,7 +99,7 @@ export function ScreenshotView({
         : (emptyMessage ?? `Screenshot unavailable: ${screenshot.message}`);
 
   return (
-    <div className={`screenshot-placeholder ${screenshot.status}`} role="status" aria-live="polite" aria-atomic="true">
+    <div className={`screenshot-placeholder ${screenshot.status}`}>
       {screenshot.status === "loading" ? (
         <div className="screenshot-skeleton" aria-hidden="true">
           <span />
@@ -105,7 +107,12 @@ export function ScreenshotView({
           <span />
         </div>
       ) : null}
-      <span>{message}</span>
+      <span role="status" aria-live="polite" aria-atomic="true">{message}</span>
+      {screenshot.status !== "loading" && emptyAction ? (
+        <button type="button" className="screenshot-empty-action" onClick={emptyAction.onSelect}>
+          {emptyAction.label}
+        </button>
+      ) : null}
     </div>
   );
 }

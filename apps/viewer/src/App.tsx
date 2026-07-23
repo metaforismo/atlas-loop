@@ -24,6 +24,7 @@ import { ActionDetailPanel } from "./components/ActionDetailPanel.js";
 import { EmptyState, ErrorNotice, MetricTile, StatusRow } from "./components/common.js";
 import { ImageLightbox } from "./components/ImageLightbox.js";
 import { EvidenceHealthPanel } from "./components/EvidenceHealthPanel.js";
+import { FlowRunPanel } from "./components/FlowRunPanel.js";
 import { AgentHandoffPanel } from "./components/HandoffPanel.js";
 import { MetadataGrid, MetadataSkeleton, SummaryEvidence } from "./components/MetadataPanel.js";
 import { MetricsPanel } from "./components/MetricsPanel.js";
@@ -36,6 +37,7 @@ import type { ViewerParams } from "./types.js";
 import {
   artifactTypeOptions,
   buildActionEvidencePairs,
+  buildFlowRunSummary,
   buildAgentHandoffBrief,
   buildVideoReplayModel,
   eventModeTone,
@@ -83,6 +85,8 @@ export function App() {
   const [tapTarget, setTapTarget] = useState<ScreenshotTapTarget | undefined>();
   const [selectedActionId, setSelectedActionId] = useState<string | undefined>();
   const [stageZoomed, setStageZoomed] = useState(false);
+  const [flowFocus, setFlowFocus] = useState(false);
+  const [runtimeSettingsOpen, setRuntimeSettingsOpen] = useState(false);
 
   useEffect(() => {
     setDraft(params);
@@ -143,6 +147,7 @@ export function App() {
   );
   const replayModel = useMemo(() => buildVideoReplayModel(artifacts, events), [artifacts, events]);
   const actionEvidencePairs = useMemo(() => buildActionEvidencePairs(events, artifacts), [events, artifacts]);
+  const flowRunSummary = useMemo(() => buildFlowRunSummary(events, session?.status), [events, session?.status]);
   const handoffBrief = useMemo(
     () =>
       buildAgentHandoffBrief({
@@ -171,6 +176,27 @@ export function App() {
   useEffect(() => {
     setTapTarget(undefined);
   }, [params.daemonUrl, params.sessionId, screenshotTargetKey]);
+
+  useEffect(() => {
+    if (health === "offline") setRuntimeSettingsOpen(true);
+  }, [health]);
+
+  useEffect(() => {
+    if (!flowFocus) return;
+    const exitFocus = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") setFlowFocus(false);
+    };
+    window.addEventListener("keydown", exitFocus);
+    return () => window.removeEventListener("keydown", exitFocus);
+  }, [flowFocus]);
+
+  const toggleFlowFocus = (): void => {
+    setFlowFocus((current) => {
+      const next = !current;
+      if (next) setTimelineFilter("actions");
+      return next;
+    });
+  };
 
   const updateActionFormField = (field: ViewerActionFormField, value: string): void => {
     setActionForm((current) => ({ ...current, [field]: value }));
@@ -246,6 +272,10 @@ export function App() {
     focusArtifactOption(artifactId);
   };
 
+  const scrollToWorkspaceSection = (id: string): void => {
+    document.getElementById(id)?.scrollIntoView({ block: "start", behavior: "smooth" });
+  };
+
   if (params.view === "atlas") {
     return (
       <AtlasView
@@ -257,39 +287,123 @@ export function App() {
   }
 
   return (
-    <main className="viewer-shell">
-      <aside className="rail panel" aria-label="Viewer connection and session list">
+    <main className={`viewer-shell health-${health} ${flowFocus ? "flow-focus" : ""}`}>
+      <a className="skip-link" href="#viewer-stage">Skip to device viewport</a>
+      <header className="viewer-topbar" aria-label="Viewer navigation">
+        <nav className="viewer-breadcrumb" aria-label="Breadcrumb">
+          <a href="/">Home</a>
+          <span aria-hidden="true">/</span>
+          <strong>Evidence</strong>
+        </nav>
+        <div className="viewer-topbar-actions">
+          <span className={`viewer-runtime-state tone-${healthTone(health)}`}>
+            <span aria-hidden="true" />
+            {health === "online" ? "Daemon live" : health === "checking" ? "Checking daemon" : "Daemon offline"}
+          </span>
+          <button
+            type="button"
+            className="viewer-mobile-atlas-link"
+            onClick={() => applyViewerParams({ daemonUrl: params.daemonUrl, sessionId: params.sessionId, view: "atlas" })}
+          >
+            Atlas
+          </button>
+          <button
+            type="button"
+            className="flow-focus-toggle"
+            aria-pressed={flowFocus}
+            onClick={toggleFlowFocus}
+            title={flowFocus ? "Return to the full evidence workspace" : "Put the device and observed flow side by side"}
+          >
+            {flowFocus ? "Exit focus" : "Flow focus"}
+          </button>
+        </div>
+      </header>
+      <aside id="viewer-connection-panel" className="rail panel" aria-label="Viewer connection and session list">
         <div className="brand-block">
-          <div>
-            <p className="kicker">Atlas Loop</p>
-            <h1>Runtime evidence</h1>
-          </div>
+          <a className="viewer-home-link" href="/" aria-label="Back to Atlas Loop home">
+            <img className="viewer-brand-mark" src="/atlas-loop-mark.png" alt="" />
+            <div className="viewer-brand-copy">
+              <p className="kicker">Atlas Loop</p>
+              <h1>Runtime evidence</h1>
+            </div>
+          </a>
           <span className={`health-dot ${health}`} aria-label={`Daemon ${health}`} title={`Daemon ${health}`} />
         </div>
 
-        <form className="connection-form" onSubmit={submit}>
-          <label>
-            <span>Daemon URL</span>
-            <input
-              value={draft.daemonUrl}
-              onChange={(event) => setDraft((current) => ({ ...current, daemonUrl: event.target.value }))}
-              spellCheck={false}
-              aria-label="Daemon URL"
-            />
-          </label>
-          <label>
-            <span>Session ID</span>
-            <input
-              value={draft.sessionId}
-              onChange={(event) => setDraft((current) => ({ ...current, sessionId: event.target.value }))}
-              spellCheck={false}
-              aria-label="Session ID"
-            />
-          </label>
-          <button type="submit">{hasDraftChanges ? "Apply connection" : "Reconnect"}</button>
-        </form>
+        <nav className="viewer-nav" aria-label="Workspace navigation">
+          <p>Home</p>
+          <button type="button" className="viewer-nav-item selected" aria-current="page" onClick={() => scrollToWorkspaceSection("viewer-stage")}>
+            <span className="viewer-nav-icon overview" aria-hidden="true" />
+            Overview
+          </button>
+          <p>Workspace</p>
+          <button type="button" className="viewer-nav-item" onClick={() => scrollToWorkspaceSection("viewer-sessions")}>
+            <span className="viewer-nav-icon sessions" aria-hidden="true" />
+            Sessions
+          </button>
+          <button type="button" className="viewer-nav-item" onClick={() => scrollToWorkspaceSection("viewer-stage")}>
+            <span className="viewer-nav-icon evidence" aria-hidden="true" />
+            Live evidence
+          </button>
+          <button type="button" className="viewer-nav-item" onClick={() => scrollToWorkspaceSection("viewer-actions")}>
+            <span className="viewer-nav-icon actions" aria-hidden="true" />
+            Actions
+          </button>
+          <button
+            type="button"
+            className="viewer-nav-item"
+            onClick={() => applyViewerParams({ daemonUrl: params.daemonUrl, sessionId: params.sessionId, view: "atlas" })}
+          >
+            <span className="viewer-nav-icon atlas" aria-hidden="true" />
+            Atlas map
+          </button>
+          <p>System</p>
+          <button type="button" className="viewer-nav-item" onClick={() => scrollToWorkspaceSection("viewer-artifacts")}>
+            <span className="viewer-nav-icon artifacts" aria-hidden="true" />
+            Artifacts
+          </button>
+          <button type="button" className="viewer-nav-item" onClick={() => scrollToWorkspaceSection("viewer-health")}>
+            <span className="viewer-nav-icon health" aria-hidden="true" />
+            Evidence health
+          </button>
+          <p>Resources</p>
+          <a className="viewer-nav-item" href="https://github.com/metaforismo/atlas-loop#readme" target="_blank" rel="noreferrer">
+            <span className="viewer-nav-icon docs" aria-hidden="true" />
+            Documentation
+          </a>
+          <a className="viewer-nav-item" href="https://github.com/metaforismo/atlas-loop" target="_blank" rel="noreferrer">
+            <span className="viewer-nav-icon source" aria-hidden="true" />
+            Source
+          </a>
+        </nav>
 
-        <section className="session-list" aria-label="Sessions" aria-busy={sessionListStatus === "loading"}>
+        <details className="rail-runtime-settings" open={runtimeSettingsOpen} onToggle={(event) => setRuntimeSettingsOpen(event.currentTarget.open)}>
+          <summary><span>Local runtime</span><small>{selectedSessionId}</small></summary>
+          <form className="connection-form" aria-label="Local runtime connection" onSubmit={submit}>
+            <label>
+              <span>Daemon URL</span>
+              <input
+                id="daemon-url-input"
+                value={draft.daemonUrl}
+                onChange={(event) => setDraft((current) => ({ ...current, daemonUrl: event.target.value }))}
+                spellCheck={false}
+                aria-label="Daemon URL"
+              />
+            </label>
+            <label>
+              <span>Session ID</span>
+              <input
+                value={draft.sessionId}
+                onChange={(event) => setDraft((current) => ({ ...current, sessionId: event.target.value }))}
+                spellCheck={false}
+                aria-label="Session ID"
+              />
+            </label>
+            <button type="submit">{hasDraftChanges ? "Apply connection" : "Reconnect"}</button>
+          </form>
+        </details>
+
+        <section id="viewer-sessions" className="session-list" aria-label="Sessions" aria-busy={sessionListStatus === "loading"}>
           <div className="panel-title-row">
             <h2>Sessions</h2>
             <span>{sessionListLabel}</span>
@@ -334,18 +448,10 @@ export function App() {
           <StatusRow label="Artifacts" value={String(artifacts.length)} tone="neutral" />
         </section>
 
-        <button
-          type="button"
-          className="atlas-switch"
-          onClick={() => applyViewerParams({ daemonUrl: params.daemonUrl, sessionId: params.sessionId, view: "atlas" })}
-        >
-          Atlas map →
-        </button>
-
         {showLastError ? <ErrorNotice message={lastError!} /> : null}
       </aside>
 
-      <section className="stage panel" aria-label="Latest iPhone screenshot">
+      <section id="viewer-stage" className="stage panel" aria-label="Latest iPhone screenshot" tabIndex={-1}>
         <div className="stage-topbar">
           <div>
             <p className="kicker">Live device viewport</p>
@@ -371,6 +477,13 @@ export function App() {
               <ScreenshotView
                 screenshot={screenshot}
                 emptyMessage={isLatestFirstRun ? firstRunState.detail : undefined}
+                emptyAction={health === "offline" ? {
+                  label: "Connection settings",
+                  onSelect: () => {
+                    document.getElementById("viewer-connection-panel")?.scrollIntoView({ block: "start" });
+                    document.getElementById("daemon-url-input")?.focus();
+                  }
+                } : undefined}
                 tapTarget={tapTarget}
                 onTapTarget={selectScreenshotTapTarget}
               />
@@ -413,20 +526,22 @@ export function App() {
           {session ? <MetadataGrid session={session} /> : <MetadataSkeleton />}
           {sessionSummary ? <SummaryEvidence summary={sessionSummary} /> : null}
           <ActionDetailPanel pairs={actionEvidencePairs} selectedActionId={selectedActionId} onSelect={setSelectedActionId} />
-          <AgentHandoffPanel brief={handoffBrief} />
-          <EvidenceHealthPanel health={artifactHealth} status={artifactHealthStatus} error={artifactHealthError} />
+          <div id="viewer-handoff"><AgentHandoffPanel brief={handoffBrief} /></div>
+          <div id="viewer-health"><EvidenceHealthPanel health={artifactHealth} status={artifactHealthStatus} error={artifactHealthError} /></div>
           {session?.error ? <ErrorNotice message={session.error.message} compact /> : null}
         </section>
 
-        <ActionPanel
-          params={params}
-          selectedSessionId={selectedSessionId}
-          mutationState={actionMutationState}
-          form={actionForm}
-          onFieldChange={updateActionFormField}
-        />
+        <div id="viewer-actions">
+          <ActionPanel
+            params={params}
+            selectedSessionId={selectedSessionId}
+            mutationState={actionMutationState}
+            form={actionForm}
+            onFieldChange={updateActionFormField}
+          />
+        </div>
 
-        <section className="inspector-section artifact-section">
+        <section id="viewer-artifacts" className="inspector-section artifact-section">
           <div className="panel-title-row">
             <h2>Artifacts</h2>
             <span>
@@ -501,9 +616,13 @@ export function App() {
 
       <section className="timeline-panel panel" aria-label="Action and artifact timeline">
         <div className="panel-title-row">
-          <h2>Action timeline</h2>
+          <div>
+            <p className="kicker">Store of record</p>
+            <h2>Observed flow</h2>
+          </div>
           <span>{visibleTimeline.length === timeline.length ? `${timeline.length} items` : `${visibleTimeline.length}/${timeline.length} shown`}</span>
         </div>
+        <FlowRunPanel summary={flowRunSummary} />
         {timeline.length > 0 ? (
           <div className="timeline-controls">
             <div className="filter-strip compact" aria-label="Timeline filters">
