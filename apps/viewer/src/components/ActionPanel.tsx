@@ -1,8 +1,19 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { performViewerAction } from "../api.js";
+import { GESTURE_SEQUENCE_PRESETS, type GestureSequencePreset } from "../gestureSequences.js";
 import { formatTapCoordinate } from "../screenshotGeometry.js";
-import type { ActionResultLike, HealthState, Session, SessionSummary, ViewerActionDraft, ViewerActionKind, ViewerParams } from "../types.js";
+import { GestureSequenceComposer } from "./GestureSequenceComposer.js";
+import type {
+  ActionResultLike,
+  EdgeGestureEdge,
+  HealthState,
+  Session,
+  SessionSummary,
+  ViewerActionDraft,
+  ViewerActionKind,
+  ViewerParams
+} from "../types.js";
 import type { UiTone } from "../viewerPresentation.js";
 
 const VIEWER_ACTION_LABELS: Record<ViewerActionKind, string> = {
@@ -11,6 +22,7 @@ const VIEWER_ACTION_LABELS: Record<ViewerActionKind, string> = {
   tap: "Tap",
   typeText: "Type",
   swipe: "Swipe",
+  edgeGesture: "Edge gesture",
   tapElement: "Tap element",
   assertVisible: "Assert visible"
 };
@@ -28,6 +40,9 @@ export interface ViewerActionFormState {
   swipeToX: string;
   swipeToY: string;
   swipeDurationMs: string;
+  edgeGestureEdge: EdgeGestureEdge;
+  edgeGestureDistance: string;
+  edgeGestureDurationMs: string;
 }
 
 export type ViewerActionFormField = keyof ViewerActionFormState;
@@ -36,6 +51,7 @@ type ViewerActionSubmitState =
   | { status: "idle" }
   | { status: "pending"; label: string }
   | { status: "success"; label: string; message: string }
+  | { status: "cancelled"; label: string; message: string }
   | { status: "error"; label: string; message: string };
 
 export interface ActionMutationState {
@@ -70,7 +86,10 @@ export const DEFAULT_ACTION_FORM: ViewerActionFormState = {
   swipeFromY: "0.82",
   swipeToX: "0.5",
   swipeToY: "0.18",
-  swipeDurationMs: "300"
+  swipeDurationMs: "300",
+  edgeGestureEdge: "left",
+  edgeGestureDistance: "0.55",
+  edgeGestureDurationMs: "320"
 };
 
 const ACTION_TAP_PRESETS: ActionTapPreset[] = [
@@ -109,13 +128,19 @@ export function ActionPanel({
   onFieldChange: (field: ViewerActionFormField, value: string) => void;
 }) {
   const [submitState, setSubmitState] = useState<ViewerActionSubmitState>({ status: "idle" });
+  const [activeSequenceId, setActiveSequenceId] = useState<string>();
+  const sequenceAbortRef = useRef<AbortController | undefined>(undefined);
   const actionParams: ViewerParams = { ...params, sessionId: selectedSessionId };
   const isPending = submitState.status === "pending";
   const submitDisabled = isPending || !mutationState.canSubmitActions;
   const statusTone = actionSubmitTone(submitState);
 
   useEffect(() => {
+    sequenceAbortRef.current?.abort();
+    sequenceAbortRef.current = undefined;
+    setActiveSequenceId(undefined);
     setSubmitState({ status: "idle" });
+    return () => sequenceAbortRef.current?.abort();
   }, [params.daemonUrl, selectedSessionId]);
 
   const submitAction = async (draft: ViewerActionDraft, label: string): Promise<void> => {
@@ -138,6 +163,58 @@ export function ActionPanel({
     void submitAction(draft, label);
   };
 
+  const runGestureSequence = async (preset: GestureSequencePreset): Promise<void> => {
+    if (submitDisabled || preset.steps.length === 0) return;
+
+    const controller = new AbortController();
+    sequenceAbortRef.current?.abort();
+    sequenceAbortRef.current = controller;
+    setActiveSequenceId(preset.id);
+
+    try {
+      for (let index = 0; index < preset.steps.length; index += 1) {
+        const step = preset.steps[index];
+        if (!step) continue;
+        const progressLabel = `${preset.label} · ${index + 1}/${preset.steps.length}`;
+        setSubmitState({ status: "pending", label: progressLabel });
+        const result = await performViewerAction(actionParams, step.action, controller.signal);
+        if (!result.ok) {
+          setSubmitState({
+            status: "error",
+            label: preset.label,
+            message: `${step.label} failed: ${result.error?.message ?? "daemon rejected the action."}`
+          });
+          return;
+        }
+      }
+      setSubmitState({
+        status: "success",
+        label: preset.label,
+        message: `${preset.steps.length} steps completed. Each action was saved to the evidence timeline.`
+      });
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      setSubmitState({
+        status: "error",
+        label: preset.label,
+        message: error instanceof Error ? error.message : `${preset.label} failed.`
+      });
+    } finally {
+      if (sequenceAbortRef.current === controller) {
+        sequenceAbortRef.current = undefined;
+        setActiveSequenceId(undefined);
+      }
+    }
+  };
+
+  const cancelGestureSequence = (): void => {
+    if (!activeSequenceId) return;
+    sequenceAbortRef.current?.abort();
+    sequenceAbortRef.current = undefined;
+    setActiveSequenceId(undefined);
+    setSubmitState({ status: "cancelled", label: "Sequence stopped", message: "No further steps were sent to the daemon." });
+  };
+
   return (
     <section className="inspector-section action-panel" aria-label="Actions" aria-busy={isPending}>
       <div className="panel-title-row">
@@ -151,6 +228,21 @@ export function ActionPanel({
       </div>
 
       <ActionShortcutPanel form={form} onFieldChange={onFieldChange} />
+
+      <GestureSequencePanel
+        activeSequenceId={activeSequenceId}
+        disabled={submitDisabled}
+        disabledReason={mutationState.title}
+        onRun={(preset) => void runGestureSequence(preset)}
+        onCancel={cancelGestureSequence}
+      />
+
+      <GestureSequenceComposer
+        disabled={submitDisabled}
+        disabledReason={mutationState.title}
+        running={Boolean(activeSequenceId)}
+        onRun={(sequence) => void runGestureSequence(sequence)}
+      />
 
       <div className="action-panel-grid">
         <form className="action-row" onSubmit={onSubmit({ kind: "screenshot", reason: form.screenshotReason }, VIEWER_ACTION_LABELS.screenshot)}>
@@ -198,6 +290,58 @@ export function ActionPanel({
             />
           </div>
           <ActionSubmitButton label={VIEWER_ACTION_LABELS.tap} pending={isPending} disabled={submitDisabled} disabledReason={mutationState.title} />
+        </form>
+
+        <form
+          className="action-row"
+          onSubmit={onSubmit(
+            {
+              kind: "edgeGesture",
+              edge: form.edgeGestureEdge,
+              distance: form.edgeGestureDistance,
+              durationMs: form.edgeGestureDurationMs
+            },
+            VIEWER_ACTION_LABELS.edgeGesture
+          )}
+        >
+          <div className="action-edge-grid">
+            <label className="action-field" htmlFor="action-edge-direction">
+              <span>Edge</span>
+              <select
+                id="action-edge-direction"
+                value={form.edgeGestureEdge}
+                onChange={(event) => onFieldChange("edgeGestureEdge", event.target.value)}
+              >
+                <option value="left">Left</option>
+                <option value="right">Right</option>
+                <option value="top">Top</option>
+                <option value="bottom">Bottom</option>
+              </select>
+            </label>
+            <ActionNumberInput
+              id="action-edge-distance"
+              label="Distance 0-1"
+              value={form.edgeGestureDistance}
+              min={0}
+              max={1}
+              step={0.05}
+              onChange={(value) => onFieldChange("edgeGestureDistance", value)}
+            />
+            <ActionNumberInput
+              id="action-edge-duration"
+              label="Duration ms"
+              value={form.edgeGestureDurationMs}
+              min={0}
+              step={50}
+              onChange={(value) => onFieldChange("edgeGestureDurationMs", value)}
+            />
+          </div>
+          <ActionSubmitButton
+            label={VIEWER_ACTION_LABELS.edgeGesture}
+            pending={isPending}
+            disabled={submitDisabled}
+            disabledReason={mutationState.title}
+          />
         </form>
 
         <form
@@ -319,6 +463,61 @@ export function ActionPanel({
       <div className={`action-status tone-${statusTone}`} role="status" aria-live="polite" aria-atomic="true">
         <strong>{actionStatusTitle(submitState)}</strong>
         <span>{actionStatusMessage(submitState)}</span>
+      </div>
+    </section>
+  );
+}
+
+function GestureSequencePanel({
+  activeSequenceId,
+  disabled,
+  disabledReason,
+  onRun,
+  onCancel
+}: {
+  activeSequenceId: string | undefined;
+  disabled: boolean;
+  disabledReason: string;
+  onRun: (preset: GestureSequencePreset) => void;
+  onCancel: () => void;
+}) {
+  return (
+    <section className="gesture-sequences" aria-labelledby="gesture-sequences-title">
+      <div className="gesture-sequences-head">
+        <div>
+          <span className="section-eyebrow">Multi-gesture</span>
+          <h3 id="gesture-sequences-title">Gesture sequences</h3>
+        </div>
+        {activeSequenceId ? <button type="button" className="gesture-sequence-stop" onClick={onCancel}>Stop sequence</button> : <span>Fail fast · evidence per step</span>}
+      </div>
+      <div className="gesture-sequence-grid">
+        {GESTURE_SEQUENCE_PRESETS.map((preset) => {
+          const isActive = activeSequenceId === preset.id;
+          const stepSummary = preset.steps.map((step) => step.label).join(" · ");
+          return (
+            <button
+              key={preset.id}
+              type="button"
+              className={`gesture-sequence-card ${isActive ? "active" : ""}`}
+              disabled={disabled}
+              title={disabled && !isActive ? disabledReason : undefined}
+              aria-label={`Run ${preset.label}, ${preset.steps.length} steps: ${stepSummary}`}
+              onClick={() => onRun(preset)}
+            >
+              <span className="gesture-sequence-index" aria-hidden="true">
+                {isActive ? "RUN" : String(preset.steps.length).padStart(2, "0")}
+              </span>
+              <span className="gesture-sequence-copy">
+                <strong>{preset.label}</strong>
+                <span>{preset.detail}</span>
+                <small>{stepSummary}</small>
+              </span>
+              <span className="gesture-sequence-run" aria-hidden="true">
+                {isActive ? "Running" : "Run"}
+              </span>
+            </button>
+          );
+        })}
       </div>
     </section>
   );
@@ -469,6 +668,7 @@ function actionStatusTitle(state: ViewerActionSubmitState): string {
   if (state.status === "idle") return "Ready";
   if (state.status === "pending") return `${state.label} pending`;
   if (state.status === "success") return `${state.label} complete`;
+  if (state.status === "cancelled") return state.label;
   return `${state.label} failed`;
 }
 

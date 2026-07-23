@@ -17,10 +17,8 @@ export function ActionDetailPanel({
 
   if (pairs.length === 0) return null;
 
-  const selectedIndex = Math.max(
-    0,
-    selectedActionId ? pairs.findIndex((pair) => pair.actionId === selectedActionId) : pairs.length - 1
-  );
+  const requestedIndex = selectedActionId ? pairs.findIndex((pair) => pair.actionId === selectedActionId) : -1;
+  const selectedIndex = requestedIndex >= 0 ? requestedIndex : pairs.length - 1;
   const pair = pairs[selectedIndex] ?? pairs[pairs.length - 1];
   const tone = pair.ok === false ? "bad" : pair.ok === true ? "good" : "neutral";
   const canDiff = Boolean(pair.before?.url && pair.after?.url);

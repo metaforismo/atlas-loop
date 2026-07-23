@@ -21,6 +21,21 @@ export type TimelineFilter = "all" | "actions" | "artifacts" | "sessions" | "err
 export type ArtifactHealthStatus = "loading" | "ready" | "error" | "offline";
 export type AgentHandoffReadiness = "ready" | "waiting" | "needs-attention" | "blocked";
 
+export type FlowRunVerdict = "waiting" | "running" | "passed" | "failed";
+
+export interface FlowRunSummary {
+  verdict: FlowRunVerdict;
+  title: string;
+  detail: string;
+  tone: UiTone;
+  total: number;
+  completed: number;
+  passed: number;
+  failed: number;
+  running: number;
+  progress: number;
+}
+
 export interface ArtifactSummary {
   type: string;
   count: number;
@@ -187,6 +202,102 @@ export function formatDateTime(value: string | undefined): string {
     minute: "2-digit",
     second: "2-digit"
   });
+}
+
+export function buildFlowRunSummary(events: TraceEvent[], sessionStatus?: SessionStatus): FlowRunSummary {
+  const startedActionIds = new Set<string>();
+  const results = new Map<string, boolean>();
+
+  for (const event of events) {
+    if (event.type === "action.started" && event.action?.id) startedActionIds.add(event.action.id);
+    if (event.type === "action.completed" && event.result?.actionId) {
+      results.set(event.result.actionId, Boolean(event.result.ok));
+    }
+  }
+
+  const actionIds = new Set([...startedActionIds, ...results.keys()]);
+  const total = actionIds.size;
+  const completed = results.size;
+  const passed = [...results.values()].filter(Boolean).length;
+  const failed = completed - passed;
+  const running = [...startedActionIds].filter((actionId) => !results.has(actionId)).length;
+  const progress = total === 0 ? 0 : Math.min(1, completed / total);
+
+  if (failed > 0) {
+    return {
+      verdict: "failed",
+      title: "Flow needs attention",
+      detail: `${failed} failed · ${passed} passed · ${running} running`,
+      tone: "bad",
+      total,
+      completed,
+      passed,
+      failed,
+      running,
+      progress
+    };
+  }
+
+  if (sessionStatus === "failed") {
+    return {
+      verdict: "failed",
+      title: "Session failed",
+      detail:
+        total === 0
+          ? "The session ended before an action failure was recorded."
+          : `${completed} of ${total} actions completed before the session failed.`,
+      tone: "bad",
+      total,
+      completed,
+      passed,
+      failed,
+      running,
+      progress
+    };
+  }
+
+  if (total === 0) {
+    return {
+      verdict: "waiting",
+      title: sessionStatus === "ended" ? "No actions recorded" : "Waiting for the first action",
+      detail: "The flow record will build itself from observed runtime actions.",
+      tone: sessionStatus === "ended" ? "warn" : "neutral",
+      total,
+      completed,
+      passed,
+      failed,
+      running,
+      progress
+    };
+  }
+
+  if (running > 0 || completed < total) {
+    return {
+      verdict: "running",
+      title: "Flow in progress",
+      detail: `${completed} of ${total} actions have a result`,
+      tone: "warn",
+      total,
+      completed,
+      passed,
+      failed,
+      running,
+      progress
+    };
+  }
+
+  return {
+    verdict: "passed",
+    title: "Observed flow passed",
+    detail: `${passed} action${passed === 1 ? "" : "s"} completed without a recorded failure`,
+    tone: "good",
+    total,
+    completed,
+    passed,
+    failed,
+    running,
+    progress
+  };
 }
 
 export function healthTone(health: HealthState): UiTone {

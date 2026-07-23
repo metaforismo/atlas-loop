@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { DEFAULT_DIFF_THRESHOLD, diffPixels, padPixels } from "../imageDiff.js";
+import { useModalDialog } from "../useModalDialog.js";
 
 interface LoadedImage {
   pixels: Uint8ClampedArray;
@@ -29,14 +30,7 @@ export function CompareView({
   const [state, setState] = useState<CompareState>({ status: "loading" });
   const overlayRef = useRef<HTMLCanvasElement | null>(null);
   const imagesRef = useRef<{ before: LoadedImage; after: LoadedImage } | undefined>(undefined);
-
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
+  const { dialogRef, initialFocusRef } = useModalDialog(onClose);
 
   useEffect(() => {
     let cancelled = false;
@@ -96,8 +90,8 @@ export function CompareView({
   }, [state.status, threshold]);
 
   return (
-    <div className="lightbox-backdrop" role="dialog" aria-modal="true" aria-label="Screenshot comparison" onClick={onClose}>
-      <div className="lightbox-panel compare-panel" onClick={(event) => event.stopPropagation()}>
+    <div className="lightbox-backdrop" onClick={onClose}>
+      <div ref={dialogRef} className="lightbox-panel compare-panel" role="dialog" aria-modal="true" aria-label="Screenshot comparison" tabIndex={-1} onClick={(event) => event.stopPropagation()}>
         <div className="lightbox-toolbar">
           <span className="lightbox-caption">
             {state.status === "ready"
@@ -117,7 +111,7 @@ export function CompareView({
               aria-label="Pixel difference threshold"
             />
           </label>
-          <button type="button" aria-label="Close comparison" onClick={onClose}>
+          <button ref={initialFocusRef} type="button" aria-label="Close comparison" onClick={onClose}>
             ✕
           </button>
         </div>

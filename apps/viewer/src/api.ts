@@ -230,6 +230,18 @@ export function buildViewerActionRequest(draft: ViewerActionDraft): ViewerAction
           }
         }
       };
+    case "edgeGesture":
+      return {
+        endpoint: "actions",
+        body: {
+          action: {
+            kind: "edgeGesture",
+            edge: draft.edge,
+            distance: parseNormalizedNumber(draft.distance, "edge gesture distance"),
+            durationMs: parseNonNegativeDuration(draft.durationMs, "edge gesture duration")
+          }
+        }
+      };
     case "tapElement":
     case "assertVisible": {
       const identifier = draft.identifier.trim();

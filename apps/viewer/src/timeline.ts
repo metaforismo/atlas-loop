@@ -253,6 +253,10 @@ function actionTitle(action: ActionLike): string {
   switch (action.kind) {
     case "tap":
       return "Tap";
+    case "tapElement":
+      return "Tap element";
+    case "assertVisible":
+      return "Assert visible";
     case "typeText":
       return "Type text";
     case "swipe":
@@ -276,6 +280,9 @@ function actionDetail(action: ActionLike): string {
   switch (action.kind) {
     case "tap":
       return formatPoint(action.x, action.y);
+    case "tapElement":
+    case "assertVisible":
+      return typeof action.identifier === "string" ? action.identifier : "Element identifier unavailable";
     case "typeText":
       return typeof action.text === "string" ? JSON.stringify(action.text) : "Text input";
     case "swipe":
