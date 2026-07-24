@@ -2093,6 +2093,47 @@ h2 {
   min-width: 0;
 }
 
+.action-grid-divider {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  margin-top: 2px;
+  border-block: 1px solid rgba(232, 111, 89, 0.24);
+  padding: 10px 2px 9px;
+  background: linear-gradient(90deg, rgba(232, 111, 89, 0.08), transparent 76%);
+}
+
+.action-grid-divider > div {
+  display: grid;
+  gap: 3px;
+}
+
+.action-grid-divider strong {
+  color: var(--text);
+  font-size: 13px;
+  letter-spacing: -0.01em;
+}
+
+.action-grid-divider > span {
+  max-width: 300px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.35;
+  text-align: right;
+}
+
+.action-grid-divider-multitouch + .action-row,
+.action-grid-divider-multitouch + .action-row + .action-row,
+.action-grid-divider-multitouch + .action-row + .action-row + .action-row,
+.action-multitouch-target {
+  border-color: rgba(108, 183, 213, 0.28);
+  background:
+    linear-gradient(120deg, rgba(108, 183, 213, 0.05), transparent 58%),
+    rgba(21, 26, 34, 0.72);
+}
+
 .action-availability {
   display: grid;
   grid-template-columns: 132px minmax(0, 1fr);
@@ -3886,8 +3927,18 @@ h2 {
   .action-shortcuts,
   .action-row,
   .action-availability,
-  .action-status {
+  .action-status,
+  .action-grid-divider {
     grid-template-columns: 1fr;
+  }
+
+  .action-grid-divider {
+    display: grid;
+    align-items: start;
+  }
+
+  .action-grid-divider > span {
+    text-align: left;
   }
 
   .gesture-sequence-grid,

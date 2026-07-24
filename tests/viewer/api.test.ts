@@ -84,6 +84,28 @@ describe("viewer api normalizers", () => {
     );
   });
 
+  it("serializes native multi-touch drafts with optional element targets", () => {
+    expect(buildViewerActionRequest({ kind: "longPress", x: "0.4", y: "0.6", durationMs: "850" })).toEqual({
+      endpoint: "actions",
+      body: { action: { kind: "longPress", x: 0.4, y: 0.6, durationMs: 850 } }
+    });
+    expect(buildViewerActionRequest({ kind: "pinch", scale: "1.8", velocity: "1", identifier: " map.canvas ", timeoutMs: "4500" })).toEqual({
+      endpoint: "actions",
+      body: { action: { kind: "pinch", scale: 1.8, velocity: 1, identifier: "map.canvas", timeoutMs: 4500 } }
+    });
+    expect(buildViewerActionRequest({ kind: "rotate", rotation: "-1.57", velocity: "-1", identifier: "" })).toEqual({
+      endpoint: "actions",
+      body: { action: { kind: "rotate", rotation: -1.57, velocity: -1 } }
+    });
+    expect(buildViewerActionRequest({ kind: "twoFingerTap", identifier: "" })).toEqual({
+      endpoint: "actions",
+      body: { action: { kind: "twoFingerTap" } }
+    });
+    expect(() => buildViewerActionRequest({ kind: "pinch", scale: "0", velocity: "1" })).toThrow("pinch scale must be greater than 0");
+    expect(() => buildViewerActionRequest({ kind: "pinch", scale: "1", velocity: "1" })).toThrow("pinch scale must not equal 1");
+    expect(() => buildViewerActionRequest({ kind: "rotate", rotation: "1", velocity: "0" })).toThrow("rotation velocity must be non-zero");
+  });
+
   it("rejects invalid local viewer action values before posting", () => {
     expect(() => buildViewerActionRequest({ kind: "tap", x: "1.2", y: "0.5" })).toThrow("tap x must be between 0 and 1");
     expect(() => buildViewerActionRequest({ kind: "tap", x: "", y: "0.5" })).toThrow("tap x is required");

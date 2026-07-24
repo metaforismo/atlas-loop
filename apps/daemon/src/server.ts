@@ -781,6 +781,10 @@ async function performAction(
       case "typeText":
       case "swipe":
       case "edgeGesture":
+      case "longPress":
+      case "pinch":
+      case "rotate":
+      case "twoFingerTap":
       case "tapElement":
       case "assertVisible": {
         const backend = createInputBackend(state, sessionState.session);
@@ -1015,6 +1019,14 @@ function actionCoordinateMetadata(action: InputAction): Record<string, unknown> 
       return { fromX: action.from.x, fromY: action.from.y, toX: action.to.x, toY: action.to.y };
     case "edgeGesture":
       return { edge: action.edge, distance: action.distance };
+    case "longPress":
+      return { x: action.x, y: action.y, durationMs: action.durationMs };
+    case "pinch":
+      return { scale: action.scale, velocity: action.velocity, ...(action.identifier ? { identifier: action.identifier } : {}) };
+    case "rotate":
+      return { rotation: action.rotation, velocity: action.velocity, ...(action.identifier ? { identifier: action.identifier } : {}) };
+    case "twoFingerTap":
+      return action.identifier ? { identifier: action.identifier } : {};
     case "tapElement":
     case "assertVisible":
       return { identifier: action.identifier };

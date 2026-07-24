@@ -87,6 +87,34 @@ final class DriverController {
             let app = try requireTargetApp()
             try performDrag(app: app, from: start, to: end, durationMs: durationMs)
             return nil
+        case "longPress":
+            let point = try normalizedPoint(x: json["x"], y: json["y"], label: "longPress")
+            let durationMs = (json["durationMs"] as? NSNumber)?.doubleValue ?? 750
+            guard durationMs >= 0 else {
+                throw DriverError(.invalidRequest, "longPress duration must be non-negative")
+            }
+            let app = try requireTargetApp()
+            app.coordinate(withNormalizedOffset: point).press(forDuration: durationMs / 1000)
+            return ["durationMs": durationMs]
+        case "pinch":
+            let scale = try positiveNumber(json["scale"], label: "pinch scale")
+            guard scale != 1 else {
+                throw DriverError(.invalidRequest, "pinch scale must not equal 1")
+            }
+            let velocity = try nonZeroNumber(json["velocity"], label: "pinch velocity")
+            let target = try gestureTarget(json: json, kind: kind)
+            target.element.pinch(withScale: scale, velocity: velocity)
+            return target.details
+        case "rotate":
+            let rotation = try nonZeroNumber(json["rotation"], label: "rotate rotation")
+            let velocity = try nonZeroNumber(json["velocity"], label: "rotate velocity")
+            let target = try gestureTarget(json: json, kind: kind)
+            target.element.rotate(rotation, withVelocity: velocity)
+            return target.details
+        case "twoFingerTap":
+            let target = try gestureTarget(json: json, kind: kind)
+            target.element.twoFingerTap()
+            return target.details
         case "tapElement":
             let (element, frame) = try resolveElement(json: json, kind: kind)
             guard frame.width > 0, frame.height > 0 else {
@@ -132,6 +160,29 @@ final class DriverController {
             app.activate()
         }
         return app
+    }
+
+    private func gestureTarget(json: [String: Any], kind: String) throws -> (element: XCUIElement, details: [String: Any]) {
+        if let identifier = json["identifier"] as? String, !identifier.trimmingCharacters(in: .whitespaces).isEmpty {
+            let (element, frame) = try resolveElement(json: json, kind: kind)
+            return (element, ["identifier": identifier, "frame": frameDictionary(frame)])
+        }
+        let app = try requireTargetApp()
+        return (app, ["target": "application"])
+    }
+
+    private func positiveNumber(_ value: Any?, label: String) throws -> Double {
+        guard let number = (value as? NSNumber)?.doubleValue, number.isFinite, number > 0 else {
+            throw DriverError(.invalidRequest, "\(label) must be greater than 0")
+        }
+        return number
+    }
+
+    private func nonZeroNumber(_ value: Any?, label: String) throws -> Double {
+        guard let number = (value as? NSNumber)?.doubleValue, number.isFinite, number != 0 else {
+            throw DriverError(.invalidRequest, "\(label) must be non-zero")
+        }
+        return number
     }
 
     private func resolveElement(json: [String: Any], kind: String) throws -> (XCUIElement, CGRect) {

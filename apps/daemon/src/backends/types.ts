@@ -1,6 +1,18 @@
 import type { Action, ActionKind, InputBackendKind, Session } from "@atlas-loop/protocol";
 
-export type InputActionKind = Extract<ActionKind, "tap" | "typeText" | "swipe" | "edgeGesture" | "tapElement" | "assertVisible">;
+export type InputActionKind = Extract<
+  ActionKind,
+  | "tap"
+  | "typeText"
+  | "swipe"
+  | "edgeGesture"
+  | "longPress"
+  | "pinch"
+  | "rotate"
+  | "twoFingerTap"
+  | "tapElement"
+  | "assertVisible"
+>;
 
 export type InputAction = Extract<Action, { kind: InputActionKind }>;
 

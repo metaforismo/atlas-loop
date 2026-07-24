@@ -190,7 +190,19 @@ export interface NormalizedPoint {
   y: number;
 }
 
-export type ViewerActionKind = "screenshot" | "wait" | "tap" | "typeText" | "swipe" | "edgeGesture" | "tapElement" | "assertVisible";
+export type ViewerActionKind =
+  | "screenshot"
+  | "wait"
+  | "tap"
+  | "typeText"
+  | "swipe"
+  | "edgeGesture"
+  | "longPress"
+  | "pinch"
+  | "rotate"
+  | "twoFingerTap"
+  | "tapElement"
+  | "assertVisible";
 
 export type EdgeGestureEdge = "left" | "right" | "top" | "bottom";
 
@@ -201,6 +213,10 @@ export type ViewerActionInput =
   | { kind: "typeText"; text: string }
   | { kind: "swipe"; from: NormalizedPoint; to: NormalizedPoint; durationMs: number }
   | { kind: "edgeGesture"; edge: EdgeGestureEdge; distance: number; durationMs: number }
+  | { kind: "longPress"; x: number; y: number; durationMs: number }
+  | { kind: "pinch"; scale: number; velocity: number; identifier?: string; timeoutMs?: number }
+  | { kind: "rotate"; rotation: number; velocity: number; identifier?: string; timeoutMs?: number }
+  | { kind: "twoFingerTap"; identifier?: string; timeoutMs?: number }
   | { kind: "tapElement"; identifier: string; timeoutMs?: number }
   | { kind: "assertVisible"; identifier: string; timeoutMs?: number };
 
@@ -218,6 +234,10 @@ export type ViewerActionDraft =
       durationMs: ViewerNumericInput;
     }
   | { kind: "edgeGesture"; edge: EdgeGestureEdge; distance: ViewerNumericInput; durationMs: ViewerNumericInput }
+  | { kind: "longPress"; x: ViewerNumericInput; y: ViewerNumericInput; durationMs: ViewerNumericInput }
+  | { kind: "pinch"; scale: ViewerNumericInput; velocity: ViewerNumericInput; identifier?: string; timeoutMs?: ViewerNumericInput }
+  | { kind: "rotate"; rotation: ViewerNumericInput; velocity: ViewerNumericInput; identifier?: string; timeoutMs?: ViewerNumericInput }
+  | { kind: "twoFingerTap"; identifier?: string; timeoutMs?: ViewerNumericInput }
   | { kind: "tapElement"; identifier: string; timeoutMs?: ViewerNumericInput }
   | { kind: "assertVisible"; identifier: string; timeoutMs?: ViewerNumericInput };
 

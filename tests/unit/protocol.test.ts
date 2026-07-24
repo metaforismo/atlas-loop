@@ -21,6 +21,21 @@ describe("protocol action validation", () => {
     expect(() => validateActionInput({ kind: "assertVisible", identifier: "confirmation", timeoutMs: Number.NaN })).toThrow(/timeout must be non-negative/);
   });
 
+  it("validates native long-press and multi-touch gesture parameters", () => {
+    expect(() => validateActionInput({ kind: "longPress", x: 0.5, y: 0.6, durationMs: 800 })).not.toThrow();
+    expect(() => validateActionInput({ kind: "pinch", scale: 1.8, velocity: 1, identifier: "map.canvas", timeoutMs: 4000 })).not.toThrow();
+    expect(() => validateActionInput({ kind: "rotate", rotation: -1.57, velocity: -1 })).not.toThrow();
+    expect(() => validateActionInput({ kind: "twoFingerTap" })).not.toThrow();
+
+    expect(() => validateActionInput({ kind: "longPress", x: 1.1, y: 0.5, durationMs: 800 })).toThrow(/normalized coordinates/);
+    expect(() => validateActionInput({ kind: "pinch", scale: 0, velocity: 1 })).toThrow(/greater than 0/);
+    expect(() => validateActionInput({ kind: "pinch", scale: 1, velocity: 1 })).toThrow(/not equal to 1/);
+    expect(() => validateActionInput({ kind: "pinch", scale: 0.5, velocity: 0 })).toThrow(/non-zero/);
+    expect(() => validateActionInput({ kind: "pinch", scale: 1.2, velocity: 1, identifier: 42 as never })).toThrow(/identifier must be non-empty/);
+    expect(() => validateActionInput({ kind: "rotate", rotation: 0, velocity: 1 })).toThrow(/non-zero radians/);
+    expect(() => validateActionInput({ kind: "twoFingerTap", identifier: " " })).toThrow(/identifier must be non-empty/);
+  });
+
   it("materializes element actions with session metadata", () => {
     const action = materializeAction("session_123", 3, { kind: "tapElement", identifier: "product-detail.add-to-cart", timeoutMs: 4000 });
 

@@ -158,10 +158,18 @@ export function createSimulator(options: SimulatorOptions = {}) {
 
     async launch(options: LaunchOptions): Promise<SimulatorCommandResult> {
       const env = childEnvironment(options.environment);
+      const target = simulatorTarget(options.simulator);
+      // `simctl launch` activates an existing process without reapplying new
+      // arguments or environment. A test launch must be a deterministic
+      // relaunch, so terminate first; "not running" and other terminate
+      // failures are benign because the authoritative launch still follows.
+      await runCommand("xcrun", ["simctl", "terminate", target, options.bundleId], {
+        timeoutMs: options.timeoutMs ?? defaultTimeoutMs
+      });
       return checked("LAUNCH_FAILED", "xcrun", [
         "simctl",
         "launch",
-        simulatorTarget(options.simulator),
+        target,
         options.bundleId,
         ...(options.arguments ?? [])
       ], { env, timeoutMs: options.timeoutMs });

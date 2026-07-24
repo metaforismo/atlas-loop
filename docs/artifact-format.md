@@ -142,7 +142,8 @@ warnings or errors.
 
 ## Input Action Metadata
 
-Primitive input actions (`tap`, `typeText`, `swipe`, and `edgeGesture`) write a
+Input actions (`tap`, `typeText`, `swipe`, `edgeGesture`, `longPress`, `pinch`,
+`rotate`, `twoFingerTap`, `tapElement`, and `assertVisible`) write a
 metadata artifact for both success and failure:
 
 ```text
@@ -150,8 +151,8 @@ metadata/input-action-<sequence>.json
 ```
 
 The artifact uses `schemaVersion: "atlas-loop.input-action.v1"` and records the
-selected input backend (`inputBackend`, currently `cgevent`), backend detail
-such as the helper path, helper target string, and attach options, plus
+selected input backend (`inputBackend`, `cgevent` or `xcuitest`), backend detail
+such as the helper path or driver runner target, plus
 Simulator metadata, the materialized action, and the final result/error. This
 is intentionally local diagnostic evidence; for the CGEvent backend it does not
 claim that the Simulator guest consumed a host-posted event. Sessions persisted

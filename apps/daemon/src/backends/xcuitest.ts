@@ -21,6 +21,10 @@ const XCUITEST_KINDS: ReadonlySet<InputActionKind> = new Set([
   "typeText",
   "swipe",
   "edgeGesture",
+  "longPress",
+  "pinch",
+  "rotate",
+  "twoFingerTap",
   "tapElement",
   "assertVisible"
 ]);

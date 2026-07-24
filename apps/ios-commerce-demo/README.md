@@ -22,6 +22,8 @@ The app uses local fixture data only and exposes stable accessibility identifier
 - `shipping`
 - `payment-review`
 - `confirmation`
+- `gesture-lab.canvas` (instrumented pinch, rotation, and long-press target)
+- `gesture-lab.reset`
 
 Bundle id: `app.atlasloop.CommerceDemo`.
 
@@ -42,7 +44,10 @@ Supported route values:
 - `shipping`
 - `payment-review`
 - `confirmation`
+- `gesture-lab`
 
 The same route can be supplied through `ATLAS_LOOP_DEMO_ROUTE` in the app
-environment. These routes are intended for local demo proof screenshots only;
-they do not claim that HID/coordinate input succeeded.
+environment. The checkout routes are intended for local fixture proof. The
+Gesture Lab is an instrumented native target for XCUITest long-press and
+multi-touch actions; use the action result plus its metadata and
+after-screenshot as the evidence chain.

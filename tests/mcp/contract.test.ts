@@ -481,6 +481,33 @@ describe("MCP contract documentation", () => {
     expect(created).toEqual([{ simulator: { name: "iPhone 16" }, inputBackend: "xcuitest" }]);
   });
 
+  it("normalizes native multi-touch actions before daemon I/O", async () => {
+    const forwarded: unknown[] = [];
+    const client = {
+      performAction: async (_sessionId: string, request: unknown) => {
+        forwarded.push(request);
+        return { actionId: "act_multi", ok: true, startedAt: "2026-07-24T10:00:00.000Z", endedAt: "2026-07-24T10:00:00.100Z", artifacts: [] };
+      }
+    } as never;
+
+    for (const action of [
+      { kind: "longPress", x: 0.4, y: 0.6, durationMs: 850, extra: true },
+      { kind: "pinch", scale: 1.8, velocity: 1, identifier: "map.canvas", timeoutMs: 4000, extra: true },
+      { kind: "rotate", rotation: -1.57, velocity: -1, extra: true },
+      { kind: "twoFingerTap", extra: true }
+    ]) {
+      const result = await callToolWithEnvelope("atlas.performAction", { sessionId: "sess_multi", action }, { client });
+      expect(result).toMatchObject({ ok: true });
+    }
+
+    expect(forwarded).toEqual([
+      { action: { kind: "longPress", x: 0.4, y: 0.6, durationMs: 850 } },
+      { action: { kind: "pinch", scale: 1.8, velocity: 1, identifier: "map.canvas", timeoutMs: 4000 } },
+      { action: { kind: "rotate", rotation: -1.57, velocity: -1 } },
+      { action: { kind: "twoFingerTap" } }
+    ]);
+  });
+
   it("rejects element actions with empty identifiers before daemon I/O", async () => {
     let daemonCalled = false;
 

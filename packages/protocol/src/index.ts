@@ -57,6 +57,10 @@ export type ActionKind =
   | "typeText"
   | "swipe"
   | "edgeGesture"
+  | "longPress"
+  | "pinch"
+  | "rotate"
+  | "twoFingerTap"
   | "tapElement"
   | "assertVisible"
   | "screenshot"
@@ -95,6 +99,37 @@ export interface EdgeGestureAction extends BaseAction {
   edge: Edge;
   distance: number;
   durationMs: number;
+}
+
+export interface LongPressAction extends BaseAction {
+  kind: "longPress";
+  x: number;
+  y: number;
+  durationMs: number;
+}
+
+export interface PinchAction extends BaseAction {
+  kind: "pinch";
+  scale: number;
+  velocity: number;
+  identifier?: string;
+  timeoutMs?: number;
+}
+
+export interface RotateAction extends BaseAction {
+  kind: "rotate";
+  /** Rotation in radians. Positive values rotate clockwise. */
+  rotation: number;
+  /** Rotation velocity in radians per second. */
+  velocity: number;
+  identifier?: string;
+  timeoutMs?: number;
+}
+
+export interface TwoFingerTapAction extends BaseAction {
+  kind: "twoFingerTap";
+  identifier?: string;
+  timeoutMs?: number;
 }
 
 export interface TapElementAction extends BaseAction {
@@ -138,6 +173,10 @@ export type Action =
   | TypeTextAction
   | SwipeAction
   | EdgeGestureAction
+  | LongPressAction
+  | PinchAction
+  | RotateAction
+  | TwoFingerTapAction
   | TapElementAction
   | AssertVisibleAction
   | ScreenshotAction
@@ -288,6 +327,10 @@ export type ActionInput =
   | Omit<TypeTextAction, "id" | "sessionId" | "createdAt" | "sequence">
   | Omit<SwipeAction, "id" | "sessionId" | "createdAt" | "sequence">
   | Omit<EdgeGestureAction, "id" | "sessionId" | "createdAt" | "sequence">
+  | Omit<LongPressAction, "id" | "sessionId" | "createdAt" | "sequence">
+  | Omit<PinchAction, "id" | "sessionId" | "createdAt" | "sequence">
+  | Omit<RotateAction, "id" | "sessionId" | "createdAt" | "sequence">
+  | Omit<TwoFingerTapAction, "id" | "sessionId" | "createdAt" | "sequence">
   | Omit<TapElementAction, "id" | "sessionId" | "createdAt" | "sequence">
   | Omit<AssertVisibleAction, "id" | "sessionId" | "createdAt" | "sequence">
   | Omit<ScreenshotAction, "id" | "sessionId" | "createdAt" | "sequence">
@@ -391,6 +434,25 @@ export function validateActionInput(action: ActionInput): void {
       if (!Number.isFinite(action.distance) || action.distance < 0 || action.distance > 1) throw new Error("edgeGesture distance must be 0..1");
       if (!Number.isFinite(action.durationMs) || action.durationMs < 0) throw new Error("edgeGesture duration must be non-negative");
       return;
+    case "longPress":
+      assertNormalizedPoint({ x: action.x, y: action.y }, "longPress");
+      if (!Number.isFinite(action.durationMs) || action.durationMs < 0) throw new Error("longPress duration must be non-negative");
+      return;
+    case "pinch":
+      if (!Number.isFinite(action.scale) || action.scale <= 0 || action.scale === 1) {
+        throw new Error("pinch scale must be greater than 0 and not equal to 1");
+      }
+      if (!Number.isFinite(action.velocity) || action.velocity === 0) throw new Error("pinch velocity must be non-zero");
+      validateOptionalGestureTarget(action, "pinch");
+      return;
+    case "rotate":
+      if (!Number.isFinite(action.rotation) || action.rotation === 0) throw new Error("rotate rotation must be non-zero radians");
+      if (!Number.isFinite(action.velocity) || action.velocity === 0) throw new Error("rotate velocity must be non-zero");
+      validateOptionalGestureTarget(action, "rotate");
+      return;
+    case "twoFingerTap":
+      validateOptionalGestureTarget(action, "twoFingerTap");
+      return;
     case "tapElement":
     case "assertVisible":
       if (typeof action.identifier !== "string" || !action.identifier.trim()) {
@@ -409,6 +471,18 @@ export function validateActionInput(action: ActionInput): void {
       const neverAction: never = action;
       throw new Error(`unknown action ${(neverAction as { kind?: string }).kind}`);
     }
+  }
+}
+
+function validateOptionalGestureTarget(
+  action: { identifier?: unknown; timeoutMs?: number },
+  kind: "pinch" | "rotate" | "twoFingerTap"
+): void {
+  if (action.identifier !== undefined && (typeof action.identifier !== "string" || !action.identifier.trim())) {
+    throw new Error(`${kind} identifier must be non-empty when provided`);
+  }
+  if (action.timeoutMs !== undefined && (!Number.isFinite(action.timeoutMs) || action.timeoutMs < 0)) {
+    throw new Error(`${kind} timeout must be non-negative`);
   }
 }
 

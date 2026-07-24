@@ -1816,6 +1816,10 @@ describe("CLI agent workflow helpers", () => {
       await expect(main(["type", "--session", "sess_cli", "--text", "Ada"])).resolves.toBe(0);
       await expect(main(["swipe", "--session", "sess_cli", "--from", "0.5,0.8", "--to", "0.5,0.2", "--duration-ms", "450"])).resolves.toBe(0);
       await expect(main(["edge", "--session", "sess_cli", "--edge", "left", "--distance", "0.5", "--duration-ms", "300"])).resolves.toBe(0);
+      await expect(main(["long-press", "--session", "sess_cli", "--x", "0.4", "--y", "0.6", "--duration-ms", "850"])).resolves.toBe(0);
+      await expect(main(["pinch", "--session", "sess_cli", "--scale", "1.8", "--velocity", "1", "--id", "map.canvas", "--timeout-ms", "4000"])).resolves.toBe(0);
+      await expect(main(["rotate", "--session", "sess_cli", "--radians", "-1.57", "--velocity", "-1"])).resolves.toBe(0);
+      await expect(main(["two-finger-tap", "--session", "sess_cli"])).resolves.toBe(0);
       await expect(main(["wait", "--session", "sess_cli", "--duration-ms", "1200"])).resolves.toBe(0);
     } finally {
       process.chdir(originalCwd);
@@ -1824,13 +1828,17 @@ describe("CLI agent workflow helpers", () => {
       await rm(tempDir, { recursive: true, force: true });
     }
 
-    expect(logged).toHaveLength(5);
-    expect(requests.map((request) => request.path)).toEqual(Array.from({ length: 5 }, () => "/sessions/sess_cli/actions"));
+    expect(logged).toHaveLength(9);
+    expect(requests.map((request) => request.path)).toEqual(Array.from({ length: 9 }, () => "/sessions/sess_cli/actions"));
     expect(requests.map((request) => request.body)).toEqual([
       { action: { kind: "tap", x: 0.25, y: 0.75 } },
       { action: { kind: "typeText", text: "Ada" } },
       { action: { kind: "swipe", from: { x: 0.5, y: 0.8 }, to: { x: 0.5, y: 0.2 }, durationMs: 450 } },
       { action: { kind: "edgeGesture", edge: "left", distance: 0.5, durationMs: 300 } },
+      { action: { kind: "longPress", x: 0.4, y: 0.6, durationMs: 850 } },
+      { action: { kind: "pinch", scale: 1.8, velocity: 1, identifier: "map.canvas", timeoutMs: 4000 } },
+      { action: { kind: "rotate", rotation: -1.57, velocity: -1 } },
+      { action: { kind: "twoFingerTap" } },
       { action: { kind: "wait", durationMs: 1200 } }
     ]);
   });
@@ -1865,7 +1873,7 @@ describe("CLI agent workflow helpers", () => {
         "artifacts/DerivedData"
       ])).resolves.toBe(0);
       await expect(main(["install", "--session", "sess_cli", "--app", "artifacts/Build/CommerceDemo.app"])).resolves.toBe(0);
-      await expect(main(["launch", "--session", "sess_cli", "--bundle-id", "dev.atlas-loop.CommerceDemo", "--args", "-UITest,checkout"])).resolves.toBe(0);
+      await expect(main(["launch", "--session", "sess_cli", "--bundle-id", "dev.atlas-loop.CommerceDemo", "--args=--atlas-demo-route,gesture-lab"])).resolves.toBe(0);
     } finally {
       process.chdir(originalCwd);
       console.log = originalLog;
@@ -1887,7 +1895,7 @@ describe("CLI agent workflow helpers", () => {
         derivedDataPath: "artifacts/DerivedData"
       },
       { appPath: "artifacts/Build/CommerceDemo.app" },
-      { bundleId: "dev.atlas-loop.CommerceDemo", arguments: ["-UITest", "checkout"] }
+      { bundleId: "dev.atlas-loop.CommerceDemo", arguments: ["--atlas-demo-route", "gesture-lab"] }
     ]);
   });
 

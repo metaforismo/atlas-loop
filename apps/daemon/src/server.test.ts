@@ -1344,12 +1344,28 @@ describe("daemon xcuitest backend wiring", () => {
       method: "POST",
       body: JSON.stringify({ action: { kind: "assertVisible", identifier: "confirmation" } })
     });
+    const pinch = await requestJson<Record<string, any>>(daemon.url, `/sessions/${created.id}/actions`, {
+      method: "POST",
+      body: JSON.stringify({ action: { kind: "pinch", scale: 1.8, velocity: 1, identifier: "map.canvas", timeoutMs: 4000 } })
+    });
+    const rotate = await requestJson<Record<string, any>>(daemon.url, `/sessions/${created.id}/actions`, {
+      method: "POST",
+      body: JSON.stringify({ action: { kind: "rotate", rotation: -1.57, velocity: -1 } })
+    });
+    const twoFingerTap = await requestJson<Record<string, any>>(daemon.url, `/sessions/${created.id}/actions`, {
+      method: "POST",
+      body: JSON.stringify({ action: { kind: "twoFingerTap" } })
+    });
 
     expect(first.ok).toBe(true);
     expect(second.ok).toBe(true);
-    expect(log.ensured).toEqual(["SIM-XC-1", "SIM-XC-1"]);
+    expect(pinch.ok).toBe(true);
+    expect(rotate.ok).toBe(true);
+    expect(twoFingerTap.ok).toBe(true);
+    expect(log.ensured).toEqual(["SIM-XC-1", "SIM-XC-1", "SIM-XC-1", "SIM-XC-1", "SIM-XC-1"]);
     expect(log.targets).toEqual([{ udid: "SIM-XC-1", bundleId: "app.atlasloop.CommerceDemo" }]);
-    expect(log.actions.map((entry) => entry.action.kind)).toEqual(["tapElement", "assertVisible"]);
+    expect(log.actions.map((entry) => entry.action.kind)).toEqual(["tapElement", "assertVisible", "pinch", "rotate", "twoFingerTap"]);
+    expect(log.actions[2].action).toMatchObject({ scale: 1.8, velocity: 1, identifier: "map.canvas", timeoutMs: 4000 });
     expect(log.actions[0].action).not.toHaveProperty("id");
 
     const metadataArtifact = first.artifacts[0];

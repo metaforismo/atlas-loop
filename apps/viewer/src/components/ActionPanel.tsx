@@ -23,6 +23,10 @@ const VIEWER_ACTION_LABELS: Record<ViewerActionKind, string> = {
   typeText: "Type",
   swipe: "Swipe",
   edgeGesture: "Edge gesture",
+  longPress: "Long press",
+  pinch: "Pinch",
+  rotate: "Rotate",
+  twoFingerTap: "Two-finger tap",
   tapElement: "Tap element",
   assertVisible: "Assert visible"
 };
@@ -43,6 +47,15 @@ export interface ViewerActionFormState {
   edgeGestureEdge: EdgeGestureEdge;
   edgeGestureDistance: string;
   edgeGestureDurationMs: string;
+  longPressX: string;
+  longPressY: string;
+  longPressDurationMs: string;
+  pinchScale: string;
+  pinchVelocity: string;
+  rotationRadians: string;
+  rotationVelocity: string;
+  multiTouchIdentifier: string;
+  multiTouchTimeoutMs: string;
 }
 
 export type ViewerActionFormField = keyof ViewerActionFormState;
@@ -89,7 +102,16 @@ export const DEFAULT_ACTION_FORM: ViewerActionFormState = {
   swipeDurationMs: "300",
   edgeGestureEdge: "left",
   edgeGestureDistance: "0.55",
-  edgeGestureDurationMs: "320"
+  edgeGestureDurationMs: "320",
+  longPressX: "0.5",
+  longPressY: "0.5",
+  longPressDurationMs: "800",
+  pinchScale: "1.8",
+  pinchVelocity: "1",
+  rotationRadians: "1.57",
+  rotationVelocity: "1",
+  multiTouchIdentifier: "",
+  multiTouchTimeoutMs: "5000"
 };
 
 const ACTION_TAP_PRESETS: ActionTapPreset[] = [
@@ -342,6 +364,77 @@ export function ActionPanel({
             disabled={submitDisabled}
             disabledReason={mutationState.title}
           />
+        </form>
+
+        <div className="action-grid-divider action-grid-divider-multitouch">
+          <div>
+            <span className="section-eyebrow">XCUITest · multi-touch</span>
+            <strong>Native gesture lab</strong>
+          </div>
+          <span>Leave the accessibility id empty to target the full app.</span>
+        </div>
+
+        <form
+          className="action-row"
+          onSubmit={onSubmit(
+            { kind: "longPress", x: form.longPressX, y: form.longPressY, durationMs: form.longPressDurationMs },
+            VIEWER_ACTION_LABELS.longPress
+          )}
+        >
+          <div className="action-edge-grid">
+            <ActionNumberInput id="action-long-press-x" label="X 0-1" value={form.longPressX} min={0} max={1} step={0.01} onChange={(value) => onFieldChange("longPressX", value)} />
+            <ActionNumberInput id="action-long-press-y" label="Y 0-1" value={form.longPressY} min={0} max={1} step={0.01} onChange={(value) => onFieldChange("longPressY", value)} />
+            <ActionNumberInput id="action-long-press-duration" label="Hold ms" value={form.longPressDurationMs} min={0} step={50} onChange={(value) => onFieldChange("longPressDurationMs", value)} />
+          </div>
+          <ActionSubmitButton label={VIEWER_ACTION_LABELS.longPress} pending={isPending} disabled={submitDisabled} disabledReason={mutationState.title} />
+        </form>
+
+        <form
+          className="action-row"
+          onSubmit={onSubmit(
+            { kind: "pinch", scale: form.pinchScale, velocity: form.pinchVelocity, identifier: form.multiTouchIdentifier, timeoutMs: form.multiTouchTimeoutMs },
+            VIEWER_ACTION_LABELS.pinch
+          )}
+        >
+          <div className="action-coordinate-pair">
+            <ActionNumberInput id="action-pinch-scale" label="Scale" value={form.pinchScale} min={0.01} step={0.05} onChange={(value) => onFieldChange("pinchScale", value)} />
+            <ActionNumberInput id="action-pinch-velocity" label="Velocity" value={form.pinchVelocity} step={0.1} onChange={(value) => onFieldChange("pinchVelocity", value)} />
+          </div>
+          <ActionSubmitButton label={VIEWER_ACTION_LABELS.pinch} pending={isPending} disabled={submitDisabled} disabledReason={mutationState.title} />
+        </form>
+
+        <form
+          className="action-row"
+          onSubmit={onSubmit(
+            { kind: "rotate", rotation: form.rotationRadians, velocity: form.rotationVelocity, identifier: form.multiTouchIdentifier, timeoutMs: form.multiTouchTimeoutMs },
+            VIEWER_ACTION_LABELS.rotate
+          )}
+        >
+          <div className="action-coordinate-pair">
+            <ActionNumberInput id="action-rotation-radians" label="Radians" value={form.rotationRadians} step={0.1} onChange={(value) => onFieldChange("rotationRadians", value)} />
+            <ActionNumberInput id="action-rotation-velocity" label="Velocity" value={form.rotationVelocity} step={0.1} onChange={(value) => onFieldChange("rotationVelocity", value)} />
+          </div>
+          <ActionSubmitButton label={VIEWER_ACTION_LABELS.rotate} pending={isPending} disabled={submitDisabled} disabledReason={mutationState.title} />
+        </form>
+
+        <form
+          className="action-row action-row-wide action-multitouch-target"
+          onSubmit={onSubmit(
+            { kind: "twoFingerTap", identifier: form.multiTouchIdentifier, timeoutMs: form.multiTouchTimeoutMs },
+            VIEWER_ACTION_LABELS.twoFingerTap
+          )}
+        >
+          <div className="action-coordinate-pair">
+            <ActionTextInput
+              id="action-multitouch-identifier"
+              label="Target id · optional"
+              value={form.multiTouchIdentifier}
+              placeholder="map.canvas"
+              onChange={(value) => onFieldChange("multiTouchIdentifier", value)}
+            />
+            <ActionNumberInput id="action-multitouch-timeout" label="Timeout ms" value={form.multiTouchTimeoutMs} min={0} step={500} onChange={(value) => onFieldChange("multiTouchTimeoutMs", value)} />
+          </div>
+          <ActionSubmitButton label={VIEWER_ACTION_LABELS.twoFingerTap} pending={isPending} disabled={submitDisabled} disabledReason={mutationState.title} />
         </form>
 
         <form

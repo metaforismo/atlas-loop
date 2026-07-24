@@ -21,7 +21,18 @@ const VARIANTS_PER_SCREEN = 8;
 const EXAMPLES_PER_TRANSITION = 5;
 
 /** Actions that plausibly cause a screen change and label transitions. */
-const INTERACTIVE_KINDS = new Set<ActionKind>(["tap", "typeText", "swipe", "edgeGesture", "tapElement", "launch"]);
+const INTERACTIVE_KINDS = new Set<ActionKind>([
+  "tap",
+  "typeText",
+  "swipe",
+  "edgeGesture",
+  "longPress",
+  "pinch",
+  "rotate",
+  "twoFingerTap",
+  "tapElement",
+  "launch"
+]);
 
 export interface AtlasHashCache {
   schemaVersion: "atlas-loop.atlas-hash-cache.v1";
@@ -376,6 +387,14 @@ export function actionSignature(action: Action): string {
     }
     case "edgeGesture":
       return `edge:${action.edge}`;
+    case "longPress":
+      return `longPress@${action.x.toFixed(2)},${action.y.toFixed(2)}`;
+    case "pinch":
+      return `pinch:${action.scale > 1 ? "open" : "close"}${action.identifier ? `:${action.identifier}` : ""}`;
+    case "rotate":
+      return `rotate:${action.rotation > 0 ? "clockwise" : "counterclockwise"}${action.identifier ? `:${action.identifier}` : ""}`;
+    case "twoFingerTap":
+      return `twoFingerTap${action.identifier ? `:${action.identifier}` : ""}`;
     case "launch":
       return `launch:${action.bundleId}`;
     default:

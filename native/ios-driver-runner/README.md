@@ -45,6 +45,10 @@ the server listens on `ATLAS_DRIVER_PORT` (default 4700).
   - `typeText { text }` — requires a visible keyboard (`keyboardNotVisible` otherwise)
   - `swipe { from: {x,y}, to: {x,y}, durationMs }`
   - `edgeGesture { edge, distance, durationMs }`
+  - `longPress { x, y, durationMs }` — normalized coordinate press-and-hold
+  - `pinch { scale, velocity, identifier?, timeoutMs? }` — two-touch pinch on the app or one accessibility element
+  - `rotate { rotation, velocity, identifier?, timeoutMs? }` — two-touch rotation in radians on the app or one accessibility element
+  - `twoFingerTap { identifier?, timeoutMs? }` — two-touch tap on the app or one accessibility element
   - `tapElement { identifier, timeoutMs? }` — waits for the accessibility id, taps it
   - `assertVisible { identifier, timeoutMs? }` — returns `{ exists, isHittable, label, frame }`
 - `POST /shutdown` → `{ ok, shuttingDown }`, then the driver loop ends and
@@ -54,6 +58,10 @@ Error codes: `invalidRequest`, `unknownCommand`, `invalidCoordinates`,
 `elementNotFound`, `elementNotHittable`, `noTargetApp`, `keyboardNotVisible`,
 `internalError`. Coordinates are normalized against the target app window,
 matching the Atlas Loop action protocol (`docs/protocol.md`).
+
+The daemon uses the cache under `artifacts/build/driver-runner/DerivedData`.
+After changing runner commands, rebuild into that exact derived-data path before
+live validation; a runner already active in a daemon process must be restarted.
 
 ## Check it manually
 
