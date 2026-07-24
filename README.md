@@ -11,7 +11,7 @@ Atlas Loop drives real Simulator flows, records what the app showed after every 
 Selector-heavy tests often fail when an interface is renamed or rearranged even though the user journey still works. Atlas Loop centers the observed flow instead: what action ran, what appeared on screen, what evidence was captured, and whether the outcome held.
 
 - **Drive the Simulator** — build, install, launch, tap, type, swipe, edge-navigate, wait, and assert through CLI, MCP, or the live viewer.
-- **Run and compose gesture sequences** — exercise pull-to-refresh, repeated scroll, edge-back, and carousel flows, or assemble a custom ordered flow from taps, swipes, waits, edge gestures, and checkpoints. Runs fail fast, can be cancelled, and save evidence after every completed step.
+- **Run and compose gesture sequences** — exercise pull-to-refresh, repeated scroll, edge-back, and carousel flows, or assemble a custom ordered flow from taps, swipes, waits, edge gestures, and checkpoints. Runs fail fast, can be cancelled, save evidence after every completed step, and can be kept in a browser-local flow library.
 - **See the whole run** — follow the current screenshot, observed-flow verdict, timeline, action evidence, metrics, recording, and artifact health in one viewer.
 - **Map real journeys** — derive screens and transitions from captured evidence, with deep links back to the producing session and action.
 - **Hand work forward** — export verifiable local bundles and compact next-step commands for another human or coding agent.
@@ -43,6 +43,8 @@ npm run cli -- session start --simulator "iPhone 16" --viewer
 
 The root URL is the product landing page. Viewer deep links such as `/?sessionId=latest`, `?actionId=...`, and `?artifactId=...` continue directly into runtime evidence.
 
+The viewer can also create a session without leaving the workspace. Choose the Simulator input backend, provide an installed app bundle ID, and Atlas Loop creates the session, launches the app, and follows the new evidence stream. The bundled demo defaults to `app.atlasloop.CommerceDemo`; replace it for your own installed app. Press <kbd>⌘K</kbd> or <kbd>Ctrl K</kbd> to search workspace destinations.
+
 ## A minimal observed flow
 
 ```bash
@@ -65,7 +67,7 @@ Element commands use accessibility-visible identifiers and labels with bounded p
 | Local daemon | Session lifecycle, app operations, input, screenshots, recordings, metrics, and evidence routes |
 | CLI | Operator-friendly access to every runtime and export command |
 | MCP server | Structured tools for coding agents using the same local controls |
-| React viewer | Live device image, gesture sequences, observed-flow summary, timeline, evidence inspection, Atlas map, visual diffs, and handoff UI |
+| React viewer | Session launcher, command search, live device image, reusable gesture sequences, observed-flow summary, timeline, evidence inspection, Atlas map, visual diffs, and handoff UI |
 | Native helper | Repo-owned NDJSON action protocol with `xcuitest` and visible-window `cgevent` backends |
 | Commerce demo | Deterministic SwiftUI app for end-to-end Simulator verification |
 

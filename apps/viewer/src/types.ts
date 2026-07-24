@@ -105,6 +105,15 @@ export interface Session extends SessionListItem {
   status: SessionStatus;
 }
 
+export type InputBackendKind = "cgevent" | "xcuitest";
+
+export interface CreateSessionInput {
+  simulatorName?: string;
+  bundleId?: string;
+  inputBackend: InputBackendKind;
+  record: boolean;
+}
+
 export type ArtifactType =
   | "screenshot"
   | "video"

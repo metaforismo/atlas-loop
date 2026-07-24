@@ -7,6 +7,7 @@ import type {
   ArtifactHealthReport,
   ArtifactRef,
   ArtifactType,
+  CreateSessionInput,
   ScreenshotState,
   Session,
   SessionHistoryActionEvidence,
@@ -105,6 +106,73 @@ export async function fetchSessions(daemonUrl: string, signal?: AbortSignal): Pr
 
   const value = await fetchJson<unknown>(buildSessionsUrl(daemonUrl), signal);
   return normalizeSessionList(value);
+}
+
+export async function createViewerSession(
+  daemonUrl: string,
+  input: CreateSessionInput,
+  signal?: AbortSignal
+): Promise<Session> {
+  const simulatorName = input.simulatorName?.trim();
+  const response = await fetch(buildSessionsUrl(daemonUrl), {
+    method: "POST",
+    signal,
+    cache: "no-store",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      ...(simulatorName ? { simulator: { name: simulatorName } } : {}),
+      viewer: true,
+      inputBackend: input.inputBackend,
+      record: input.record
+    })
+  });
+  const text = await response.text();
+  let payload: unknown;
+  try {
+    payload = text.trim() ? JSON.parse(text) : undefined;
+  } catch {
+    throw new ApiError("Daemon returned invalid JSON", response.status);
+  }
+  if (!response.ok) throw apiErrorFromPayload(payload, response);
+  const session = unwrapEnvelope<Session>(payload);
+  if (!session || typeof session.id !== "string" || typeof session.status !== "string") {
+    throw new ApiError("Daemon returned an invalid session", response.status);
+  }
+  const bundleId = input.bundleId?.trim();
+  if (!bundleId) return session;
+
+  const launchResponse = await fetch(buildSessionUrl({ daemonUrl, sessionId: session.id }, "launch"), {
+    method: "POST",
+    signal,
+    cache: "no-store",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ bundleId })
+  });
+  const launchText = await launchResponse.text();
+  let launchPayload: unknown;
+  try {
+    launchPayload = launchText.trim() ? JSON.parse(launchText) : undefined;
+  } catch {
+    throw new ApiError("Daemon returned invalid JSON while launching the app", launchResponse.status);
+  }
+  if (!launchResponse.ok) {
+    const launchError = apiErrorFromPayload(launchPayload, launchResponse);
+    throw new ApiError(`Session ${session.id} was created, but the app did not launch: ${launchError.message}`, launchResponse.status);
+  }
+  const action = unwrapEnvelope<ActionResultLike>(launchPayload);
+  if (!isActionResultLike(action) || !action.ok) {
+    throw new ApiError(
+      `Session ${session.id} was created, but the app did not launch: ${action?.error?.message ?? "unknown launch error"}`,
+      launchResponse.status
+    );
+  }
+  return (await fetchJson<Session>(buildSessionUrl({ daemonUrl, sessionId: session.id }), signal)) ?? session;
 }
 
 export async function fetchArtifacts(params: ViewerParams, signal?: AbortSignal): Promise<ArtifactRef[]> {

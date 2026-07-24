@@ -6,6 +6,7 @@ import {
   type GestureSequencePreset,
   type GestureSequenceStep
 } from "../gestureSequences.js";
+import { deleteGestureSequence, loadSavedGestureSequences, saveGestureSequence } from "../gestureSequenceStorage.js";
 
 export function GestureSequenceComposer({
   disabled,
@@ -22,12 +23,60 @@ export function GestureSequenceComposer({
   const [name, setName] = useState("Scroll coverage check");
   const [steps, setSteps] = useState<GestureSequenceStep[]>(() => cloneGestureSteps(GESTURE_SEQUENCE_PRESETS[1]?.steps ?? []));
   const [catalogIndex, setCatalogIndex] = useState("0");
+  const [savedFlows, setSavedFlows] = useState<GestureSequencePreset[]>(() => loadSavedGestureSequences());
+  const [savedFlowId, setSavedFlowId] = useState("");
+  const [libraryMessage, setLibraryMessage] = useState("");
 
   const loadPreset = (presetId: string): void => {
     const preset = GESTURE_SEQUENCE_PRESETS.find((candidate) => candidate.id === presetId);
     if (!preset) return;
     setName(preset.label);
     setSteps(cloneGestureSteps(preset.steps));
+    setSavedFlowId("");
+    setLibraryMessage(`Loaded ${preset.label}.`);
+  };
+
+  const loadSavedFlow = (flowId: string): void => {
+    const flow = savedFlows.find((candidate) => candidate.id === flowId);
+    if (!flow) return;
+    setSavedFlowId(flow.id);
+    setName(flow.label);
+    setSteps(cloneGestureSteps(flow.steps));
+    setLibraryMessage(`Loaded ${flow.label} from this browser.`);
+  };
+
+  const saveFlow = (): void => {
+    if (steps.length === 0) {
+      setLibraryMessage("Add at least one step before saving.");
+      return;
+    }
+    const label = name.trim() || "Custom gesture flow";
+    const id = savedFlowId || `flow-${Date.now().toString(36)}`;
+    const sequence: GestureSequencePreset = {
+      id,
+      label,
+      detail: "Saved locally from the Atlas Loop gesture composer.",
+      steps: cloneGestureSteps(steps)
+    };
+    try {
+      setSavedFlows(saveGestureSequence(sequence));
+      setSavedFlowId(id);
+      setLibraryMessage(`${label} saved to this browser.`);
+    } catch {
+      setLibraryMessage("This browser could not save the flow. Check local storage permissions.");
+    }
+  };
+
+  const deleteSavedFlow = (): void => {
+    if (!savedFlowId) return;
+    try {
+      const deleted = savedFlows.find((candidate) => candidate.id === savedFlowId);
+      setSavedFlows(deleteGestureSequence(savedFlowId));
+      setSavedFlowId("");
+      setLibraryMessage(`${deleted?.label ?? "Saved flow"} removed from this browser.`);
+    } catch {
+      setLibraryMessage("This browser could not remove the saved flow.");
+    }
   };
 
   const moveStep = (index: number, direction: -1 | 1): void => {
@@ -91,6 +140,19 @@ export function GestureSequenceComposer({
                 {GESTURE_SEQUENCE_PRESETS.map((preset) => <option key={preset.id} value={preset.id}>{preset.label}</option>)}
               </select>
             </label>
+            <label>
+              <span>Saved flows</span>
+              <select value={savedFlowId} onChange={(event) => loadSavedFlow(event.target.value)}>
+                <option value="">{savedFlows.length ? "Select from library" : "No saved flows yet"}</option>
+                {savedFlows.map((flow) => <option key={flow.id} value={flow.id}>{flow.label}</option>)}
+              </select>
+            </label>
+          </div>
+
+          <div className="sequence-library-actions">
+            <button type="button" onClick={saveFlow} disabled={running || steps.length === 0}>{savedFlowId ? "Update saved flow" : "Save to flow library"}</button>
+            <button type="button" onClick={deleteSavedFlow} disabled={running || !savedFlowId}>Delete saved flow</button>
+            <span role="status" aria-live="polite">{libraryMessage}</span>
           </div>
 
           <ol className="sequence-step-list" aria-label="Custom gesture sequence steps">
