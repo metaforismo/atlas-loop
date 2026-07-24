@@ -82,6 +82,7 @@ import {
 } from "./viewerPresentation.js";
 import { DEFAULT_SESSION_ID, writeViewerSearch } from "./viewerParams.js";
 import type { LocalTestModuleSeed } from "./localTestModules.js";
+import type { LocalLaunchProfile } from "./localLaunchProfiles.js";
 
 export function App() {
   const params = useViewerParams();
@@ -117,6 +118,7 @@ export function App() {
   const [workspaceView, setWorkspaceView] = useState<ViewerWorkspace>(params.workspace ?? "evidence");
   const [startSessionRequest, setStartSessionRequest] = useState(0);
   const [startSessionBundleId, setStartSessionBundleId] = useState<string>();
+  const [startSessionLaunchProfile, setStartSessionLaunchProfile] = useState<LocalLaunchProfile>();
   const [testComposerSeed, setTestComposerSeed] = useState<LocalTestModuleSeed>();
   const [workflowActivity, setWorkflowActivity] = useState<WorkflowMonitorActivity>({ status: "idle" });
   const autoOpenedOverview = useRef(false);
@@ -346,8 +348,9 @@ export function App() {
     window.requestAnimationFrame(() => scrollToWorkspaceSection(id));
   };
 
-  const requestStartSession = (bundleId?: string): void => {
-    setStartSessionBundleId(bundleId?.trim() || undefined);
+  const requestStartSession = (bundleId?: string, launchProfile?: LocalLaunchProfile): void => {
+    setStartSessionBundleId(launchProfile?.bundleId.trim() || bundleId?.trim() || undefined);
+    setStartSessionLaunchProfile(launchProfile);
     setStartSessionRequest((current) => current + 1);
   };
 
@@ -484,6 +487,7 @@ export function App() {
             onStarted={(createdSession) => selectSession(createdSession.id)}
             openRequest={startSessionRequest}
             requestedBundleId={startSessionBundleId}
+            requestedLaunchProfile={startSessionLaunchProfile}
           />
           <span className={`viewer-runtime-state tone-${healthTone(health)}`}>
             <span aria-hidden="true" />
@@ -687,7 +691,10 @@ export function App() {
       ) : null}
 
       {workspaceView === "library" ? (
-        <LibraryWorkspace onCreateTest={(seed) => { setTestComposerSeed(seed); openWorkspaceView("tests"); }} />
+        <LibraryWorkspace
+          onCreateTest={(seed) => { setTestComposerSeed(seed); openWorkspaceView("tests"); }}
+          onStartWithProfile={(profile) => requestStartSession(profile.bundleId, profile)}
+        />
       ) : null}
 
       {workspaceView === "sessions" ? (

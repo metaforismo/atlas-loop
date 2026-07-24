@@ -28,6 +28,8 @@ describe("LandingPage", () => {
     expect(container.querySelector("[aria-label='Atlas Loop product preview']")?.textContent).toContain("Checkout still works");
     expect(container.querySelector("[role='group'][aria-label='Checkout running on an iPhone Simulator']")).not.toBeNull();
     expect(container.querySelector(".ios-device-island")).not.toBeNull();
+    expect(container.querySelector(".ios-device-button-camera")).not.toBeNull();
+    expect(container.querySelectorAll(".ios-device-antenna")).toHaveLength(4);
     expect(container.querySelector("[role='tablist'][aria-label='Product preview modes']")).not.toBeNull();
     expect(container.querySelector("[aria-label='Multi-gesture flow preview']")?.textContent).toContain("Two-finger tap");
     expect(container.querySelector("[aria-label='Observed app catalog preview']")?.textContent).toContain("Commerce Demo");
@@ -39,10 +41,10 @@ describe("LandingPage", () => {
     expect(container.querySelector("[aria-label='Readable local test compiler preview']")?.textContent).toContain("assertVisible");
     const testLinks = [...container.querySelectorAll("a")].filter((link) => link.getAttribute("href") === "/?sessionId=latest&workspace=tests");
     expect(testLinks.some((link) => link.textContent?.includes("local tests"))).toBe(true);
-    expect(container.querySelector("[aria-label='Reusable local step module preview']")?.textContent).toContain("NO HIDDEN REF");
+    expect(container.querySelector("[aria-label='Reusable local test assets preview']")?.textContent).toContain("ATLAS_LOOP_DEMO_ROUTE");
     const libraryLinks = [...container.querySelectorAll("a")].filter((link) => link.getAttribute("href") === "/?sessionId=latest&workspace=library");
-    expect(libraryLinks.some((link) => link.textContent?.includes("module library"))).toBe(true);
-    expect(container.textContent).toContain("Reuse steps without hiding them.");
+    expect(libraryLinks.some((link) => link.textContent?.includes("local library"))).toBe(true);
+    expect(container.textContent).toContain("Reuse the steps and the startup state.");
     expect(container.querySelector("[aria-label='Validated local workflow builder preview']")?.textContent).toContain("Checkout recovery");
     const workflowLinks = [...container.querySelectorAll("a")].filter((link) => link.getAttribute("href") === "/?sessionId=latest&workspace=workflows");
     expect(workflowLinks.some((link) => link.textContent?.includes("workflow library"))).toBe(true);
