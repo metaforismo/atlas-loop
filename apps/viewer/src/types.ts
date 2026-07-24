@@ -43,6 +43,7 @@ export interface SessionListItem {
   artifactDir?: string;
   viewerUrl?: string;
   backend?: string;
+  inputBackend?: InputBackendKind;
   error?: AtlasLoopError;
   platform?: string;
 }
@@ -295,7 +296,7 @@ export interface ApiEnvelope<T> {
 }
 
 export type ViewerView = "session" | "atlas";
-export type ViewerWorkspace = "overview" | "apps" | "workflows" | "evidence";
+export type ViewerWorkspace = "overview" | "sessions" | "apps" | "workflows" | "evidence";
 
 export interface ViewerParams {
   daemonUrl: string;

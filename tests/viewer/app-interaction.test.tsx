@@ -487,6 +487,30 @@ describe("viewer app interactions", { timeout: 30_000 }, () => {
     expect(window.location.search).not.toContain("workspace=");
   });
 
+  it("opens the first-class session history and repeats a captured app", async () => {
+    await act(async () => root?.render(<App />));
+    await waitFor(() => {
+      expect(getByAriaLabel<HTMLElement>(`Evidence for ${SESSION_ID}`)).toBeTruthy();
+      return true;
+    }, "session history before sessions workspace");
+
+    const workspaceNavigation = getByAriaLabel<HTMLElement>("Workspace navigation");
+    await click(getButtonByText(workspaceNavigation, "Sessions"));
+
+    const shell = document.querySelector("main.viewer-shell")!;
+    expect(shell.classList.contains("workspace-sessions-active")).toBe(true);
+    expect(document.querySelector("#session-workspace-title")?.textContent).toBe("Sessions");
+    expect(getButtonByText(workspaceNavigation, "Sessions").getAttribute("aria-current")).toBe("page");
+    expect(window.location.search).toContain("workspace=sessions");
+    expect(document.querySelector(".viewer-breadcrumb")?.textContent).toContain("Sessions");
+    expect(document.querySelector(".session-history-table")?.textContent).toContain(SESSION_ID);
+
+    const sessionWorkspace = document.querySelector<HTMLElement>(".session-workspace")!;
+    await click(getButtonByText(sessionWorkspace, "Repeat with app"));
+    expect(document.querySelector<HTMLInputElement>("input[placeholder='app.example.YourApp']")?.value).toBe("dev.atlas.loop.demo");
+    expect(document.querySelector("[role='dialog'][aria-label='Start local Simulator session']")).not.toBeNull();
+  });
+
   it("opens the observed app catalog and prefills a new run from history", async () => {
     await act(async () => root?.render(<App />));
     await waitFor(() => {

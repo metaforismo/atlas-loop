@@ -68,5 +68,9 @@ describe("viewer params", () => {
     const apps = writeViewerSearch({ daemonUrl: DEFAULT_DAEMON_URL, sessionId: "sess_triage", workspace: "apps" });
     expect(apps).toContain("workspace=apps");
     expect(readViewerParams(apps).workspace).toBe("apps");
+
+    const sessions = writeViewerSearch({ daemonUrl: DEFAULT_DAEMON_URL, sessionId: "sess_triage", workspace: "sessions" });
+    expect(sessions).toContain("workspace=sessions");
+    expect(readViewerParams(sessions).workspace).toBe("sessions");
   });
 });

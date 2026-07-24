@@ -31,6 +31,9 @@ describe("LandingPage", () => {
     expect(container.querySelector("[aria-label='Observed app catalog preview']")?.textContent).toContain("Commerce Demo");
     const appLinks = [...container.querySelectorAll("a")].filter((link) => link.getAttribute("href") === "/?sessionId=latest&workspace=apps");
     expect(appLinks.some((link) => link.textContent?.includes("observed apps"))).toBe(true);
+    expect(container.querySelector("[aria-label='Local session control plane preview']")?.textContent).toContain("XCUITest");
+    const sessionLinks = [...container.querySelectorAll("a")].filter((link) => link.getAttribute("href") === "/?sessionId=latest&workspace=sessions");
+    expect(sessionLinks.some((link) => link.textContent?.includes("session history"))).toBe(true);
     expect(container.querySelector("[aria-label='Reusable local workflow library preview']")?.textContent).toContain("Checkout recovery");
     const workflowLinks = [...container.querySelectorAll("a")].filter((link) => link.getAttribute("href") === "/?sessionId=latest&workspace=workflows");
     expect(workflowLinks.some((link) => link.textContent?.includes("workflow library"))).toBe(true);
