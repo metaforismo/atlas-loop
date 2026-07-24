@@ -8,13 +8,15 @@ export function StartSessionPopover({
   disabled,
   disabledReason,
   onStarted,
-  openRequest
+  openRequest,
+  requestedBundleId
 }: {
   daemonUrl: string;
   disabled: boolean;
   disabledReason: string;
   onStarted: (session: Session) => void;
   openRequest?: number;
+  requestedBundleId?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [simulatorName, setSimulatorName] = useState("");
@@ -60,8 +62,10 @@ export function StartSessionPopover({
 
   useEffect(() => {
     if (!openRequest) return;
+    const nextBundleId = requestedBundleId?.trim();
+    if (nextBundleId) setBundleId(nextBundleId);
     setOpen(true);
-  }, [openRequest]);
+  }, [openRequest, requestedBundleId]);
 
   useEffect(() => () => requestRef.current?.abort(), []);
 

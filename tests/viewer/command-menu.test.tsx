@@ -27,14 +27,12 @@ describe("WorkspaceCommandMenu", () => {
     act(() => root.render(<WorkspaceCommandMenu onSelect={onSelect} />));
 
     await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true })));
-    const input = container.querySelector<HTMLInputElement>("input[placeholder^='Search sessions']")!;
+    const input = container.querySelector<HTMLInputElement>("input[placeholder^='Search apps']")!;
     expect(input).not.toBeNull();
-    await act(async () => {
-      input.value = "atlas";
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-    });
+    await setInput(input, "atlas");
     const command = [...container.querySelectorAll(".command-menu-results button")].find((button) => button.textContent?.includes("Open Atlas map"));
     expect(command).not.toBeUndefined();
+    expect(container.textContent).not.toContain("Open workflow library");
     await act(async () => command?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true })));
 
     expect(onSelect).toHaveBeenCalledWith("atlas");
@@ -44,11 +42,8 @@ describe("WorkspaceCommandMenu", () => {
   it("matches natural plural workspace queries", async () => {
     act(() => root.render(<WorkspaceCommandMenu onSelect={vi.fn()} />));
     await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", ctrlKey: true, bubbles: true })));
-    const input = container.querySelector<HTMLInputElement>("input[placeholder^='Search sessions']")!;
-    await act(async () => {
-      input.value = "actions";
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-    });
+    const input = container.querySelector<HTMLInputElement>("input[placeholder^='Search apps']")!;
+    await setInput(input, "actions");
     expect(container.textContent).toContain("Run an action");
   });
 
@@ -60,11 +55,20 @@ describe("WorkspaceCommandMenu", () => {
     const input = container.querySelector<HTMLInputElement>("input[role='combobox']")!;
     expect(input.getAttribute("aria-activedescendant")).toBe("workspace-command-overview");
     await act(async () => input.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
-    expect(input.getAttribute("aria-activedescendant")).toBe("workspace-command-workflows");
-    expect(container.querySelector("#workspace-command-workflows")?.getAttribute("aria-selected")).toBe("true");
+    expect(input.getAttribute("aria-activedescendant")).toBe("workspace-command-apps");
+    expect(container.querySelector("#workspace-command-apps")?.getAttribute("aria-selected")).toBe("true");
     await act(async () => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
 
-    expect(onSelect).toHaveBeenCalledWith("workflows");
+    expect(onSelect).toHaveBeenCalledWith("apps");
     expect(container.querySelector("[role='dialog']")).toBeNull();
   });
+
+  async function setInput(input: HTMLInputElement, value: string): Promise<void> {
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+      setter?.call(input, value);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      await Promise.resolve();
+    });
+  }
 });

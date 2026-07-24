@@ -103,7 +103,15 @@ describe("StartSessionPopover", () => {
     expect(document.activeElement).toBe(container.querySelector("input[placeholder='Auto-select booted Simulator']"));
   });
 
-  function render(overrides: { disabled?: boolean; onStarted?: (session: Session) => void; openRequest?: number } = {}): void {
+  it("prefills a previously observed bundle without starting a session", async () => {
+    render({ openRequest: 0 });
+    render({ openRequest: 1, requestedBundleId: " dev.lantern.payments " });
+
+    expect(container.querySelector<HTMLInputElement>("input[placeholder='app.example.YourApp']")?.value).toBe("dev.lantern.payments");
+    expect(container.querySelector("[role='dialog']")).not.toBeNull();
+  });
+
+  function render(overrides: { disabled?: boolean; onStarted?: (session: Session) => void; openRequest?: number; requestedBundleId?: string } = {}): void {
     act(() => root.render(
       <StartSessionPopover
         daemonUrl="http://127.0.0.1:4317"
@@ -111,6 +119,7 @@ describe("StartSessionPopover", () => {
         disabledReason="Start the daemon first."
         onStarted={overrides.onStarted ?? vi.fn()}
         openRequest={overrides.openRequest}
+        requestedBundleId={overrides.requestedBundleId}
       />
     ));
   }

@@ -28,6 +28,9 @@ describe("LandingPage", () => {
     expect(container.querySelector("[aria-label='Atlas Loop product preview']")?.textContent).toContain("Checkout still works");
     expect(container.querySelector("[role='tablist'][aria-label='Product preview modes']")).not.toBeNull();
     expect(container.querySelector("[aria-label='Multi-gesture flow preview']")?.textContent).toContain("Two-finger tap");
+    expect(container.querySelector("[aria-label='Observed app catalog preview']")?.textContent).toContain("Commerce Demo");
+    const appLinks = [...container.querySelectorAll("a")].filter((link) => link.getAttribute("href") === "/?sessionId=latest&workspace=apps");
+    expect(appLinks.some((link) => link.textContent?.includes("observed apps"))).toBe(true);
     expect(container.querySelector("[aria-label='Reusable local workflow library preview']")?.textContent).toContain("Checkout recovery");
     const workflowLinks = [...container.querySelectorAll("a")].filter((link) => link.getAttribute("href") === "/?sessionId=latest&workspace=workflows");
     expect(workflowLinks.some((link) => link.textContent?.includes("workflow library"))).toBe(true);
