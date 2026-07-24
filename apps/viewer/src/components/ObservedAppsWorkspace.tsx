@@ -1,6 +1,12 @@
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import {
+  FileSearchIcon,
+  PinIcon,
+  PinOffIcon,
+  Search01Icon
+} from "@hugeicons/core-free-icons";
+import {
   deriveObservedApps,
   filterAndSortObservedApps,
   isActiveObservedSession,
@@ -11,6 +17,7 @@ import {
 import { loadPinnedObservedAppIds, savePinnedObservedAppIds } from "../appCatalogStorage.js";
 import type { SessionHistoryItem } from "../types.js";
 import { formatDateTime, sessionUpdatedAt } from "../viewerPresentation.js";
+import { ProductIcon } from "./ProductIcon.js";
 
 interface ObservedAppsWorkspaceProps {
   sessions: SessionHistoryItem[];
@@ -108,7 +115,7 @@ export function ObservedAppsWorkspace({
 
       <div className="apps-toolbar" aria-label="Filter observed apps">
         <label className="apps-search">
-          <span aria-hidden="true">⌕</span>
+          <ProductIcon icon={Search01Icon} size={14} />
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search bundle, scheme, Simulator, or session…" aria-label="Search observed apps" />
         </label>
         <div className="apps-scopes" role="group" aria-label="Observed app scope">
@@ -159,7 +166,9 @@ export function ObservedAppsWorkspace({
                     {app.attentionRunCount > 0 ? `${app.attentionRunCount} attention` : app.activeRunCount > 0 ? "active" : "observed"}
                   </span>
                 </button>
-                <button type="button" className="apps-pin" aria-label={`${app.pinned ? "Unpin" : "Pin"} ${app.name}`} aria-pressed={app.pinned} onClick={() => togglePinned(app.id)}>{app.pinned ? "◆" : "◇"}</button>
+                <button type="button" className="apps-pin" aria-label={`${app.pinned ? "Unpin" : "Pin"} ${app.name}`} aria-pressed={app.pinned} onClick={() => togglePinned(app.id)}>
+                  <ProductIcon icon={app.pinned ? PinOffIcon : PinIcon} size={14} />
+                </button>
               </article>
             ))}
           </div>
@@ -218,5 +227,5 @@ function AppMonogram({ name }: { name: string }) {
 }
 
 function AppEmptyState({ title, detail, action, onAction }: { title: string; detail: string; action: string; onAction: () => void }) {
-  return <div className="apps-empty-state"><span aria-hidden="true">◇</span><strong>{title}</strong><p>{detail}</p><button type="button" onClick={onAction}>{action}</button></div>;
+  return <div className="apps-empty-state"><ProductIcon icon={FileSearchIcon} size={28} /><strong>{title}</strong><p>{detail}</p><button type="button" onClick={onAction}>{action}</button></div>;
 }

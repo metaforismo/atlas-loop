@@ -3,6 +3,7 @@ import { useState } from "react";
 const VIEWER_URL = "/?sessionId=latest&workspace=overview";
 const APPS_URL = "/?sessionId=latest&workspace=apps";
 const SESSIONS_URL = "/?sessionId=latest&workspace=sessions";
+const TESTS_URL = "/?sessionId=latest&workspace=tests";
 const WORKFLOW_URL = "/?sessionId=latest&workspace=workflows";
 const GITHUB_URL = "https://github.com/metaforismo/atlas-loop";
 
@@ -19,6 +20,7 @@ export function LandingPage() {
           <a href="#runtime">Runtime</a>
           <a href="#apps">Apps</a>
           <a href="#sessions">Sessions</a>
+          <a href="#tests">Tests</a>
           <a href="#gestures">Gestures</a>
           <a href="#workflows">Workflows</a>
           <a href="#evidence">Evidence</a>
@@ -34,6 +36,7 @@ export function LandingPage() {
             <a href="#runtime">Runtime</a>
             <a href="#apps">Apps</a>
             <a href="#sessions">Sessions</a>
+            <a href="#tests">Tests</a>
             <a href="#gestures">Gestures</a>
             <a href="#workflows">Workflows</a>
             <a href="#evidence">Evidence</a>
@@ -129,9 +132,20 @@ export function LandingPage() {
           <SessionControlVisual />
         </article>
 
-        <article className="landing-chapter landing-chapter-reverse" id="gestures">
+        <article className="landing-chapter landing-chapter-reverse" id="tests">
           <div className="landing-chapter-copy">
-            <p className="landing-section-index">05 / MULTI-GESTURE FLOWS</p>
+            <p className="landing-section-index">05 / READABLE LOCAL TESTS</p>
+            <h2>Readable steps. Exact actions. No hidden planner.</h2>
+            <p>Write one command per line and inspect the exact Atlas Loop action it becomes before the Simulator is touched. Invalid lines stay local, point to the source, and block the run.</p>
+            <ul><li>Deterministic commands with line-level errors</li><li>Optional app guard prevents wrong-target runs</li><li>Latest results stay beside each browser-local test</li></ul>
+            <a className="landing-inline-link" href={TESTS_URL}>Open local tests →</a>
+          </div>
+          <TestAuthoringVisual />
+        </article>
+
+        <article className="landing-chapter" id="gestures">
+          <div className="landing-chapter-copy">
+            <p className="landing-section-index">06 / MULTI-GESTURE FLOWS</p>
             <h2>Test motion, not just destinations.</h2>
             <p>Drive the gestures selectors cannot describe: pinch, rotate, two-finger tap, long press, edge navigation, swipes, waits, and evidence checkpoints.</p>
             <ul><li>Native XCUITest multi-touch</li><li>Leading-edge iOS navigation</li><li>Per-step failure and cancellation</li></ul>
@@ -139,9 +153,9 @@ export function LandingPage() {
           <GestureVisual />
         </article>
 
-        <article className="landing-chapter" id="workflows">
+        <article className="landing-chapter landing-chapter-reverse" id="workflows">
           <div className="landing-chapter-copy">
-            <p className="landing-section-index">06 / LOCAL WORKFLOW LIBRARY</p>
+            <p className="landing-section-index">07 / LOCAL WORKFLOW LIBRARY</p>
             <h2>Useful flows should stay useful.</h2>
             <p>Turn ordered gestures into reusable browser-local workflows. Search templates and saved flows, check the selected run, then execute the whole sequence without rebuilding it step by step.</p>
             <ul><li>Seven built-in flow templates</li><li>Safe local save, duplicate, and delete</li><li>One-click run into the evidence timeline</li></ul>
@@ -150,9 +164,9 @@ export function LandingPage() {
           <WorkflowVisual />
         </article>
 
-        <article className="landing-chapter landing-chapter-reverse" id="evidence">
+        <article className="landing-chapter" id="evidence">
           <div className="landing-chapter-copy">
-            <p className="landing-section-index">07 / REPLAYABLE EVIDENCE</p>
+            <p className="landing-section-index">08 / REPLAYABLE EVIDENCE</p>
             <h2>A failure should explain itself.</h2>
             <p>Every action can be paired with screenshots, video markers, CPU, memory, trace events, and artifact integrity. The handoff view turns that record into reproducible next commands.</p>
             <ul><li>Action-to-artifact correlation</li><li>Visual diff and replay tools</li><li>Portable artifact health reports</li></ul>
@@ -163,7 +177,7 @@ export function LandingPage() {
 
       <section className="landing-evidence" id="atlas">
         <div className="landing-evidence-copy">
-          <p className="landing-section-index">08 / ATLAS RUNTIME MAP</p>
+          <p className="landing-section-index">09 / ATLAS RUNTIME MAP</p>
           <h2>Every observed flow leaves a map.</h2>
           <p>
             The Atlas view derives screens and transitions from evidence already captured during a run. Deep links reconnect a map edge to the exact session, action, and artifact that produced it.
@@ -254,7 +268,7 @@ function QuickstartSection() {
   return (
     <section className="landing-quickstart" id="quickstart" aria-labelledby="landing-quickstart-title">
       <div className="landing-quickstart-copy">
-        <p className="landing-section-index">09 / FROM SOURCE TO SIGNAL</p>
+        <p className="landing-section-index">10 / FROM SOURCE TO SIGNAL</p>
         <h2 id="landing-quickstart-title">A useful first run in three steps.</h2>
         <p>Atlas Loop does not hide the runtime behind a hosted account. Verify the repo, start two local processes, and follow the first Simulator session into an evidence-ready workspace.</p>
         <div className="landing-quickstart-links">
@@ -358,6 +372,35 @@ function SessionControlVisual() {
         ))}
       </div>
       <div className="session-control-footer"><span><small>SELECTED</small>sess_4f8b · 1m 42s</span><a href={SESSIONS_URL}>BROWSE RUNS →</a></div>
+    </div>
+  );
+}
+
+function TestAuthoringVisual() {
+  const commands = [
+    { source: 'Tap "Checkout"', action: "tapElement" },
+    { source: 'Type "Avery"', action: "typeText" },
+    { source: 'Verify "Order confirmed" is visible', action: "assertVisible" },
+    { source: 'Capture "checkout-complete"', action: "screenshot" }
+  ];
+  return (
+    <div className="landing-feature-visual test-authoring-visual" aria-label="Readable local test compiler preview">
+      <div className="feature-visual-bar"><span>CHECKOUT CONFIRMATION / LOCAL TEST</span><small>4 ACTIONS READY</small></div>
+      <div className="test-authoring-columns">
+        <div className="test-authoring-source">
+          <header><span>READABLE STEPS</span><em>SAVED LOCALLY</em></header>
+          <ol>
+            {commands.map((command, index) => <li key={command.source}><b>{String(index + 1).padStart(2, "0")}</b><code>{command.source}</code></li>)}
+          </ol>
+        </div>
+        <div className="test-authoring-compiled">
+          <header><span>COMPILED PREVIEW</span><em>VALID</em></header>
+          <ol>
+            {commands.map((command, index) => <li key={command.action}><i /><span><strong>{command.action}</strong><small>line {index + 1} · deterministic</small></span></li>)}
+          </ol>
+        </div>
+      </div>
+      <div className="test-authoring-footer"><span><i /> App guard · app.atlasloop.CommerceDemo</span><a href={TESTS_URL}>RUN 4 STEPS →</a></div>
     </div>
   );
 }

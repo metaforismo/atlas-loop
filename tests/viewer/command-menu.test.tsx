@@ -55,11 +55,11 @@ describe("WorkspaceCommandMenu", () => {
     const input = container.querySelector<HTMLInputElement>("input[role='combobox']")!;
     expect(input.getAttribute("aria-activedescendant")).toBe("workspace-command-overview");
     await act(async () => input.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
-    expect(input.getAttribute("aria-activedescendant")).toBe("workspace-command-apps");
-    expect(container.querySelector("#workspace-command-apps")?.getAttribute("aria-selected")).toBe("true");
+    expect(input.getAttribute("aria-activedescendant")).toBe("workspace-command-tests");
+    expect(container.querySelector("#workspace-command-tests")?.getAttribute("aria-selected")).toBe("true");
     await act(async () => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
 
-    expect(onSelect).toHaveBeenCalledWith("apps");
+    expect(onSelect).toHaveBeenCalledWith("tests");
     expect(container.querySelector("[role='dialog']")).toBeNull();
   });
 

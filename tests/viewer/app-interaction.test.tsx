@@ -464,6 +464,22 @@ describe("viewer app interactions", { timeout: 30_000 }, () => {
     }, "history-restored evidence workspace");
   });
 
+  it("preserves an explicit Tests deep link when the first-run daemon is offline", async () => {
+    window.history.replaceState(null, "", "/?sessionId=latest&workspace=tests");
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("Failed to fetch"); }));
+
+    await act(async () => root?.render(<App />));
+
+    await waitFor(() => {
+      const shell = document.querySelector("main.viewer-shell")!;
+      expect(shell.classList.contains("workspace-tests-active")).toBe(true);
+      expect(document.querySelector("#test-workspace-title")?.textContent).toBe("Tests");
+      expect(document.querySelector(".viewer-breadcrumb")?.textContent).toContain("Tests");
+      expect(window.location.search).toContain("workspace=tests");
+      return true;
+    }, "offline Tests deep link");
+  });
+
   it("deep-links the first-class workflow library and returns to evidence", async () => {
     await act(async () => root?.render(<App />));
     await waitFor(() => {
@@ -484,6 +500,32 @@ describe("viewer app interactions", { timeout: 30_000 }, () => {
     const workflows = document.querySelector<HTMLElement>(".workflow-workspace")!;
     await click(getButtonByText(workflows, "Open live evidence"));
     expect(shell.classList.contains("workspace-workflows-active")).toBe(false);
+    expect(window.location.search).not.toContain("workspace=");
+  });
+
+  it("deep-links local tests, opens the compiler, and returns to evidence", async () => {
+    await act(async () => root?.render(<App />));
+    await waitFor(() => {
+      expect(getByAriaLabel<HTMLElement>(`Evidence for ${SESSION_ID}`)).toBeTruthy();
+      return true;
+    }, "session history before tests");
+
+    const workspaceNavigation = getByAriaLabel<HTMLElement>("Workspace navigation");
+    await click(getButtonByText(workspaceNavigation, "Tests"));
+
+    const shell = document.querySelector("main.viewer-shell")!;
+    expect(shell.classList.contains("workspace-tests-active")).toBe(true);
+    expect(document.querySelector("#test-workspace-title")?.textContent).toBe("Tests");
+    expect(getButtonByText(workspaceNavigation, "Tests").getAttribute("aria-current")).toBe("page");
+    expect(window.location.search).toContain("workspace=tests");
+    expect(document.querySelector(".viewer-breadcrumb")?.textContent).toContain("Tests");
+
+    const tests = document.querySelector<HTMLElement>(".test-workspace")!;
+    await click(getButtonByText(tests, "Create test"));
+    expect(document.querySelector("[role='dialog']")?.textContent).toContain("Compiled preview");
+    await click(getButtonByAriaLabel("Close test composer"));
+    await click(getButtonByText(tests, "Open live evidence"));
+    expect(shell.classList.contains("workspace-tests-active")).toBe(false);
     expect(window.location.search).not.toContain("workspace=");
   });
 
