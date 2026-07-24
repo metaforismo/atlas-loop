@@ -246,6 +246,15 @@ a {
   background: #0d1015;
 }
 
+/*
+ * The rail is the scroll container. Without this, a short viewport shrinks the
+ * flex children instead of scrolling, and `.session-list` collapses to zero
+ * height while its rows keep painting over the status stack below it.
+ */
+.rail > * {
+  flex: 0 0 auto;
+}
+
 .brand-block,
 .stage-topbar,
 .panel-title-row,
@@ -357,6 +366,88 @@ a {
   height: 16px;
   flex: 0 0 auto;
   color: #7f8b94;
+}
+
+.viewer-nav-item > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rail-collapse-toggle {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 auto;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  padding: 0;
+  place-items: center;
+  background: transparent;
+  color: var(--soft);
+  cursor: pointer;
+  transition: background 160ms ease, border-color 160ms ease, color 160ms ease;
+}
+
+.rail-collapse-toggle:hover {
+  border-color: var(--line);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+}
+
+.rail-collapse-toggle[aria-expanded="false"] .viewer-nav-icon {
+  transform: rotate(180deg);
+}
+
+/*
+ * Collapsed rail: an icon strip that hands ~172px back to the workspace. Only
+ * the navigation survives — the connection form, session list, and status
+ * stack all need their labels to be readable, so they hide rather than shrink
+ * into ambiguity, and the toggle stays reachable.
+ */
+.viewer-shell.rail-collapsed {
+  grid-template-columns: 60px minmax(360px, 1fr) 390px;
+}
+
+.rail-collapsed .rail {
+  padding-inline: 8px;
+}
+
+.rail-collapsed .brand-block {
+  margin-inline: -8px;
+  padding-inline: 8px;
+  justify-content: center;
+}
+
+/* The mark stays as the home affordance; only its wordmark is dropped. */
+.rail-collapsed .viewer-brand-copy,
+.rail-collapsed .health-dot,
+.rail-collapsed .viewer-nav > p,
+.rail-collapsed .viewer-nav-item > span,
+.rail-collapsed .rail-runtime-settings,
+.rail-collapsed .session-list,
+.rail-collapsed .status-stack {
+  display: none;
+}
+
+/*
+ * A runtime error is never hidden by the collapsed rail — it stays announced
+ * and readable, just tighter.
+ */
+.rail-collapsed .inline-error {
+  font-size: 9px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.rail-collapsed .viewer-nav-item {
+  grid-template-columns: 20px;
+  justify-content: center;
+  padding-inline: 0;
+}
+
+.rail-collapsed .viewer-nav-item.selected::before {
+  left: -8px;
 }
 
 .kicker {
@@ -939,6 +1030,7 @@ h2 {
   min-height: 0;
   place-items: center;
   overflow: hidden;
+  container-type: size;
 }
 
 .phone-frame {
@@ -3921,7 +4013,12 @@ h2 {
   --landing-accent: #e86f59;
   position: relative;
   min-height: 100dvh;
-  overflow: hidden;
+  /*
+   * `clip` contains the decorative bleed without turning the shell into a
+   * scroll container. `overflow: hidden` here would silently disable
+   * `position: sticky` on the chapter index below.
+   */
+  overflow-x: clip;
   background:
     radial-gradient(circle at 78% 8%, rgba(232, 111, 89, 0.12), transparent 28rem),
     var(--landing-bg);
@@ -4333,9 +4430,10 @@ h2 {
   width: 26px;
   height: 26px;
   border: 2px solid var(--landing-accent);
-  border-radius: 6px;
+  border-radius: 50%;
   box-shadow: 0 0 0 5px rgba(232, 111, 89, 0.13);
   animation: target-pulse 2.4s ease-in-out infinite;
+  pointer-events: none;
 }
 
 .preview-steps-column {
@@ -7117,11 +7215,90 @@ body::before {
   border-inline: 1px solid var(--landing-line);
 }
 
+/*
+ * Sticky reading index for a long chapter list. It pins to the top of the
+ * viewport for the whole section, so the current capability and the way back
+ * to any other one stay reachable without scrolling to the nav.
+ */
+.landing-chapter-index {
+  position: sticky;
+  z-index: 6;
+  top: 0;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  border-bottom: 1px solid var(--landing-line);
+  padding: 0 clamp(16px, 3vw, 32px);
+  background: color-mix(in srgb, var(--landing-bg) 88%, transparent);
+  backdrop-filter: blur(14px);
+}
+
+.landing-chapter-index > span {
+  flex: 0 0 auto;
+  color: var(--landing-muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.landing-chapter-index ol {
+  display: flex;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  overflow-x: auto;
+  gap: 2px;
+  list-style: none;
+  scrollbar-width: none;
+}
+
+.landing-chapter-index ol::-webkit-scrollbar {
+  display: none;
+}
+
+.landing-chapter-index a {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border-bottom: 2px solid transparent;
+  padding: 15px 12px 13px;
+  color: var(--landing-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-decoration: none;
+  text-transform: uppercase;
+  white-space: nowrap;
+  transition: color 140ms ease, border-color 140ms ease;
+}
+
+.landing-chapter-index a b {
+  color: color-mix(in srgb, currentColor 55%, transparent);
+  font-weight: 400;
+}
+
+.landing-chapter-index a:hover {
+  color: var(--landing-text);
+}
+
+.landing-chapter-index a.active {
+  border-bottom-color: var(--landing-accent);
+  color: var(--landing-text);
+}
+
+.landing-chapter-index a:focus-visible {
+  outline: 2px solid var(--landing-accent);
+  outline-offset: -2px;
+}
+
 .landing-chapter {
   display: grid;
   grid-template-columns: minmax(300px, 0.82fr) minmax(520px, 1.18fr);
   min-height: 650px;
   border-top: 1px solid var(--landing-line);
+  /* Clears the sticky chapter index when an entry is jumped to. */
+  scroll-margin-top: 44px;
 }
 
 .landing-chapter-copy {
@@ -8841,6 +9018,26 @@ body::before {
 
 .overview-metric.tone-good > strong { color: var(--good); }
 .overview-metric.tone-bad > strong { color: var(--bad); }
+
+/* Week-over-week delta, shown only when a prior window exists to compare with. */
+.overview-metric-trend {
+  justify-self: start;
+  overflow: hidden;
+  max-width: 100%;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 2px 7px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-style: normal;
+  letter-spacing: 0.03em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.overview-metric-trend.tone-good { color: var(--good); }
+.overview-metric-trend.tone-bad { color: var(--bad); }
 
 .workspace-overview-grid {
   display: grid;
@@ -12399,42 +12596,46 @@ body::before {
 .ios-device-signal.tone-offline { color: var(--bad); }
 .ios-device-signal.tone-idle { color: var(--warn); }
 
+/*
+ * Frame geometry comes from the published iPhone 16 Pro spec via
+ * deviceGeometry.ts. Every dimension below is a percentage of the body box, so
+ * the bezel, radii, Dynamic Island, and side controls stay proportional at a
+ * 250px landing preview and a 405px live viewport alike.
+ */
 .ios-device-hardware {
   position: relative;
   width: 100%;
-  aspect-ratio: 402 / 874;
-  border: 1px solid #797b80;
-  border-radius: 58px;
-  padding: 7px;
+  aspect-ratio: var(--ios-aspect);
+  border-radius: var(--ios-body-radius);
+  padding: var(--ios-bezel);
   background:
-    linear-gradient(92deg, transparent 0 2%, rgba(255, 255, 255, 0.24) 2.4%, transparent 4.5% 95%, rgba(255, 255, 255, 0.13) 97%, transparent 99%),
-    linear-gradient(118deg, #17191d 0%, #8b8d91 7%, #34363a 14%, #121418 42%, #56585d 78%, #1a1c20 100%);
+    linear-gradient(92deg, transparent 0 1.4%, rgba(255, 255, 255, 0.26) 1.9%, transparent 3.6% 96.2%, rgba(255, 255, 255, 0.15) 98.2%, transparent 99.4%),
+    linear-gradient(118deg, #16181c 0%, #8f9195 6%, #33353a 13%, #111317 42%, #585a5f 79%, #191b1f 100%);
   box-shadow:
-    0 0 0 1px rgba(0, 0, 0, 0.88),
-    0 0 0 2px rgba(255, 255, 255, 0.09),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.2),
-    inset 3px 0 5px rgba(255, 255, 255, 0.13),
-    inset -2px 0 4px rgba(0, 0, 0, 0.48),
+    0 0 0 1px rgba(0, 0, 0, 0.9),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.22),
     0 34px 78px rgba(0, 0, 0, 0.58);
 }
 
-.ios-device-hardware::after {
+/* Polished chamfer running just inside the titanium rail. */
+.ios-device-gloss {
   position: absolute;
-  inset: 3px;
-  border: 1px solid rgba(255, 255, 255, 0.09);
-  border-radius: 54px;
+  z-index: 3;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(200deg, rgba(255, 255, 255, 0.16), transparent 22%, transparent 78%, rgba(255, 255, 255, 0.09));
+  mix-blend-mode: screen;
   pointer-events: none;
-  content: "";
 }
 
 .ios-device-rim {
+  position: relative;
+  z-index: 2;
   width: 100%;
   height: 100%;
-  border: 2px solid #050608;
-  border-radius: 51px;
-  padding: 3px;
-  background: #030405;
-  box-shadow: inset 0 0 0 1px #25282d, 0 0 0 1px rgba(0, 0, 0, 0.92);
+  border-radius: var(--ios-screen-radius);
+  background: #000;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.95), inset 0 0 0 1px rgba(120, 124, 132, 0.28);
   overflow: hidden;
 }
 
@@ -12443,7 +12644,7 @@ body::before {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  border-radius: 46px;
+  border-radius: inherit;
   background: #06080b;
   isolation: isolate;
 }
@@ -12451,50 +12652,51 @@ body::before {
 .ios-device-island {
   position: absolute;
   z-index: 8;
-  top: 11px;
+  top: var(--ios-island-top);
   left: 50%;
-  width: 29%;
-  min-width: 72px;
-  max-width: 104px;
-  height: 28px;
-  border: 1px solid rgba(255, 255, 255, 0.025);
+  width: var(--ios-island-width);
+  height: var(--ios-island-height);
   border-radius: 999px;
-  background: #020304;
-  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.025), 0 1px 3px rgba(255, 255, 255, 0.04);
+  background: #010102;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
   pointer-events: none;
   transform: translateX(-50%);
 }
 
+/* Speaker slot, centred in the island. */
 .ios-device-island b {
   position: absolute;
-  top: 12px;
-  left: 24%;
-  width: 31%;
-  height: 3px;
+  top: 50%;
+  left: 26%;
+  width: 30%;
+  height: 9%;
+  min-height: 2px;
   border-radius: 99px;
-  background: #0a0b0d;
-  box-shadow: inset 0 1px rgba(255, 255, 255, 0.025);
+  background: #0b0c0f;
+  transform: translateY(-50%);
 }
 
+/* Front camera, right of the slot. */
 .ios-device-island i {
   position: absolute;
-  top: 8px;
-  right: 9px;
-  width: 7px;
-  height: 7px;
+  top: 50%;
+  right: 9%;
+  aspect-ratio: 1;
+  height: 52%;
   border-radius: 50%;
-  background: radial-gradient(circle at 35% 30%, #263e6a, #07101d 55%, #010205 70%);
-  box-shadow: 0 0 0 1px #10141a;
+  background: radial-gradient(circle at 35% 30%, #24395f, #060e19 55%, #010204 72%);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.05);
+  transform: translateY(-50%);
 }
 
 .ios-device-home-indicator {
   position: absolute;
   z-index: 8;
-  bottom: 7px;
+  bottom: var(--ios-home-bottom);
   left: 50%;
-  width: 36%;
-  max-width: 126px;
-  height: 4px;
+  width: var(--ios-home-width);
+  height: var(--ios-home-height);
+  min-height: 3px;
   border-radius: 99px;
   background: rgba(247, 247, 247, 0.84);
   mix-blend-mode: difference;
@@ -12502,39 +12704,65 @@ body::before {
   transform: translateX(-50%);
 }
 
+/*
+ * Side controls sit behind the rail so only the protruding sliver is visible,
+ * which is how the buttons read on real hardware from the front.
+ */
 .ios-device-button {
   position: absolute;
-  z-index: -1;
-  width: 4px;
-  border: 1px solid #676a70;
-  background: linear-gradient(90deg, #111317, #73767c 52%, #191b20);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.14);
+  z-index: 1;
+  min-width: 2px;
+  background: linear-gradient(90deg, #0e1013, #6f7278 55%, #16181c);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), inset 0 -1px 0 rgba(0, 0, 0, 0.4);
 }
 
-.ios-device-button-action { top: 93px; left: -4px; height: 27px; border-radius: 3px 0 0 3px; }
-.ios-device-button-volume-up { top: 137px; left: -4px; height: 52px; border-radius: 3px 0 0 3px; }
-.ios-device-button-volume-down { top: 199px; left: -4px; height: 52px; border-radius: 3px 0 0 3px; }
-.ios-device-button-power { top: 158px; right: -4px; height: 80px; border-radius: 0 3px 3px 0; }
-.ios-device-button-camera { top: 285px; right: -3px; width: 3px; height: 48px; border-color: #4b4e53; border-radius: 0 3px 3px 0; background: linear-gradient(90deg, #23252a, #696b70); }
+.ios-device-button-left {
+  left: 0;
+  border-radius: 2px 0 0 2px;
+  transform: translateX(-100%);
+}
 
-.ios-device-antenna { position: absolute; z-index: 2; width: 7px; height: 2px; background: #101216; box-shadow: 0 1px rgba(255, 255, 255, 0.08); pointer-events: none; }
-.ios-device-antenna-top-left { top: 40px; left: -1px; transform: rotate(90deg); }
-.ios-device-antenna-top-right { top: 40px; right: -1px; transform: rotate(90deg); }
-.ios-device-antenna-bottom-left { bottom: 40px; left: -1px; transform: rotate(90deg); }
-.ios-device-antenna-bottom-right { right: -1px; bottom: 40px; transform: rotate(90deg); }
+.ios-device-button-right {
+  right: 0;
+  border-radius: 0 2px 2px 0;
+  transform: translateX(100%);
+}
+
+/* Camera Control is a flush sapphire inlay rather than a raised button. */
+.ios-device-button-camera-control {
+  background: linear-gradient(90deg, #1e2024, #83868c 60%, #26282c);
+}
+
+.ios-device-antenna {
+  position: absolute;
+  z-index: 4;
+  width: 2px;
+  min-width: 1px;
+  height: 1px;
+  min-height: 1px;
+  background: rgba(10, 12, 15, 0.85);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.1);
+  pointer-events: none;
+}
+
+.ios-device-antenna-top-left { top: var(--ios-antenna-inset); left: 0; }
+.ios-device-antenna-top-right { top: var(--ios-antenna-inset); right: 0; }
+.ios-device-antenna-bottom-left { bottom: var(--ios-antenna-inset); left: 0; }
+.ios-device-antenna-bottom-right { right: 0; bottom: var(--ios-antenna-inset); }
 
 .ios-device-hero {
   width: 250px;
 }
 
+/*
+ * The live viewport is bounded on both axes. `.phone-stand` is sized by its
+ * grid row rather than its contents, so size containment is safe there and
+ * lets the frame pick the smaller of the width and height budgets instead of
+ * letting `max-height` squash the aspect ratio.
+ */
 .ios-device-viewer {
-  width: min(100%, 405px);
+  width: min(100%, 405px, calc((100cqh - 27px) * var(--ios-aspect)));
   max-height: 100%;
-}
-
-.ios-device-viewer .ios-device-hardware {
-  width: min(100%, 405px);
-  max-height: calc(100% - 27px);
 }
 
 .preview-device-screen {
@@ -12543,7 +12771,7 @@ body::before {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  padding: 55px 15px 22px;
+  padding: 13% 7% 6%;
   flex-direction: column;
   background:
     linear-gradient(165deg, rgba(255, 255, 255, 0.62), transparent 38%),
@@ -12551,24 +12779,91 @@ body::before {
   color: #17191d;
 }
 
-.preview-device-screen::before {
+/*
+ * iOS lays the status bar out around the Dynamic Island, so it reuses the
+ * island's geometry variables rather than a separately tuned offset.
+ */
+.preview-status-bar {
   position: absolute;
-  top: 27px;
-  right: 18px;
-  width: 18px;
-  height: 5px;
-  opacity: 0.32;
-  background: linear-gradient(90deg, currentColor 0 20%, transparent 20% 30%, currentColor 30% 56%, transparent 56% 66%, currentColor 66%);
+  top: var(--ios-island-top);
+  right: 0;
+  left: 0;
+  display: flex;
+  height: var(--ios-island-height);
+  align-items: center;
+  justify-content: space-between;
+  padding-inline: 8%;
+  color: #17191d;
+  font-size: 9px;
+  font-weight: 720;
+  letter-spacing: 0.01em;
+}
+
+.preview-status-icons {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.preview-status-icons i {
+  display: block;
+  background: currentColor;
+}
+
+/* Ascending cellular bars. */
+.preview-status-cellular {
+  width: 9px;
+  height: 6px;
+  clip-path: polygon(0 62%, 15% 62%, 15% 100%, 0 100%, 28% 100%, 28% 41%, 43% 41%, 43% 100%, 57% 100%, 57% 20%, 72% 20%, 72% 100%, 85% 100%, 85% 0, 100% 0, 100% 100%, 0 100%);
+}
+
+.preview-status-wifi {
+  width: 8px;
+  height: 6px;
+  clip-path: polygon(50% 100%, 0 34%, 12% 22%, 50% 62%, 88% 22%, 100% 34%);
+}
+
+.preview-status-battery {
+  position: relative;
+  width: 12px;
+  height: 6px;
+  border-radius: 2px;
+  background: none;
+  box-shadow: inset 0 0 0 1px currentColor;
+}
+
+.preview-status-battery::before {
+  position: absolute;
+  inset: 1.5px;
+  right: 4px;
+  border-radius: 1px;
+  background: currentColor;
+  content: "";
+}
+
+.preview-status-battery::after {
+  position: absolute;
+  top: 33%;
+  right: -2px;
+  width: 1px;
+  height: 34%;
+  border-radius: 0 1px 1px 0;
+  background: currentColor;
   content: "";
 }
 
 .preview-device-screen .preview-device-action {
-  margin-bottom: 7px;
+  position: relative;
+  margin-bottom: 4%;
 }
 
+/*
+ * The tap indicator marks the control the run is acting on, so it sits on it.
+ * Centring uses auto margins because `target-pulse` owns the transform.
+ */
 .preview-device-screen .preview-tap-target {
-  right: 18px;
-  bottom: 34px;
+  inset: 0;
+  margin: auto;
 }
 
 .preview-device,
@@ -12771,12 +13066,9 @@ body::before {
 }
 
 @media (max-width: 520px) {
+  /* Only the outer size changes: the frame's proportions are percentage-based. */
   .ios-device-hero { width: min(214px, 84vw); }
-  .ios-device-viewer { width: min(100%, 340px); }
-  .ios-device-hardware { border-radius: 48px; padding: 6px; }
-  .ios-device-hardware::after { border-radius: 44px; }
-  .ios-device-rim { border-radius: 42px; }
-  .ios-device-screen { border-radius: 37px; }
+  .ios-device-viewer { width: min(100%, 340px, calc((100cqh - 27px) * var(--ios-aspect))); }
   .overview-device-facts { grid-template-columns: 1fr; }
   .overview-device-facts > div,
   .overview-device-facts > div:nth-child(2) { border-right: 0; border-bottom: 1px solid var(--line); }
