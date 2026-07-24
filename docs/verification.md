@@ -101,6 +101,9 @@ npm run cli -- two-finger-tap --session latest --id gesture-lab.canvas
 
 The after-screenshots and `metadata/input-action-*.json` records must name the
 gesture kind, `xcuitest` backend, target identifier when supplied, and `ok: true`.
+The Gesture Lab keeps the touch target stable while its clipped visual transforms,
+and exposes a machine-readable accessibility value so smoke verification can reject
+false-positive gestures that returned successfully without changing app state.
 
 For protocol compatibility checks without a booted Simulator:
 

@@ -22,7 +22,7 @@ The app uses local fixture data only and exposes stable accessibility identifier
 - `shipping`
 - `payment-review`
 - `confirmation`
-- `gesture-lab.canvas` (instrumented pinch, rotation, and long-press target)
+- `gesture-lab.canvas` (instrumented pinch, rotation, long-press, and two-finger-tap target with visible counters)
 - `gesture-lab.reset`
 
 Bundle id: `app.atlasloop.CommerceDemo`.

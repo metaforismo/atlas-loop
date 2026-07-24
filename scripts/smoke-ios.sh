@@ -131,6 +131,20 @@ run_input_action() {
   echo "[smoke-ios] checkout step ok: $step"
 }
 
+run_gesture_action() {
+  local step="$1"
+  shift
+  local out="$LOG_DIR/gesture-$step.json"
+
+  run_cli "$@" --session "$SESSION_ID" >"$out"
+  if ! node -e 'const fs=require("fs"); const r=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); if (r.ok !== true) { console.error(JSON.stringify(r.error ?? r, null, 2)); process.exit(1); }' "$out"; then
+    echo "[smoke-ios] gesture step '$step' failed; result follows" >&2
+    sed -n '1,40p' "$out" >&2 || true
+    exit 1
+  fi
+  echo "[smoke-ios] gesture step ok: $step"
+}
+
 checkout_step_screenshot() {
   run_cli screenshot --session "$SESSION_ID" --reason "checkout-$1" >"$LOG_DIR/checkout-$1-screenshot.json"
 }
@@ -163,9 +177,60 @@ run_checkout_by_tap() {
   echo "[smoke-ios] checkout-by-tap completed: catalog -> product-detail -> cart -> shipping -> payment-review -> confirmation"
 }
 
+verify_gesture_state() {
+  local session_dir="artifacts/sessions/$1"
+
+  # JavaScript template literals must remain literal here.
+  # shellcheck disable=SC2016
+  node -e '
+    const fs = require("fs");
+    const path = require("path");
+    const metadataDir = path.join(process.argv[1], "metadata");
+    const records = fs.readdirSync(metadataDir)
+      .filter((name) => name.startsWith("input-action-"))
+      .map((name) => JSON.parse(fs.readFileSync(path.join(metadataDir, name), "utf8")))
+      .sort((left, right) => (left.action?.sequence ?? 0) - (right.action?.sequence ?? 0));
+    const finalAssertion = records.toReversed().find((record) =>
+      record.action?.kind === "assertVisible" &&
+      record.action?.identifier === "gesture-lab.canvas"
+    );
+    const value = finalAssertion?.driverData?.value;
+    const match = typeof value === "string"
+      ? value.match(/^Scale (-?\d+(?:\.\d+)?), rotation (-?\d+(?:\.\d+)?) radians, long presses (\d+), two-finger taps (\d+)$/)
+      : null;
+    if (!match) {
+      console.error(`gesture-lab.canvas did not expose the expected machine-readable value: ${String(value)}`);
+      process.exit(1);
+    }
+    const scale = Number(match[1]);
+    const rotation = Number(match[2]);
+    const twoFingerTaps = Number(match[4]);
+    if (Math.abs(scale - 1) < 0.05 || Math.abs(rotation) < 0.1 || twoFingerTaps < 1) {
+      console.error(`gesture state did not change as expected: ${value}`);
+      process.exit(1);
+    }
+    console.log(`[smoke-ios] native gesture state verified: ${value}`);
+  ' "$session_dir"
+}
+
+run_native_gesture_lab() {
+  local wait_ms="${ATLAS_LOOP_SMOKE_ELEMENT_TIMEOUT_MS:-20000}"
+
+  echo "[smoke-ios] running REAL multi-touch Gesture Lab smoke through the xcuitest driver"
+  run_gesture_action "01-launch" launch --bundle-id "$DEMO_BUNDLE_ID" --args=--atlas-demo-route,gesture-lab
+  run_gesture_action "02-visible" assert-visible --id gesture-lab.canvas --screen --timeout-ms "$wait_ms"
+  run_gesture_action "03-pinch" pinch --scale 1.3 --velocity 0.8 --id gesture-lab.canvas --timeout-ms "$wait_ms"
+  run_gesture_action "04-rotate" rotate --radians 0.8 --velocity 0.5 --id gesture-lab.canvas --timeout-ms "$wait_ms"
+  run_gesture_action "05-two-finger-tap" two-finger-tap --id gesture-lab.canvas --timeout-ms "$wait_ms"
+  run_gesture_action "06-state" assert-visible --id gesture-lab.canvas --screen --timeout-ms "$wait_ms"
+  verify_gesture_state "$SESSION_ID"
+}
+
 verify_xcuitest_evidence() {
   local session_dir="artifacts/sessions/$1"
 
+  # JavaScript template literals must remain literal here.
+  # shellcheck disable=SC2016
   if ! node -e '
     const fs = require("fs");
     const path = require("path");
@@ -190,9 +255,16 @@ verify_xcuitest_evidence() {
 }
 
 build_driver_runner() {
-  if compgen -G "$DRIVER_RUNNER_DERIVED_DATA/Build/Products/AtlasDriverRunner_*.xctestrun" >/dev/null; then
-    echo "[smoke-ios] driver runner xctestrun already cached in $DRIVER_RUNNER_DERIVED_DATA"
-    return
+  local xctestrun=""
+  xctestrun="$(compgen -G "$DRIVER_RUNNER_DERIVED_DATA/Build/Products/AtlasDriverRunner_*.xctestrun" | head -n 1 || true)"
+  if [[ -n "$xctestrun" ]]; then
+    local newer_source=""
+    newer_source="$(find native/ios-driver-runner -type f \( -name '*.swift' -o -name '*.pbxproj' \) -newer "$xctestrun" -print -quit)"
+    if [[ -z "$newer_source" ]]; then
+      echo "[smoke-ios] driver runner xctestrun already cached in $DRIVER_RUNNER_DERIVED_DATA"
+      return
+    fi
+    echo "[smoke-ios] rebuilding stale XCUITest driver runner cache (newer source: $newer_source)"
   fi
 
   echo "[smoke-ios] building XCUITest driver runner (build-for-testing)"
@@ -316,6 +388,7 @@ if [[ -d "$DEMO_APP_PATH" ]]; then
 
   if [[ "$INPUT_BACKEND" == "xcuitest" ]]; then
     run_checkout_by_tap
+    run_native_gesture_lab
   elif is_demo_route_disabled; then
     echo "[smoke-ios] deterministic demo route proof disabled by ATLAS_LOOP_SMOKE_DEMO_ROUTE=$DEMO_ROUTE"
   else
