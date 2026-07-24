@@ -257,6 +257,25 @@ describe("viewer app interactions", { timeout: 30_000 }, () => {
     expect(getByAriaLabel<HTMLElement>("Latest action passed").textContent).toContain("pass");
   });
 
+  it("opens the global live monitor from any workspace without losing the selected run", async () => {
+    await act(async () => root?.render(<App />));
+
+    const trigger = await waitFor(() => getButtonByAriaLabel("Open live monitor"), "live monitor trigger");
+    trigger.focus();
+    await click(trigger);
+
+    const dialog = getByRoleName<HTMLElement>("dialog", "Live Monitor");
+    expect(dialog.textContent).toContain("Active local runs");
+    expect(dialog.textContent).toContain("iPhone 16");
+    expect(dialog.textContent).toContain(SESSION_ID);
+    expect(dialog.textContent).toContain("2 artifacts");
+    expect(document.body.style.overflow).toBe("hidden");
+
+    await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+    expect(document.querySelector("[role='dialog'][aria-labelledby='live-monitor-title']")).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+
   it("copies local agent handoff notes and next steps", async () => {
     await act(async () => root?.render(<App />));
 

@@ -54,7 +54,7 @@ export function LandingPage() {
       <section className="landing-hero" id="main-content" tabIndex={-1}>
         <div className="landing-hero-copy">
           <p className="landing-eyebrow">
-            <span /> Local mobile runtime · iOS Simulator
+            <span /> Local iOS runtime · Simulator
           </p>
           <h1>
             <span>THE LOCAL</span>
@@ -126,8 +126,8 @@ export function LandingPage() {
           <div className="landing-chapter-copy">
             <p className="landing-section-index">04 / SESSION CONTROL PLANE</p>
             <h2>A run should never disappear into a log folder.</h2>
-            <p>See every local run in one focused surface. Filter the history by status or real input backend, inspect evidence health, and repeat a run with the captured app already filled in.</p>
-            <ul><li>Live activity without an account sync</li><li>XCUITest and Core Graphics filters</li><li>Evidence, failures, duration, and Simulator context</li></ul>
+            <p>See every local run in one focused surface, or open the global Live Monitor without replacing the workspace underneath. Filter history, inspect evidence health, and repeat a run with the captured app already filled in.</p>
+            <ul><li>Live device and workflow activity without account sync</li><li>XCUITest and Core Graphics filters</li><li>Evidence, failures, duration, and Simulator context</li></ul>
             <a className="landing-inline-link" href={SESSIONS_URL}>Open session history →</a>
           </div>
           <SessionControlVisual />
@@ -493,7 +493,7 @@ function EvidenceVisual() {
   );
 }
 
-type HeroPreviewMode = "flow" | "gestures" | "handoff";
+type HeroPreviewMode = "flow" | "gestures" | "monitor" | "handoff";
 
 const HERO_PREVIEWS: Array<{
   id: HeroPreviewMode;
@@ -576,6 +576,28 @@ const HERO_PREVIEWS: Array<{
       { label: "Build evidence report", meta: "saved", state: "passed" },
       { label: "Export local bundle", meta: "14 files", state: "passed" },
       { label: "Prepare next commands", meta: "ready", state: "passed" }
+    ]
+  },
+  {
+    id: "monitor",
+    label: "Live monitor",
+    runLabel: "LOCAL OPERATIONS",
+    title: "Every run stays in sight",
+    completed: 3,
+    appTitle: "Runtime Watch",
+    appMeta: "Connected",
+    cardLabel: "ACTIVE DEVICE",
+    cardTitle: "iPhone 16 Pro",
+    cardDetail: "dev.atlas.commerce · XCUITest",
+    metricLabel: "Evidence",
+    metricValue: "12",
+    action: "Open live run",
+    evidence: ["2 devices", "1 workflow", "daemon live"],
+    steps: [
+      { label: "Gesture Lab session", meta: "running", state: "passed" },
+      { label: "Evidence timeline", meta: "12 artifacts", state: "passed" },
+      { label: "Integrity check", meta: "clean", state: "passed" },
+      { label: "Checkout regression", meta: "step 3 of 4", state: "running" }
     ]
   }
 ];

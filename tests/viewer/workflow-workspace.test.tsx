@@ -91,12 +91,13 @@ describe("WorkflowWorkspace", () => {
   });
 
   it("runs a selected workflow in order and records completion", async () => {
+    const onRunActivityChange = vi.fn();
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true, data: { actionId: "act_flow", ok: true, artifacts: [] } }), {
       status: 200,
       headers: { "content-type": "application/json" }
     }));
     vi.stubGlobal("fetch", fetchMock);
-    render();
+    render({ onRunActivityChange });
 
     await selectWorkflow("Pinch zoom audit");
     expect(container.textContent).toContain("XCUITest required");
@@ -106,6 +107,8 @@ describe("WorkflowWorkspace", () => {
     expect(fetchMock).toHaveBeenCalledTimes(4);
     expect(requestBody(fetchMock, 0)).toEqual({ action: { kind: "pinch", scale: 1.8, velocity: 1 } });
     expect(requestBody(fetchMock, 3)).toEqual({ reason: "pinch zoom audit" });
+    expect(onRunActivityChange).toHaveBeenCalledWith(expect.objectContaining({ status: "running", workflowLabel: "Pinch zoom audit" }));
+    expect(onRunActivityChange).toHaveBeenLastCalledWith(expect.objectContaining({ status: "success", workflowLabel: "Pinch zoom audit" }));
   });
 
   it("keeps run actions disabled when the selected session cannot mutate", () => {
