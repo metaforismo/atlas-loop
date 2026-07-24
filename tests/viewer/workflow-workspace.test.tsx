@@ -90,6 +90,65 @@ describe("WorkflowWorkspace", () => {
     expect(JSON.parse(storageValues.get(GESTURE_SEQUENCE_STORAGE_KEY) ?? "[]")).toHaveLength(0);
   });
 
+  it("creates an editable multi-touch workflow directly from the library", async () => {
+    render();
+    await click("Create workflow");
+
+    expect(container.querySelector("[role='dialog'][aria-label]")).toBeNull();
+    expect(container.querySelector("[role='dialog']")?.textContent).toContain("Action library");
+    const preset = container.querySelector<HTMLSelectElement>(".workflow-builder-fields select")!;
+    await setSelect(preset, "pinch-zoom-audit");
+
+    expect(container.querySelector<HTMLInputElement>("input[placeholder='Checkout recovery']")?.value).toBe("Pinch zoom audit");
+    expect(container.textContent).toContain("Native multi-touch detected");
+    expect(button("Save workflow").disabled).toBe(false);
+    await click("Save workflow");
+
+    expect(container.querySelector("[role='dialog']")).toBeNull();
+    expect(metric("Saved locally")).toContain("1");
+    expect(container.textContent).toContain("Pinch zoom audit saved in this browser");
+    const stored = JSON.parse(storageValues.get(GESTURE_SEQUENCE_STORAGE_KEY) ?? "[]");
+    expect(stored).toHaveLength(1);
+    expect(stored[0]).toMatchObject({ label: "Pinch zoom audit" });
+    expect(stored[0].steps).toHaveLength(4);
+    expect(stored[0].steps[0]).toMatchObject({ action: { kind: "pinch" } });
+  });
+
+  it("validates configurable element actions before saving", async () => {
+    render();
+    await click("Create workflow");
+    const name = container.querySelector<HTMLInputElement>("input[placeholder='Checkout recovery']")!;
+    await setInput(name, "Checkout continue");
+    await click("Tap accessibility element");
+
+    expect(button("Save workflow").disabled).toBe(true);
+    expect(container.textContent).toContain("requires an accessibility identifier");
+    const identifier = container.querySelector<HTMLInputElement>("input[placeholder='checkout.continue']")!;
+    await setInput(identifier, "checkout.continue");
+    expect(button("Save workflow").disabled).toBe(false);
+    await click("Save workflow");
+
+    const stored = JSON.parse(storageValues.get(GESTURE_SEQUENCE_STORAGE_KEY) ?? "[]");
+    expect(stored[0]).toMatchObject({
+      label: "Checkout continue",
+      steps: [{ action: { kind: "tapElement", identifier: "checkout.continue" } }]
+    });
+  });
+
+  it("protects a dirty workflow draft from accidental close", async () => {
+    render();
+    await click("Create workflow");
+    await setInput(container.querySelector<HTMLInputElement>("input[placeholder='Checkout recovery']")!, "Draft flow");
+    await click("Cancel");
+
+    expect(container.textContent).toContain("Discard this draft?");
+    await click("Keep editing");
+    expect(container.querySelector("[role='dialog']")).not.toBeNull();
+    await click("Cancel");
+    await click("Discard");
+    expect(container.querySelector("[role='dialog']")).toBeNull();
+  });
+
   it("runs a selected workflow in order and records completion", async () => {
     const onRunActivityChange = vi.fn();
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true, data: { actionId: "act_flow", ok: true, artifacts: [] } }), {
@@ -181,6 +240,14 @@ describe("WorkflowWorkspace", () => {
     await act(async () => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, value);
       input.dispatchEvent(new Event("input", { bubbles: true }));
+      await Promise.resolve();
+    });
+  }
+
+  async function setSelect(select: HTMLSelectElement, value: string): Promise<void> {
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set?.call(select, value);
+      select.dispatchEvent(new Event("change", { bubbles: true }));
       await Promise.resolve();
     });
   }

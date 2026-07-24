@@ -168,9 +168,9 @@ export function LandingPage() {
         <article className="landing-chapter" id="workflows">
           <div className="landing-chapter-copy">
             <p className="landing-section-index">08 / LOCAL WORKFLOW LIBRARY</p>
-            <h2>Useful flows should stay useful.</h2>
-            <p>Turn ordered gestures into reusable browser-local workflows. Search templates and saved flows, check the selected run, then execute the whole sequence without rebuilding it step by step.</p>
-            <ul><li>Seven built-in flow templates</li><li>Safe local save, duplicate, and delete</li><li>One-click run into the evidence timeline</li></ul>
+            <h2>Build once. Inspect every action.</h2>
+            <p>Compose reusable workflows where they live. Start blank or from a proven template, configure every gesture and accessibility target, then save the validated flow locally.</p>
+            <ul><li>Focused builder with live protocol validation</li><li>Editable native multi-touch and element actions</li><li>Draft protection and safe browser-local storage</li></ul>
             <a className="landing-inline-link" href={WORKFLOW_URL}>Open the workflow library →</a>
           </div>
           <WorkflowVisual />
@@ -459,19 +459,22 @@ function GestureVisual() {
 }
 
 function WorkflowVisual() {
-  const workflows = [
-    { name: "Pinch zoom audit", meta: "4 steps", tag: "multi-touch" },
-    { name: "Scroll and reveal", meta: "3 steps", tag: "template" },
-    { name: "Checkout recovery", meta: "6 steps", tag: "saved" }
+  const actions = [
+    { name: "Tap checkout.continue", meta: "tapElement" },
+    { name: "Wait for layout", meta: "wait · 500 ms" },
+    { name: "Pinch confirmation", meta: "pinch · scale 1.8" }
   ];
   return (
-    <div className="landing-feature-visual workflow-visual" aria-label="Reusable local workflow library preview">
-      <div className="feature-visual-bar"><span>LOCAL FLOW LIBRARY</span><small>SESSION READY</small></div>
-      <div className="workflow-visual-toolbar"><span>⌕ Search workflows</span><div><b>ALL</b><b>SAVED</b><b>MULTI-TOUCH</b></div></div>
-      <div className="workflow-visual-list">
-        {workflows.map((workflow, index) => <div className={index === 0 ? "selected" : ""} key={workflow.name}><i /><span><strong>{workflow.name}</strong><small>{workflow.tag}</small></span><em>{workflow.meta}</em></div>)}
+    <div className="landing-feature-visual workflow-visual workflow-builder-visual" aria-label="Validated local workflow builder preview">
+      <div className="feature-visual-bar"><span>CREATE LOCAL WORKFLOW</span><small>VALID</small></div>
+      <div className="workflow-builder-visual-summary"><span><small>WORKFLOW</small><strong>Checkout recovery</strong></span><span><small>STEPS</small><strong>3</strong></span><span><small>INPUT</small><strong>XCUITest</strong></span></div>
+      <div className="workflow-builder-visual-body">
+        <ol>
+          {actions.map((action, index) => <li key={action.name}><b>{String(index + 1).padStart(2, "0")}</b><span><strong>{action.name}</strong><small>{action.meta}</small></span><i /></li>)}
+        </ol>
+        <aside><small>ACTION LIBRARY</small><span>Swipe up <b>+</b></span><span>Two-finger tap <b>+</b></span><span>Capture checkpoint <b>+</b></span></aside>
       </div>
-      <div className="workflow-visual-run"><span><small>SELECTED RUN</small>sess_4f8b · mutable</span><a href={WORKFLOW_URL}>RUN 4 STEPS →</a></div>
+      <div className="workflow-visual-run"><span><small>VALIDATION</small>Every action compiles</span><a href={WORKFLOW_URL}>SAVE WORKFLOW →</a></div>
     </div>
   );
 }

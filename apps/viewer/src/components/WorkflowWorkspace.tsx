@@ -1,11 +1,12 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import { Search01Icon } from "@hugeicons/core-free-icons";
+import { Add01Icon, Search01Icon } from "@hugeicons/core-free-icons";
 import {
   cloneGestureSteps,
   GESTURE_SEQUENCE_PRESETS,
   type GestureSequencePreset
 } from "../gestureSequences.js";
 import {
+  createGestureSequenceId,
   deleteGestureSequence,
   loadSavedGestureSequences,
   saveGestureSequence
@@ -14,6 +15,7 @@ import { runGestureSequenceSteps } from "../gestureSequenceRunner.js";
 import type { Session, ViewerParams } from "../types.js";
 import type { ActionMutationState } from "./ActionPanel.js";
 import { ProductIcon } from "./ProductIcon.js";
+import { WorkflowBuilderDialog } from "./WorkflowBuilderDialog.js";
 
 type WorkflowScope = "all" | "saved" | "templates" | "multitouch";
 type WorkflowSort = "name" | "steps";
@@ -68,6 +70,7 @@ export function WorkflowWorkspace({
   const [sort, setSort] = useState<WorkflowSort>("name");
   const [selectedKey, setSelectedKey] = useState("");
   const [pendingDeleteId, setPendingDeleteId] = useState<string>();
+  const [builderOpen, setBuilderOpen] = useState(false);
   const [libraryMessage, setLibraryMessage] = useState("");
   const [runState, setRunState] = useState<WorkflowRunState>({ status: "idle" });
   const abortRef = useRef<AbortController | undefined>(undefined);
@@ -129,7 +132,7 @@ export function WorkflowWorkspace({
 
   const duplicateWorkflow = (workflow: WorkflowEntry): void => {
     const copy: GestureSequencePreset = {
-      id: `flow-${Date.now().toString(36)}-${workflow.id}`,
+      id: createGestureSequenceId(saved.map((candidate) => candidate.id)),
       label: `${workflow.label} copy`,
       detail: `Saved locally from ${workflow.source === "template" ? "an Atlas Loop template" : "another saved workflow"}.`,
       steps: cloneGestureSteps(workflow.steps)
@@ -142,6 +145,20 @@ export function WorkflowWorkspace({
       setLibraryMessage(`${copy.label} saved in this browser.`);
     } catch {
       setLibraryMessage("This browser blocked local workflow storage. Check its site-data permissions.");
+    }
+  };
+
+  const saveNewWorkflow = (workflow: GestureSequencePreset): { ok: true } | { ok: false; message: string } => {
+    try {
+      const next = saveGestureSequence(workflow);
+      setSaved(next);
+      setSelectedKey(`saved:${workflow.id}`);
+      setScope("saved");
+      setQuery("");
+      setLibraryMessage(`${workflow.label} saved in this browser.`);
+      return { ok: true };
+    } catch {
+      return { ok: false, message: "This browser blocked local workflow storage. Check its site-data permissions, then retry." };
     }
   };
 
@@ -200,8 +217,8 @@ export function WorkflowWorkspace({
           <p>Run ordered gestures against the selected Simulator session. Templates are built in; saved workflows stay in this browser.</p>
         </div>
         <div className="workflow-workspace-header-actions">
-          <button type="button" className="overview-secondary-action" onClick={onOpenActions}>Compose a workflow</button>
-          <button type="button" className="overview-primary-action" onClick={onOpenEvidence}>Open live evidence</button>
+          <button type="button" className="overview-primary-action" onClick={() => setBuilderOpen(true)}><ProductIcon icon={Add01Icon} />Create workflow</button>
+          <button type="button" className="overview-secondary-action" onClick={onOpenEvidence}>Open live evidence</button>
         </div>
       </header>
 
@@ -278,6 +295,7 @@ export function WorkflowWorkspace({
           ) : <div className="workflow-empty"><strong>No workflow selected</strong><p>Clear the current filters to select a flow.</p></div>}
         </aside>
       </div>
+      {builderOpen ? <WorkflowBuilderDialog existingIds={saved.map((workflow) => workflow.id)} onClose={() => setBuilderOpen(false)} onSave={saveNewWorkflow} /> : null}
     </section>
   );
 }
