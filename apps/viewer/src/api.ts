@@ -310,6 +310,47 @@ export function buildViewerActionRequest(draft: ViewerActionDraft): ViewerAction
           }
         }
       };
+    case "longPress":
+      return {
+        endpoint: "actions",
+        body: {
+          action: {
+            kind: "longPress",
+            x: parseNormalizedNumber(draft.x, "long press x"),
+            y: parseNormalizedNumber(draft.y, "long press y"),
+            durationMs: parseNonNegativeDuration(draft.durationMs, "long press duration")
+          }
+        }
+      };
+    case "pinch":
+      return {
+        endpoint: "actions",
+        body: {
+          action: {
+            kind: "pinch",
+            scale: parsePinchScale(draft.scale),
+            velocity: parseNonZeroNumber(draft.velocity, "pinch velocity"),
+            ...optionalGestureTarget(draft.identifier, draft.timeoutMs, "pinch")
+          }
+        }
+      };
+    case "rotate":
+      return {
+        endpoint: "actions",
+        body: {
+          action: {
+            kind: "rotate",
+            rotation: parseNonZeroNumber(draft.rotation, "rotation"),
+            velocity: parseNonZeroNumber(draft.velocity, "rotation velocity"),
+            ...optionalGestureTarget(draft.identifier, draft.timeoutMs, "rotate")
+          }
+        }
+      };
+    case "twoFingerTap":
+      return {
+        endpoint: "actions",
+        body: { action: { kind: "twoFingerTap", ...optionalGestureTarget(draft.identifier, draft.timeoutMs, "two-finger tap") } }
+      };
     case "tapElement":
     case "assertVisible": {
       const identifier = draft.identifier.trim();
@@ -677,6 +718,39 @@ function parseNonNegativeDuration(value: ViewerNumericInput, label: string): num
   const number = parseNumberInput(value, label);
   if (number < 0) throw new ApiError(`${label} must be non-negative`);
   return number;
+}
+
+function parsePositiveNumber(value: ViewerNumericInput, label: string): number {
+  const number = parseNumberInput(value, label);
+  if (number <= 0) throw new ApiError(`${label} must be greater than 0`);
+  return number;
+}
+
+function parsePinchScale(value: ViewerNumericInput): number {
+  const scale = parsePositiveNumber(value, "pinch scale");
+  if (scale === 1) throw new ApiError("pinch scale must not equal 1");
+  return scale;
+}
+
+function parseNonZeroNumber(value: ViewerNumericInput, label: string): number {
+  const number = parseNumberInput(value, label);
+  if (number === 0) throw new ApiError(`${label} must be non-zero`);
+  return number;
+}
+
+function optionalGestureTarget(
+  identifierInput: string | undefined,
+  timeoutInput: ViewerNumericInput | undefined,
+  label: string
+): { identifier?: string; timeoutMs?: number } {
+  const identifier = cleanOptionalText(identifierInput);
+  const timeoutMs = !identifier || timeoutInput === undefined || timeoutInput === ""
+    ? undefined
+    : parseNonNegativeDuration(timeoutInput, `${label} timeout`);
+  return {
+    ...(identifier ? { identifier } : {}),
+    ...(timeoutMs !== undefined ? { timeoutMs } : {})
+  };
 }
 
 function cleanOptionalText(value: string | undefined): string | undefined {

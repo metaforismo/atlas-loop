@@ -40,11 +40,15 @@ Supported action kinds:
 - `typeText`: `text` must be non-empty.
 - `swipe`: `from`, `to`, and non-negative `durationMs`.
 - `edgeGesture`: `edge`, `distance` from `0` to `1`, and non-negative `durationMs`.
+- `longPress`: normalized `x` and `y` plus non-negative `durationMs`. Requires `xcuitest`.
+- `pinch`: positive, non-`1` `scale`, non-zero `velocity`, and optional `identifier` / non-negative `timeoutMs` element target. A scale below `1` pinches closed; a scale above `1` pinches open. Requires `xcuitest`.
+- `rotate`: non-zero `rotation` in radians, non-zero `velocity` in radians per second, and optional `identifier` / non-negative `timeoutMs` element target. Requires `xcuitest`.
+- `twoFingerTap`: optional `identifier` / non-negative `timeoutMs` element target. Requires `xcuitest`.
 - `tapElement`: `identifier` is a non-empty accessibility identifier; optional non-negative `timeoutMs` bounds the wait for the element. Requires an element-capable input backend (`xcuitest`).
 - `assertVisible`: same fields as `tapElement`, plus optional `markScreen` to declare the asserted element a screen-level container; asserts the element exists and reports its visibility state (including whether it covers most of the app window) as evidence. Screen-level assertions name the corresponding Atlas map screen, either explicitly via `markScreen` or automatically when the element covers >= 70% of the window. Requires an element-capable input backend (`xcuitest`).
 - `screenshot`: optional `reason`.
 - `install`: `appPath`.
-- `launch`: `bundleId`, optional `arguments`, optional `environment`.
+- `launch`: `bundleId`, optional `arguments`, optional `environment`. The local Simulator adapter terminates an already-running instance before launching so arguments and environment are reapplied deterministically.
 - `wait`: non-negative `durationMs`.
 
 Coordinates are normalized so clients do not need to know the physical Simulator resolution before issuing an action.

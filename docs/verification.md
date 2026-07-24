@@ -86,6 +86,22 @@ The CGEvent backend remains host-gated: it needs a visible Simulator window
 and Accessibility permission for the helper process, and a demo-route
 screenshot only proves launch state, not consumed input.
 
+For native multi-touch proof, launch the demo's instrumented Gesture Lab and
+target its accessibility element:
+
+```sh
+npm run cli -- session start --udid "$ATLAS_LOOP_SMOKE_UDID" --input-backend xcuitest
+npm run cli -- launch --session latest --bundle-id app.atlasloop.CommerceDemo \
+  --args=--atlas-demo-route,gesture-lab
+npm run cli -- assert-visible --session latest --id gesture-lab.canvas
+npm run cli -- pinch --session latest --scale 1.3 --velocity 0.8 --id gesture-lab.canvas
+npm run cli -- rotate --session latest --radians 1.57 --velocity 1 --id gesture-lab.canvas
+npm run cli -- two-finger-tap --session latest --id gesture-lab.canvas
+```
+
+The after-screenshots and `metadata/input-action-*.json` records must name the
+gesture kind, `xcuitest` backend, target identifier when supplied, and `ok: true`.
+
 For protocol compatibility checks without a booted Simulator:
 
 ```sh

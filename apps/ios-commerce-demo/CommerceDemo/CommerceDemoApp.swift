@@ -22,11 +22,15 @@ private struct CheckoutRootView: View {
 
     var body: some View {
         NavigationStack(path: $path) {
-            CatalogView(products: Product.catalog) { product in
-                path.append(.productDetail(product.id))
-            }
+            CatalogView(
+                products: Product.catalog,
+                onSelect: { product in path.append(.productDetail(product.id)) },
+                onGestureLab: { path.append(.gestureLab) }
+            )
             .navigationDestination(for: CheckoutRoute.self) { route in
                 switch route {
+                case .gestureLab:
+                    GestureLabView()
                 case .productDetail(let productID):
                     ProductDetailView(product: product(withID: productID)) { product in
                         cartLine = CartLine(product: product, quantity: 1)
@@ -64,6 +68,7 @@ private struct CheckoutRootView: View {
 }
 
 private enum CheckoutRoute: Hashable {
+    case gestureLab
     case productDetail(String)
     case cart
     case shipping
@@ -78,6 +83,7 @@ private enum DemoLaunchRoute {
     case shipping
     case paymentReview
     case confirmation
+    case gestureLab
 
     static let argumentName = "--atlas-demo-route"
     static let environmentName = "ATLAS_LOOP_DEMO_ROUTE"
@@ -103,6 +109,8 @@ private enum DemoLaunchRoute {
             self = .paymentReview
         case "confirmation", "confirm", "complete":
             self = .confirmation
+        case "gesture", "gesture-lab", "gestures":
+            self = .gestureLab
         default:
             return nil
         }
@@ -199,6 +207,9 @@ private struct CheckoutLaunchState {
         case .confirmation?:
             path = [.confirmation]
             cartLine = fixtureLine
+        case .gestureLab?:
+            path = [.gestureLab]
+            cartLine = nil
         }
     }
 }
@@ -240,19 +251,131 @@ private struct OrderConfirmation: Hashable {
 private struct CatalogView: View {
     let products: [Product]
     let onSelect: (Product) -> Void
+    let onGestureLab: () -> Void
 
     var body: some View {
-        List(products) { product in
-            Button {
-                onSelect(product)
-            } label: {
-                ProductRow(product: product)
+        List {
+            Section("Test surfaces") {
+                Button(action: onGestureLab) {
+                    Label("Gesture Lab", systemImage: "hand.draw")
+                        .font(.headline)
+                        .padding(.vertical, 8)
+                }
+                .accessibilityIdentifier("catalog.gesture-lab")
             }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("catalog.product.\(product.id)")
+
+            Section("Products") {
+                ForEach(products) { product in
+                    Button {
+                        onSelect(product)
+                    } label: {
+                        ProductRow(product: product)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("catalog.product.\(product.id)")
+                }
+            }
         }
         .navigationTitle("Catalog")
         .accessibilityIdentifier("catalog")
+    }
+}
+
+private struct GestureLabView: View {
+    @State private var scale = 1.0
+    @State private var rotation = Angle.zero
+    @State private var longPressCount = 0
+
+    var body: some View {
+        VStack(spacing: 24) {
+            VStack(spacing: 6) {
+                Text("Native gesture target")
+                    .font(.title2.bold())
+                Text("Pinch, rotate, or hold the canvas. Atlas Loop records every action and its after-state.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+
+            ZStack {
+                RoundedRectangle(cornerRadius: 34, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [.indigo, .blue, .cyan],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                Circle()
+                    .stroke(.white.opacity(0.7), lineWidth: 2)
+                    .frame(width: 112, height: 112)
+                Image(systemName: "rotate.3d")
+                    .font(.system(size: 44, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+            .frame(width: 230, height: 230)
+            .scaleEffect(scale)
+            .rotationEffect(rotation)
+            .shadow(color: .blue.opacity(0.28), radius: 26, y: 16)
+            .contentShape(Rectangle())
+            .simultaneousGesture(
+                MagnificationGesture()
+                    .onChanged { scale = min(max($0, 0.55), 2.4) }
+            )
+            .simultaneousGesture(
+                RotationGesture()
+                    .onChanged { rotation = $0 }
+            )
+            .simultaneousGesture(
+                LongPressGesture(minimumDuration: 0.55)
+                    .onEnded { _ in longPressCount += 1 }
+            )
+            .accessibilityElement(children: .ignore)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityLabel("Native gesture canvas")
+            .accessibilityValue("Scale \(scale, specifier: "%.2f"), rotation \(rotation.radians, specifier: "%.2f") radians, long presses \(longPressCount)")
+            .accessibilityIdentifier("gesture-lab.canvas")
+
+            HStack(spacing: 10) {
+                GestureMetric(label: "Scale", value: scale.formatted(.number.precision(.fractionLength(2))))
+                GestureMetric(label: "Radians", value: rotation.radians.formatted(.number.precision(.fractionLength(2))))
+                GestureMetric(label: "Holds", value: String(longPressCount))
+            }
+            .accessibilityIdentifier("gesture-lab.metrics")
+
+            Button("Reset canvas") {
+                withAnimation(.snappy) {
+                    scale = 1
+                    rotation = .zero
+                    longPressCount = 0
+                }
+            }
+            .buttonStyle(.bordered)
+            .accessibilityIdentifier("gesture-lab.reset")
+
+            Spacer(minLength: 0)
+        }
+        .padding(24)
+        .navigationTitle("Gesture Lab")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+private struct GestureMetric: View {
+    let label: String
+    let value: String
+
+    var body: some View {
+        VStack(spacing: 4) {
+            Text(value)
+                .font(.headline.monospacedDigit())
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 12)
+        .background(.secondary.opacity(0.09), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }
 

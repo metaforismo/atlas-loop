@@ -242,7 +242,7 @@ export function timelineKindClassName(item: TimelineItem): string {
   const text = `${item.sourceType} ${item.title} ${item.detail}`.toLowerCase();
   if (item.sourceType === "artifact") return "kind-other";
   if (text.includes("error") || item.tone === "bad") return "kind-log";
-  if (text.includes("action") || text.includes("tap") || text.includes("swipe") || text.includes("type")) return "kind-action";
+  if (text.includes("action") || text.includes("tap") || text.includes("swipe") || text.includes("type") || text.includes("pinch") || text.includes("rotate") || text.includes("press")) return "kind-action";
   if (text.includes("session") || text.includes("status")) return "kind-metadata";
   return "kind-other";
 }
@@ -251,7 +251,7 @@ export function timelineSourceLabel(item: TimelineItem): string {
   if (item.sourceType === "artifact") return "Artifact";
   const text = `${item.title} ${item.detail}`.toLowerCase();
   if (text.includes("error") || item.tone === "bad") return "Error";
-  if (text.includes("action") || text.includes("tap") || text.includes("swipe") || text.includes("type")) return "Action";
+  if (text.includes("action") || text.includes("tap") || text.includes("swipe") || text.includes("type") || text.includes("pinch") || text.includes("rotate") || text.includes("press")) return "Action";
   if (text.includes("session") || text.includes("status")) return "Session";
   return "Event";
 }

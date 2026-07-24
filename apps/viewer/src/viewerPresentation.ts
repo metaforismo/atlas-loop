@@ -1410,6 +1410,14 @@ function replayMarkerLabel(action: ActionLike): string {
       return "swipe";
     case "edgeGesture":
       return "edge gesture";
+    case "longPress":
+      return "long press";
+    case "pinch":
+      return "pinch";
+    case "rotate":
+      return "rotate";
+    case "twoFingerTap":
+      return "two-finger tap";
     case "screenshot":
       return "screenshot";
     default:
@@ -1428,7 +1436,18 @@ export interface ActionEvidencePair {
   tap?: { x: number; y: number };
 }
 
-const EVIDENCE_PAIR_KINDS = new Set(["tap", "typeText", "swipe", "edgeGesture", "tapElement", "assertVisible"]);
+const EVIDENCE_PAIR_KINDS = new Set([
+  "tap",
+  "typeText",
+  "swipe",
+  "edgeGesture",
+  "longPress",
+  "pinch",
+  "rotate",
+  "twoFingerTap",
+  "tapElement",
+  "assertVisible"
+]);
 
 export function buildActionEvidencePairs(events: TraceEvent[], artifacts: ArtifactRef[]): ActionEvidencePair[] {
   const screenshots = artifacts

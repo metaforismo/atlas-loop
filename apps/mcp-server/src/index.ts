@@ -191,7 +191,7 @@ export const tools = [
     description: "Write filtered local daemon trace events to a local JSON file for agent handoff. Does not upload data.",
     inputSchema: eventExportSchema()
   },
-  { name: "atlas.performAction", description: "Perform tap/type/swipe/tapElement/assertVisible/wait/screenshot action.", inputSchema: performActionSchema() },
+  { name: "atlas.performAction", description: "Perform tap/type/swipe/edge/long-press/pinch/rotate/two-finger-tap/element/assert/wait/screenshot actions.", inputSchema: performActionSchema() },
   {
     name: "atlas.compareBaseline",
     description: "Compare a session screenshot against a locally saved baseline (visual regression); returns changed-pixel ratio and pass/fail.",
@@ -993,6 +993,35 @@ function normalizeActionInput(kind: string, record: Record<string, unknown>): Ac
         distance: numberField(record, "distance"),
         durationMs: numberField(record, "durationMs")
       };
+    case "longPress":
+      return {
+        kind,
+        x: numberField(record, "x"),
+        y: numberField(record, "y"),
+        durationMs: numberField(record, "durationMs")
+      };
+    case "pinch":
+    case "rotate": {
+      const identifier = record.identifier;
+      const timeoutMs = record.timeoutMs;
+      return {
+        kind,
+        ...(kind === "pinch"
+          ? { scale: numberField(record, "scale"), velocity: numberField(record, "velocity") }
+          : { rotation: numberField(record, "rotation"), velocity: numberField(record, "velocity") }),
+        ...(optionalStringValue(identifier) ? { identifier } : {}),
+        ...(typeof timeoutMs === "number" ? { timeoutMs } : {})
+      } as ActionInput;
+    }
+    case "twoFingerTap": {
+      const identifier = record.identifier;
+      const timeoutMs = record.timeoutMs;
+      return {
+        kind,
+        ...(optionalStringValue(identifier) ? { identifier } : {}),
+        ...(typeof timeoutMs === "number" ? { timeoutMs } : {})
+      };
+    }
     case "tapElement":
     case "assertVisible": {
       const timeoutMs = record.timeoutMs;
@@ -1198,6 +1227,31 @@ function performActionSchema(): Record<string, unknown> {
           edge: { type: "string", enum: ["left", "right", "top", "bottom"] },
           distance: normalizedNumberSchema(),
           durationMs: { type: "number", minimum: 0 }
+        }),
+        objectSchema(["kind", "x", "y", "durationMs"], {
+          kind: { const: "longPress" },
+          x: normalizedNumberSchema(),
+          y: normalizedNumberSchema(),
+          durationMs: { type: "number", minimum: 0 }
+        }),
+        objectSchema(["kind", "scale", "velocity"], {
+          kind: { const: "pinch" },
+          scale: { type: "number", exclusiveMinimum: 0, not: { const: 1 } },
+          velocity: { type: "number", not: { const: 0 } },
+          identifier: { type: "string", minLength: 1 },
+          timeoutMs: { type: "number", minimum: 0 }
+        }),
+        objectSchema(["kind", "rotation", "velocity"], {
+          kind: { const: "rotate" },
+          rotation: { type: "number", not: { const: 0 } },
+          velocity: { type: "number", not: { const: 0 } },
+          identifier: { type: "string", minLength: 1 },
+          timeoutMs: { type: "number", minimum: 0 }
+        }),
+        objectSchema(["kind"], {
+          kind: { const: "twoFingerTap" },
+          identifier: { type: "string", minLength: 1 },
+          timeoutMs: { type: "number", minimum: 0 }
         }),
         objectSchema(["kind", "identifier"], {
           kind: { const: "tapElement" },

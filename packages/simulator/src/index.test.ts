@@ -38,4 +38,28 @@ describe("simulator command wrapper", () => {
     expect(error.message).toContain("xcrun simctl install booted App.app failed");
     expect(error.details?.stderr).toBe("No devices are booted");
   });
+
+  it("terminates before launch so arguments and environment are reapplied", async () => {
+    const calls: Array<{ command: string; args: string[]; env?: NodeJS.ProcessEnv }> = [];
+    const simulator = createSimulator({
+      runCommand: async (command, args, options) => {
+        calls.push({ command, args, env: options?.env });
+        return { command, args, exitCode: command === "xcrun" && args[1] === "terminate" ? 3 : 0, stdout: "ok", stderr: "", durationMs: 1 };
+      }
+    });
+
+    const result = await simulator.launch({
+      simulator: { udid: "SIM-1" },
+      bundleId: "app.atlasloop.CommerceDemo",
+      arguments: ["--atlas-demo-route", "gesture-lab"],
+      environment: { ATLAS_TEST: "1" }
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(calls.map(({ args }) => args)).toEqual([
+      ["simctl", "terminate", "SIM-1", "app.atlasloop.CommerceDemo"],
+      ["simctl", "launch", "SIM-1", "app.atlasloop.CommerceDemo", "--atlas-demo-route", "gesture-lab"]
+    ]);
+    expect(calls[1]?.env?.SIMCTL_CHILD_ATLAS_TEST).toBe("1");
+  });
 });

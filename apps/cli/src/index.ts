@@ -328,6 +328,43 @@ export async function main(args: Args): Promise<number> {
     } as ActionInput);
   }
 
+  if (command === "long-press") {
+    return action(client, flags, {
+      kind: "longPress",
+      x: numberFlagRequired(flags, "x"),
+      y: numberFlagRequired(flags, "y"),
+      durationMs: numberFlag(flags, "duration-ms") ?? 800
+    });
+  }
+
+  if (command === "pinch") {
+    return action(client, flags, {
+      kind: "pinch",
+      scale: numberFlagRequired(flags, "scale"),
+      velocity: numberFlagRequired(flags, "velocity"),
+      ...(stringFlag(flags, "id") ? { identifier: stringFlag(flags, "id") } : {}),
+      ...(numberFlag(flags, "timeout-ms") !== undefined ? { timeoutMs: numberFlag(flags, "timeout-ms") } : {})
+    } as ActionInput);
+  }
+
+  if (command === "rotate") {
+    return action(client, flags, {
+      kind: "rotate",
+      rotation: numberFlagRequired(flags, "radians"),
+      velocity: numberFlagRequired(flags, "velocity"),
+      ...(stringFlag(flags, "id") ? { identifier: stringFlag(flags, "id") } : {}),
+      ...(numberFlag(flags, "timeout-ms") !== undefined ? { timeoutMs: numberFlag(flags, "timeout-ms") } : {})
+    } as ActionInput);
+  }
+
+  if (command === "two-finger-tap") {
+    return action(client, flags, {
+      kind: "twoFingerTap",
+      ...(stringFlag(flags, "id") ? { identifier: stringFlag(flags, "id") } : {}),
+      ...(numberFlag(flags, "timeout-ms") !== undefined ? { timeoutMs: numberFlag(flags, "timeout-ms") } : {})
+    } as ActionInput);
+  }
+
   if (command === "wait") {
     return action(client, flags, { kind: "wait", durationMs: numberFlagRequired(flags, "duration-ms") });
   }
@@ -1191,7 +1228,15 @@ function parseFlags(args: Args): Map<string, string | boolean> {
       positional.push(arg);
       continue;
     }
-    const key = arg.slice(2);
+    const rawFlag = arg.slice(2);
+    const equalsIndex = rawFlag.indexOf("=");
+    if (equalsIndex >= 0) {
+      const key = rawFlag.slice(0, equalsIndex);
+      if (!key) throw new Error(`Invalid flag ${arg}`);
+      flags.set(key, rawFlag.slice(equalsIndex + 1));
+      continue;
+    }
+    const key = rawFlag;
     const next = args[index + 1];
     if (!next || next.startsWith("--")) {
       flags.set(key, true);
@@ -1456,6 +1501,10 @@ Usage:
   atlas-loop type --session <id|latest> --text "Ada Lovelace"
   atlas-loop swipe --session <id|latest> --from 0.5,0.8 --to 0.5,0.2 --duration-ms 350
   atlas-loop edge --session <id|latest> --edge left --distance 0.75 --duration-ms 350
+  atlas-loop long-press --session <id|latest> --x 0.5 --y 0.5 [--duration-ms 800]
+  atlas-loop pinch --session <id|latest> --scale 1.8 --velocity 1 [--id map.canvas] [--timeout-ms 5000]
+  atlas-loop rotate --session <id|latest> --radians 1.57 --velocity 1 [--id map.canvas] [--timeout-ms 5000]
+  atlas-loop two-finger-tap --session <id|latest> [--id map.canvas] [--timeout-ms 5000]
   atlas-loop wait --session <id|latest> --duration-ms 1000
   atlas-loop screenshot --session <id|latest> [--reason label]
   atlas-loop artifacts list --session <id|latest>

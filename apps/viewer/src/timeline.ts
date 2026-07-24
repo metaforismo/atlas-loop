@@ -263,6 +263,14 @@ function actionTitle(action: ActionLike): string {
       return "Swipe";
     case "edgeGesture":
       return "Edge gesture";
+    case "longPress":
+      return "Long press";
+    case "pinch":
+      return "Pinch";
+    case "rotate":
+      return "Rotate";
+    case "twoFingerTap":
+      return "Two-finger tap";
     case "screenshot":
       return "Screenshot";
     case "install":
@@ -289,6 +297,14 @@ function actionDetail(action: ActionLike): string {
       return `${formatPointValue(action.from)} -> ${formatPointValue(action.to)}`;
     case "edgeGesture":
       return `${String(action.edge)} edge`;
+    case "longPress":
+      return `${formatPoint(action.x, action.y)} · ${String(action.durationMs)}ms`;
+    case "pinch":
+      return `scale ${String(action.scale)} · velocity ${String(action.velocity)}${typeof action.identifier === "string" ? ` · ${action.identifier}` : ""}`;
+    case "rotate":
+      return `${String(action.rotation)} rad · velocity ${String(action.velocity)}${typeof action.identifier === "string" ? ` · ${action.identifier}` : ""}`;
+    case "twoFingerTap":
+      return typeof action.identifier === "string" ? action.identifier : "Application target";
     case "screenshot":
       return typeof action.reason === "string" ? action.reason : "Capture requested";
     case "install":

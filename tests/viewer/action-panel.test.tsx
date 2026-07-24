@@ -46,7 +46,10 @@ describe("ActionPanel gesture sequences", () => {
       "pull-refresh",
       "scroll-reveal",
       "back-settle",
-      "carousel-scan"
+      "carousel-scan",
+      "pinch-zoom-audit",
+      "rotation-audit",
+      "press-context-audit"
     ]);
     expect(GESTURE_SEQUENCE_PRESETS.find((preset) => preset.id === "back-settle")?.steps[0]?.action).toEqual({
       kind: "edgeGesture",
@@ -54,6 +57,22 @@ describe("ActionPanel gesture sequences", () => {
       distance: "0.55",
       durationMs: "320"
     });
+  });
+
+  it("runs true multi-touch presets and exposes native gesture controls", async () => {
+    const fetchMock = vi.fn(async () => actionResponse("act_multitouch", true));
+    vi.stubGlobal("fetch", fetchMock);
+    renderPanel();
+
+    expect(container.textContent).toContain("Native gesture lab");
+    expect(container.querySelector("#action-pinch-scale")).not.toBeNull();
+    expect(container.querySelector("#action-rotation-radians")).not.toBeNull();
+    expect(container.querySelector("#action-multitouch-identifier")).not.toBeNull();
+
+    await clickSequence("Run Pinch zoom audit");
+    await waitForText("4 steps completed");
+    expect(requestAction(fetchMock, 0)).toEqual({ kind: "pinch", scale: 1.8, velocity: 1 });
+    expect(requestAction(fetchMock, 2)).toEqual({ kind: "pinch", scale: 0.55, velocity: -1 });
   });
 
   it("runs every sequence step in order and reports recorded evidence", async () => {

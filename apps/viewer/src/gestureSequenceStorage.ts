@@ -56,5 +56,18 @@ function isGestureSequenceStep(value: unknown): value is GestureSequenceStep {
   const candidate = value as Partial<GestureSequenceStep>;
   if (typeof candidate.label !== "string" || !candidate.action || typeof candidate.action !== "object") return false;
   const kind = (candidate.action as { kind?: unknown }).kind;
-  return ["screenshot", "wait", "tap", "typeText", "swipe", "edgeGesture", "tapElement", "assertVisible"].includes(String(kind));
+  return [
+    "screenshot",
+    "wait",
+    "tap",
+    "typeText",
+    "swipe",
+    "edgeGesture",
+    "longPress",
+    "pinch",
+    "rotate",
+    "twoFingerTap",
+    "tapElement",
+    "assertVisible"
+  ].includes(String(kind));
 }

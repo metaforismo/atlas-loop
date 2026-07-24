@@ -10,8 +10,8 @@ Atlas Loop drives real Simulator flows, records what the app showed after every 
 
 Selector-heavy tests often fail when an interface is renamed or rearranged even though the user journey still works. Atlas Loop centers the observed flow instead: what action ran, what appeared on screen, what evidence was captured, and whether the outcome held.
 
-- **Drive the Simulator** — build, install, launch, tap, type, swipe, edge-navigate, wait, and assert through CLI, MCP, or the live viewer.
-- **Run and compose gesture sequences** — exercise pull-to-refresh, repeated scroll, edge-back, and carousel flows, or assemble a custom ordered flow from taps, swipes, waits, edge gestures, and checkpoints. Runs fail fast, can be cancelled, save evidence after every completed step, and can be kept in a browser-local flow library.
+- **Drive the Simulator** — build, install, deterministically relaunch, tap, type, swipe, edge-navigate, long-press, pinch, rotate, two-finger tap, wait, and assert through CLI, MCP, or the live viewer.
+- **Run and compose gesture sequences** — exercise pull-to-refresh, repeated scroll, edge-back, carousel, pinch-zoom, rotation, and press-context flows, or assemble a custom ordered flow from the complete gesture catalog. Runs fail fast, can be cancelled, save evidence after every completed step, and can be kept in a browser-local flow library.
 - **See the whole run** — follow the current screenshot, observed-flow verdict, timeline, action evidence, metrics, recording, and artifact health in one viewer.
 - **Map real journeys** — derive screens and transitions from captured evidence, with deep links back to the producing session and action.
 - **Hand work forward** — export verifiable local bundles and compact next-step commands for another human or coding agent.
@@ -60,6 +60,17 @@ npm run cli -- session ready --session latest
 
 Element commands use accessibility-visible identifiers and labels with bounded polling; coordinate actions remain available when the flow requires them. The selected input backend is always recorded with the evidence.
 
+Native multi-touch actions use the XCUITest backend and can target the whole app or one accessibility element:
+
+```bash
+npm run cli -- long-press --session latest --x 0.5 --y 0.4 --duration-ms 800
+npm run cli -- pinch --session latest --scale 1.3 --velocity 0.8 --id gesture-lab.canvas
+npm run cli -- rotate --session latest --radians 1.57 --velocity 1 --id gesture-lab.canvas
+npm run cli -- two-finger-tap --session latest --id gesture-lab.canvas
+```
+
+The bundled demo exposes `gesture-lab.canvas` through the catalog or the deterministic `gesture-lab` launch route. Atlas relaunches an already-running app before applying launch arguments or environment, so route-dependent tests start from the requested state.
+
 ## What is included
 
 | Surface | Purpose |
@@ -69,7 +80,7 @@ Element commands use accessibility-visible identifiers and labels with bounded p
 | MCP server | Structured tools for coding agents using the same local controls |
 | React viewer | Session launcher, command search, live device image, reusable gesture sequences, observed-flow summary, timeline, evidence inspection, Atlas map, visual diffs, and handoff UI |
 | Native helper | Repo-owned NDJSON action protocol with `xcuitest` and visible-window `cgevent` backends |
-| Commerce demo | Deterministic SwiftUI app for end-to-end Simulator verification |
+| Commerce demo | Deterministic SwiftUI checkout plus an instrumented Gesture Lab for end-to-end Simulator verification |
 
 Atlas Loop is intentionally local-first and macOS/iOS-Simulator scoped. It does not require a hosted backend, authentication service, or third-party test platform at runtime.
 
