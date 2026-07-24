@@ -86,6 +86,12 @@ describe("WorkspaceOverview", () => {
     expect(metric("Needs attention")).toContain("2");
     expect(container.textContent).toContain("4/4 ready");
     expect(container.textContent).toContain("Review the observed flow");
+    expect(container.querySelector("#overview-device-title")?.textContent).toBe("iPhone Simulator");
+    expect(container.querySelector(".overview-device-cockpit")?.textContent).toContain("app.atlasloop.CommerceDemo");
+    expect(container.querySelector(".overview-device-cockpit")?.textContent).toContain("Input not reported");
+
+    await click("Run gesture");
+    expect(onOpen).toHaveBeenCalledWith("actions");
 
     await click("Open Atlas map");
     expect(onOpen).toHaveBeenCalledWith("atlas");
@@ -145,8 +151,21 @@ describe("WorkspaceOverview", () => {
 
     expect(container.textContent).toContain("No sessions yet");
     expect(container.textContent).toContain("Create the first observable run");
+    expect(container.querySelector("#overview-device-title")?.textContent).toBe("No device selected");
+    expect(metric("Active now")).toContain("No mutable sessions");
     await click("Start first session");
     expect(onStartSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("routes an offline empty device to runtime settings without implying it can start", async () => {
+    const onOpen = vi.fn();
+    const onStartSession = vi.fn();
+    render({ health: "offline", sessions: [], session: undefined, artifacts: [], onOpen, onStartSession });
+
+    expect(container.querySelector(".overview-device-cockpit")?.textContent).toContain("Daemon offline");
+    await click("Runtime settings");
+    expect(onOpen).toHaveBeenCalledWith("runtime");
+    expect(onStartSession).not.toHaveBeenCalled();
   });
 
   function render(overrides: Partial<Parameters<typeof WorkspaceOverview>[0]> = {}): void {

@@ -26,6 +26,8 @@ describe("LandingPage", () => {
     expect(container.querySelector("a[href='#main-content']")?.textContent).toBe("Skip to content");
     expect(container.querySelector("img[src='/atlas-loop-mark.png']")).not.toBeNull();
     expect(container.querySelector("[aria-label='Atlas Loop product preview']")?.textContent).toContain("Checkout still works");
+    expect(container.querySelector("[role='group'][aria-label='Checkout running on an iPhone Simulator']")).not.toBeNull();
+    expect(container.querySelector(".ios-device-island")).not.toBeNull();
     expect(container.querySelector("[role='tablist'][aria-label='Product preview modes']")).not.toBeNull();
     expect(container.querySelector("[aria-label='Multi-gesture flow preview']")?.textContent).toContain("Two-finger tap");
     expect(container.querySelector("[aria-label='Observed app catalog preview']")?.textContent).toContain("Commerce Demo");
@@ -57,6 +59,7 @@ describe("LandingPage", () => {
     expect(gestureTab.getAttribute("aria-selected")).toBe("true");
     expect(container.querySelector("[aria-label='Atlas Loop product preview']")?.textContent).toContain("Pinch open");
     expect(container.querySelector("[aria-label='Atlas Loop product preview']")?.textContent).toContain("Rotation 0.35 rad");
+    expect(container.querySelector("[role='group'][aria-label='Gesture Lab running on an iPhone Simulator']")).not.toBeNull();
 
     const clipboardWrite = vi.fn(async () => undefined);
     Object.defineProperty(window.navigator, "clipboard", { configurable: true, value: { writeText: clipboardWrite } });

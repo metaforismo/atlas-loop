@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { IOSDeviceFrame } from "./components/IOSDeviceFrame.js";
 
 const VIEWER_URL = "/?sessionId=latest&workspace=overview";
 const APPS_URL = "/?sessionId=latest&workspace=apps";
@@ -604,18 +605,24 @@ function HeroWorkbench() {
       </div>
       <div className={`landing-workbench-body preview-mode-${preview.id}`} aria-live="polite">
         <div className="preview-device-column">
-          <div className="preview-device">
-            <div className="preview-island" />
-            <div className="preview-app-bar"><span>{preview.appTitle}</span><small>{preview.appMeta}</small></div>
-            <div className="preview-order-card">
-              <span>{preview.cardLabel}</span>
-              <strong>{preview.cardTitle}</strong>
-              <p>{preview.cardDetail}</p>
-              <div><span>{preview.metricLabel}</span><strong>{preview.metricValue}</strong></div>
+          <IOSDeviceFrame
+            label={`${preview.appTitle} running on an iPhone Simulator`}
+            meta={`iPhone 16 Pro · ${preview.appMeta}`}
+            status="online"
+            variant="hero"
+          >
+            <div className="preview-device-screen">
+              <div className="preview-app-bar"><span>{preview.appTitle}</span><small>{preview.appMeta}</small></div>
+              <div className="preview-order-card">
+                <span>{preview.cardLabel}</span>
+                <strong>{preview.cardTitle}</strong>
+                <p>{preview.cardDetail}</p>
+                <div><span>{preview.metricLabel}</span><strong>{preview.metricValue}</strong></div>
+              </div>
+              <div className="preview-device-action">{preview.action}</div>
+              <span className="preview-tap-target" />
             </div>
-            <div className="preview-device-action">{preview.action}</div>
-            <span className="preview-tap-target" />
-          </div>
+          </IOSDeviceFrame>
         </div>
         <div className="preview-steps-column">
           <div className="preview-run-heading">

@@ -1,5 +1,5 @@
 import { useDeferredValue, useMemo, useState } from "react";
-import { Search01Icon } from "@hugeicons/core-free-icons";
+import { FileVerifiedIcon, Search01Icon, SmartPhone01Icon, TouchInteraction02Icon } from "@hugeicons/core-free-icons";
 import type {
   ArtifactHealth,
   ArtifactRef,
@@ -106,10 +106,12 @@ export function WorkspaceOverview({
         </div>
       </header>
 
+      <SelectedDeviceCockpit health={health} session={session} onOpen={onOpen} onStartSession={onStartSession} />
+
       <div className="workspace-overview-metrics" aria-label="Workspace metrics">
         <OverviewMetric label="Local sessions" value={sessionListStatus === "ready" ? String(sessions.length) : "--"} detail={sessionListStatus === "loading" ? "Loading history" : "Stored by the daemon"} />
-        <OverviewMetric label="Active now" value={sessionListStatus === "ready" ? String(activeSessions) : "--"} detail={activeSessions === 1 ? "1 mutable session" : `${activeSessions} mutable sessions`} tone={activeSessions > 0 ? "good" : "neutral"} />
-        <OverviewMetric label="Evidence items" value={sessionListStatus === "ready" ? String(evidenceCount) : "--"} detail={`${eventCount} events in selected run`} />
+        <OverviewMetric label="Active now" value={sessionListStatus === "ready" ? String(activeSessions) : "--"} detail={activeSessions === 0 ? "No mutable sessions" : activeSessions === 1 ? "1 mutable session" : `${activeSessions} mutable sessions`} tone={activeSessions > 0 ? "good" : "neutral"} />
+        <OverviewMetric label="Evidence items" value={sessionListStatus === "ready" ? String(evidenceCount) : "--"} detail={session ? `${eventCount} events in selected run` : "No selected run"} />
         <OverviewMetric label="Needs attention" value={sessionListStatus === "ready" ? String(failedSessions) : "--"} detail={failedSessions > 0 ? "Failed or blocked runs" : "No failed runs found"} tone={failedSessions > 0 ? "bad" : "good"} />
       </div>
 
@@ -139,10 +141,15 @@ export function WorkspaceOverview({
           <button type="button" onClick={() => onOpen("tests")}><span>02</span><div><strong>Author a local test</strong><small>Turn readable steps into exact simulator actions</small></div></button>
           <button type="button" onClick={() => onOpen("library")}><span>03</span><div><strong>Reuse a step module</strong><small>Compose tests from visible local building blocks</small></div></button>
           <button type="button" onClick={() => onOpen("workflows")}><span>04</span><div><strong>Run a workflow</strong><small>Reuse ordered gestures against this session</small></div></button>
-          <button type="button" onClick={() => onOpen("sessions")}><span>05</span><div><strong>Browse sessions</strong><small>Triage every local run and input path</small></div></button>
-          <button type="button" onClick={() => onOpen("apps")}><span>06</span><div><strong>Browse observed apps</strong><small>Relaunch from the local run history</small></div></button>
-          <button type="button" onClick={() => onOpen("atlas")}><span>07</span><div><strong>Open Atlas map</strong><small>Inspect observed screens and transitions</small></div></button>
-          <button type="button" onClick={() => onOpen("runtime")}><span>08</span><div><strong>Runtime settings</strong><small>Change daemon or follow another session</small></div></button>
+          <details className="overview-more-paths">
+            <summary><span>More tools</span><small>Sessions, apps, Atlas, and runtime</small><i aria-hidden="true">+</i></summary>
+            <div>
+              <button type="button" onClick={() => onOpen("sessions")}><span>05</span><div><strong>Browse sessions</strong><small>Triage every local run and input path</small></div></button>
+              <button type="button" onClick={() => onOpen("apps")}><span>06</span><div><strong>Browse observed apps</strong><small>Relaunch from the local run history</small></div></button>
+              <button type="button" onClick={() => onOpen("atlas")}><span>07</span><div><strong>Open Atlas map</strong><small>Inspect observed screens and transitions</small></div></button>
+              <button type="button" onClick={() => onOpen("runtime")}><span>08</span><div><strong>Runtime settings</strong><small>Change daemon or follow another session</small></div></button>
+            </div>
+          </details>
         </aside>
 
         {sessionListStatus === "ready" && attentionSessions.length > 0 ? (
@@ -244,6 +251,58 @@ export function WorkspaceOverview({
             </>
           )}
         </section>
+      </div>
+    </section>
+  );
+}
+
+function SelectedDeviceCockpit({
+  health,
+  session,
+  onOpen,
+  onStartSession
+}: Pick<WorkspaceOverviewProps, "health" | "session" | "onOpen" | "onStartSession">) {
+  const connected = health === "online";
+  const deviceName = session?.simulator?.name ?? (session ? "iPhone Simulator" : "No device selected");
+  const appName = session?.app?.bundleId ?? session?.app?.scheme ?? session?.app?.appPath ?? "No app reported";
+  const runtime = session?.simulator?.runtime ?? session?.platform ?? "Runtime not reported";
+  const input = session?.inputBackend === "xcuitest"
+    ? "XCUITest"
+    : session?.inputBackend === "cgevent"
+      ? "Core Graphics"
+      : session?.backend ?? "Input not reported";
+
+  return (
+    <section className={`overview-device-cockpit ${session ? "has-session" : "is-empty"} tone-${connected ? "good" : health === "checking" ? "warn" : "bad"}`} aria-labelledby="overview-device-title">
+      <div className="overview-device-identity">
+        <span className="overview-device-icon" aria-hidden="true"><ProductIcon icon={SmartPhone01Icon} size={20} /></span>
+        <div>
+          <p className="kicker">Selected device</p>
+          <h2 id="overview-device-title" title={deviceName}>{deviceName}</h2>
+          <p>{session ? `${session.id} · ${session.status}` : connected ? "Start a session to bind a Simulator and app." : "Reconnect the local daemon before starting a Simulator session."}</p>
+        </div>
+      </div>
+
+      <dl className="overview-device-facts">
+        <div><dt>Runtime</dt><dd title={runtime}>{runtime}</dd></div>
+        <div><dt>Observed app</dt><dd title={appName}>{appName}</dd></div>
+        <div><dt>Input path</dt><dd title={input}>{input}</dd></div>
+        <div><dt>Last signal</dt><dd>{session ? formatDateTime(sessionUpdatedAt(session)) : connected ? "Ready for first run" : "Daemon offline"}</dd></div>
+      </dl>
+
+      <div className="overview-device-actions" aria-label="Selected device actions">
+        {session ? (
+          <>
+            <button type="button" onClick={() => onOpen("evidence")}><ProductIcon icon={SmartPhone01Icon} size={14} /><span>Open device</span></button>
+            <button type="button" onClick={() => onOpen("actions")}><ProductIcon icon={TouchInteraction02Icon} size={14} /><span>Run gesture</span></button>
+            <button type="button" onClick={() => onOpen("evidence")}><ProductIcon icon={FileVerifiedIcon} size={14} /><span>Inspect proof</span></button>
+          </>
+        ) : (
+          <button type="button" className="overview-device-start" onClick={connected ? onStartSession : () => onOpen("runtime")}>
+            <ProductIcon icon={connected ? SmartPhone01Icon : TouchInteraction02Icon} size={14} />
+            <span>{connected ? "Start session" : "Runtime settings"}</span>
+          </button>
+        )}
       </div>
     </section>
   );
