@@ -40,8 +40,8 @@ export function normalizeViewerView(value: string | null | undefined): "session"
   return value === "atlas" ? "atlas" : "session";
 }
 
-export function normalizeViewerWorkspace(value: string | null | undefined): "overview" | "workflows" | "evidence" {
-  if (value === "overview" || value === "workflows") return value;
+export function normalizeViewerWorkspace(value: string | null | undefined): "overview" | "apps" | "workflows" | "evidence" {
+  if (value === "overview" || value === "apps" || value === "workflows") return value;
   return "evidence";
 }
 

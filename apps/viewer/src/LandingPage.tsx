@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 const VIEWER_URL = "/?sessionId=latest&workspace=overview";
+const APPS_URL = "/?sessionId=latest&workspace=apps";
 const WORKFLOW_URL = "/?sessionId=latest&workspace=workflows";
 const GITHUB_URL = "https://github.com/metaforismo/atlas-loop";
 
@@ -15,6 +16,7 @@ export function LandingPage() {
         </a>
         <div className="landing-nav-links">
           <a href="#runtime">Runtime</a>
+          <a href="#apps">Apps</a>
           <a href="#gestures">Gestures</a>
           <a href="#workflows">Workflows</a>
           <a href="#evidence">Evidence</a>
@@ -28,6 +30,7 @@ export function LandingPage() {
           <summary>Menu</summary>
           <div>
             <a href="#runtime">Runtime</a>
+            <a href="#apps">Apps</a>
             <a href="#gestures">Gestures</a>
             <a href="#workflows">Workflows</a>
             <a href="#evidence">Evidence</a>
@@ -101,9 +104,20 @@ export function LandingPage() {
           <RuntimeVisual />
         </article>
 
-        <article className="landing-chapter landing-chapter-reverse" id="gestures">
+        <article className="landing-chapter landing-chapter-reverse" id="apps">
           <div className="landing-chapter-copy">
-            <p className="landing-section-index">03 / MULTI-GESTURE FLOWS</p>
+            <p className="landing-section-index">03 / OBSERVED APP CATALOG</p>
+            <h2>Every run should make the next run faster.</h2>
+            <p>Atlas Loop turns app identity already captured in local session evidence into a focused launchpad. Find prior runs, pin the apps that matter, and prefill the next Simulator session without inventing a second registry.</p>
+            <ul><li>Derived from bundle, scheme, or app path</li><li>Failed and blocked runs surface automatically</li><li>Browser-local pins with no hosted account</li></ul>
+            <a className="landing-inline-link" href={APPS_URL}>Browse observed apps →</a>
+          </div>
+          <AppCatalogVisual />
+        </article>
+
+        <article className="landing-chapter" id="gestures">
+          <div className="landing-chapter-copy">
+            <p className="landing-section-index">04 / MULTI-GESTURE FLOWS</p>
             <h2>Test motion, not just destinations.</h2>
             <p>Drive the gestures selectors cannot describe: pinch, rotate, two-finger tap, long press, edge navigation, swipes, waits, and evidence checkpoints.</p>
             <ul><li>Native XCUITest multi-touch</li><li>Leading-edge iOS navigation</li><li>Per-step failure and cancellation</li></ul>
@@ -111,9 +125,9 @@ export function LandingPage() {
           <GestureVisual />
         </article>
 
-        <article className="landing-chapter" id="workflows">
+        <article className="landing-chapter landing-chapter-reverse" id="workflows">
           <div className="landing-chapter-copy">
-            <p className="landing-section-index">04 / LOCAL WORKFLOW LIBRARY</p>
+            <p className="landing-section-index">05 / LOCAL WORKFLOW LIBRARY</p>
             <h2>Useful flows should stay useful.</h2>
             <p>Turn ordered gestures into reusable browser-local workflows. Search templates and saved flows, check the selected run, then execute the whole sequence without rebuilding it step by step.</p>
             <ul><li>Seven built-in flow templates</li><li>Safe local save, duplicate, and delete</li><li>One-click run into the evidence timeline</li></ul>
@@ -122,9 +136,9 @@ export function LandingPage() {
           <WorkflowVisual />
         </article>
 
-        <article className="landing-chapter landing-chapter-reverse" id="evidence">
+        <article className="landing-chapter" id="evidence">
           <div className="landing-chapter-copy">
-            <p className="landing-section-index">05 / REPLAYABLE EVIDENCE</p>
+            <p className="landing-section-index">06 / REPLAYABLE EVIDENCE</p>
             <h2>A failure should explain itself.</h2>
             <p>Every action can be paired with screenshots, video markers, CPU, memory, trace events, and artifact integrity. The handoff view turns that record into reproducible next commands.</p>
             <ul><li>Action-to-artifact correlation</li><li>Visual diff and replay tools</li><li>Portable artifact health reports</li></ul>
@@ -135,7 +149,7 @@ export function LandingPage() {
 
       <section className="landing-evidence" id="atlas">
         <div className="landing-evidence-copy">
-          <p className="landing-section-index">06 / ATLAS RUNTIME MAP</p>
+          <p className="landing-section-index">07 / ATLAS RUNTIME MAP</p>
           <h2>Every observed flow leaves a map.</h2>
           <p>
             The Atlas view derives screens and transitions from evidence already captured during a run. Deep links reconnect a map edge to the exact session, action, and artifact that produced it.
@@ -226,7 +240,7 @@ function QuickstartSection() {
   return (
     <section className="landing-quickstart" id="quickstart" aria-labelledby="landing-quickstart-title">
       <div className="landing-quickstart-copy">
-        <p className="landing-section-index">07 / FROM SOURCE TO SIGNAL</p>
+        <p className="landing-section-index">08 / FROM SOURCE TO SIGNAL</p>
         <h2 id="landing-quickstart-title">A useful first run in three steps.</h2>
         <p>Atlas Loop does not hide the runtime behind a hosted account. Verify the repo, start two local processes, and follow the first Simulator session into an evidence-ready workspace.</p>
         <div className="landing-quickstart-links">
@@ -279,6 +293,31 @@ function RuntimeVisual() {
         <p className="terminal-live"><i /> COMMERCEDEMO RUNNING</p>
       </div>
       <div className="runtime-metrics"><span><small>INPUT</small>XCUITest</span><span><small>LATENCY</small>42 ms</span><span><small>STORAGE</small>Local</span></div>
+    </div>
+  );
+}
+
+function AppCatalogVisual() {
+  const apps = [
+    { initials: "CD", name: "Commerce Demo", id: "app.atlasloop.CommerceDemo", runs: "12", state: "active" },
+    { initials: "GL", name: "Gesture Lab", id: "app.atlasloop.GestureLab", runs: "8", state: "observed" },
+    { initials: "LP", name: "Lantern Pay", id: "dev.lantern.payments", runs: "3", state: "attention" }
+  ];
+  return (
+    <div className="landing-feature-visual app-catalog-visual" aria-label="Observed app catalog preview">
+      <div className="feature-visual-bar"><span>LOCAL APP HISTORY</span><small>3 OBSERVED</small></div>
+      <div className="app-catalog-toolbar"><span>⌕ Search bundle or Simulator</span><b>LAST OBSERVED ↓</b></div>
+      <div className="app-catalog-list">
+        {apps.map((app, index) => (
+          <div className={index === 0 ? "selected" : ""} key={app.id}>
+            <i>{app.initials}</i>
+            <span><strong>{app.name}</strong><small>{app.id}</small></span>
+            <em><b>{app.runs}</b><small>runs</small></em>
+            <mark className={app.state}>{app.state}</mark>
+          </div>
+        ))}
+      </div>
+      <div className="app-catalog-footer"><span><small>SELECTED</small>Commerce Demo · iPhone 16 Pro</span><a href={APPS_URL}>START NEW RUN →</a></div>
     </div>
   );
 }
