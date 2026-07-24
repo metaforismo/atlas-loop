@@ -1,12 +1,14 @@
 import { spawn } from "node:child_process";
-import type {
-  AtlasLoopError,
-  AtlasLoopErrorCode,
-  BuildRequest,
-  LaunchRequest,
-  SimulatorRef
+import {
+  locationClearArgs,
+  locationSetArgs,
+  type AtlasLoopError,
+  type AtlasLoopErrorCode,
+  type BuildRequest,
+  type DeviceLocation,
+  type LaunchRequest,
+  type SimulatorRef
 } from "@atlas-loop/protocol";
-import { locationClearArgs, locationSetArgs, type DeviceLocation } from "@atlas-loop/protocol";
 
 export interface SimulatorCommandResult {
   command: string;
