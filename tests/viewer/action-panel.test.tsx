@@ -8,6 +8,7 @@ import {
   DEFAULT_ACTION_FORM
 } from "../../apps/viewer/src/components/ActionPanel.js";
 import { GESTURE_SEQUENCE_PRESETS } from "../../apps/viewer/src/gestureSequences.js";
+import { GESTURE_SEQUENCE_STORAGE_KEY } from "../../apps/viewer/src/gestureSequenceStorage.js";
 
 describe("ActionPanel gesture sequences", () => {
   let container: HTMLDivElement;
@@ -18,6 +19,19 @@ describe("ActionPanel gesture sequences", () => {
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
+    const values = new Map<string, string>();
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      value: {
+        get length() { return values.size; },
+        clear: () => values.clear(),
+        getItem: (key: string) => values.get(key) ?? null,
+        key: (index: number) => [...values.keys()][index] ?? null,
+        removeItem: (key: string) => { values.delete(key); },
+        setItem: (key: string, value: string) => { values.set(key, value); }
+      } satisfies Storage
+    });
+    window.localStorage.removeItem(GESTURE_SEQUENCE_STORAGE_KEY);
   });
 
   afterEach(async () => {
@@ -97,6 +111,20 @@ describe("ActionPanel gesture sequences", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(requestAction(fetchMock, 0)).toMatchObject({ kind: "swipe" });
     expect(requestAction(fetchMock, 1)).toEqual({ kind: "wait", durationMs: 250 });
+  });
+
+  it("saves, reloads, and removes a reusable gesture flow locally", async () => {
+    renderPanel();
+
+    await clickButtonWithText("Compose a gesture sequence");
+    await clickButtonWithText("Save to flow library");
+    expect(container.textContent).toContain("saved to this browser");
+    expect(JSON.parse(window.localStorage.getItem(GESTURE_SEQUENCE_STORAGE_KEY) ?? "[]")).toHaveLength(1);
+    expect(container.textContent).toContain("Update saved flow");
+
+    await clickButtonWithText("Delete saved flow");
+    expect(container.textContent).toContain("removed from this browser");
+    expect(JSON.parse(window.localStorage.getItem(GESTURE_SEQUENCE_STORAGE_KEY) ?? "[]")).toEqual([]);
   });
 
   it("lets an operator stop a running sequence without sending later steps", async () => {

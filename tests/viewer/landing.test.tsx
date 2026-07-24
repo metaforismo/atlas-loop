@@ -17,13 +17,16 @@ describe("LandingPage", () => {
 
     act(() => root.render(<LandingPage />));
 
-    expect(container.querySelector("h1")?.textContent).toBe("Let agents prove the app still works.");
-    expect(container.querySelector("a[href='/?sessionId=latest']")?.textContent).toContain("Open viewer");
+    expect(container.querySelector("h1")?.textContent).toContain("RUNTIME SOURCE");
+    expect(container.querySelector("a[href='/?sessionId=latest']")?.textContent).toContain("Launch");
     expect(container.querySelector("a[href='https://github.com/metaforismo/atlas-loop']")).not.toBeNull();
     expect(container.querySelector("a[aria-label='Atlas Loop home']")?.getAttribute("href")).toBe("/");
     expect(container.querySelector("a[href='#main-content']")?.textContent).toBe("Skip to content");
     expect(container.querySelector("img[src='/atlas-loop-mark.png']")).not.toBeNull();
     expect(container.querySelector("[aria-label='Atlas Loop product preview']")?.textContent).toContain("Checkout still works");
+    expect(container.querySelector("[aria-label='Multi-gesture flow preview']")?.textContent).toContain("Navigate back");
+    const atlasLink = [...container.querySelectorAll("a")].find((link) => link.getAttribute("href") === "/?sessionId=latest&view=atlas");
+    expect(atlasLink?.textContent).toContain("Atlas map");
 
     act(() => root.unmount());
   });

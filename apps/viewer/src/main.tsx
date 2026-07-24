@@ -1,5 +1,10 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import "@fontsource-variable/funnel-display";
+import "@fontsource-variable/geist-mono";
+import "@fontsource-variable/public-sans";
+import "@fontsource/chakra-petch/500.css";
+import "@fontsource/chakra-petch/600.css";
 import { App } from "./App.js";
 import { LandingPage } from "./LandingPage.js";
 import { shouldShowViewer } from "./routeMode.js";

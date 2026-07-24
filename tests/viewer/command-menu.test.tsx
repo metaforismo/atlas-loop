@@ -1,0 +1,54 @@
+// @vitest-environment jsdom
+
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { WorkspaceCommandMenu } from "../../apps/viewer/src/components/WorkspaceCommandMenu.js";
+
+describe("WorkspaceCommandMenu", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+  });
+
+  afterEach(async () => {
+    await act(async () => root.unmount());
+    container.remove();
+    vi.restoreAllMocks();
+  });
+
+  it("opens from the platform shortcut, filters commands, and selects a destination", async () => {
+    const onSelect = vi.fn();
+    act(() => root.render(<WorkspaceCommandMenu onSelect={onSelect} />));
+
+    await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true })));
+    const input = container.querySelector<HTMLInputElement>("input[placeholder^='Search sessions']")!;
+    expect(input).not.toBeNull();
+    await act(async () => {
+      input.value = "atlas";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const command = [...container.querySelectorAll(".command-menu-results button")].find((button) => button.textContent?.includes("Open Atlas map"));
+    expect(command).not.toBeUndefined();
+    await act(async () => command?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true })));
+
+    expect(onSelect).toHaveBeenCalledWith("atlas");
+    expect(container.querySelector("[role='dialog']")).toBeNull();
+  });
+
+  it("matches natural plural workspace queries", async () => {
+    act(() => root.render(<WorkspaceCommandMenu onSelect={vi.fn()} />));
+    await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", ctrlKey: true, bubbles: true })));
+    const input = container.querySelector<HTMLInputElement>("input[placeholder^='Search sessions']")!;
+    await act(async () => {
+      input.value = "actions";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(container.textContent).toContain("Run an action");
+  });
+});

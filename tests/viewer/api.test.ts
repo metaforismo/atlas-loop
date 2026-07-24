@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildViewerActionRequest,
+  createViewerSession,
   fetchArtifactHealth,
   fetchSessionHistory,
   fetchSessions,
@@ -137,6 +138,36 @@ describe("viewer api normalizers", () => {
     await expect(
       performViewerAction({ daemonUrl: "http://127.0.0.1:4317", sessionId: "sess_old" }, { kind: "screenshot" })
     ).rejects.toMatchObject({ message: "active session not found: sess_old", status: 404 });
+  });
+
+  it("creates a viewer session with normalized local runtime options", async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
+      new Response(JSON.stringify({ ok: true, data: { id: "sess_new", status: "created", inputBackend: "xcuitest" } }), {
+        status: 201,
+        headers: { "content-type": "application/json" }
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      createViewerSession("http://127.0.0.1:4317/", {
+        simulatorName: "  iPhone 16 Pro  ",
+        inputBackend: "xcuitest",
+        record: true
+      })
+    ).resolves.toMatchObject({ id: "sess_new", status: "created" });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:4317/v1/sessions",
+      expect.objectContaining({ method: "POST" })
+    );
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(JSON.parse(String(init.body))).toEqual({
+      simulator: { name: "iPhone 16 Pro" },
+      viewer: true,
+      inputBackend: "xcuitest",
+      record: true
+    });
   });
 
   it("fetches artifact health from the session-scoped daemon endpoint", async () => {

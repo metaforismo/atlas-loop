@@ -31,6 +31,8 @@ import { MetricsPanel } from "./components/MetricsPanel.js";
 import { ReplayPanel } from "./components/ReplayPanel.js";
 import { ScreenshotView } from "./components/ScreenshotView.js";
 import { SessionBrowserContent } from "./components/SessionBrowser.js";
+import { StartSessionPopover } from "./components/StartSessionPopover.js";
+import { WorkspaceCommandMenu, type WorkspaceCommandId } from "./components/WorkspaceCommandMenu.js";
 import { useAtlasLoopData, useViewerParams } from "./hooks/useAtlasLoopData.js";
 import { formatTapCoordinate, type ScreenshotTapTarget } from "./screenshotGeometry.js";
 import type { ViewerParams } from "./types.js";
@@ -276,6 +278,27 @@ export function App() {
     document.getElementById(id)?.scrollIntoView({ block: "start", behavior: "smooth" });
   };
 
+  const runWorkspaceCommand = (command: WorkspaceCommandId): void => {
+    const targets: Partial<Record<WorkspaceCommandId, string>> = {
+      overview: "viewer-stage",
+      sessions: "viewer-sessions",
+      evidence: "viewer-stage",
+      actions: "viewer-actions",
+      artifacts: "viewer-artifacts",
+      health: "viewer-health"
+    };
+    if (command === "atlas") {
+      applyViewerParams({ daemonUrl: params.daemonUrl, sessionId: params.sessionId, view: "atlas" });
+      return;
+    }
+    if (command === "home") {
+      window.location.assign("/");
+      return;
+    }
+    const target = targets[command];
+    if (target) scrollToWorkspaceSection(target);
+  };
+
   if (params.view === "atlas") {
     return (
       <AtlasView
@@ -296,6 +319,13 @@ export function App() {
           <strong>Evidence</strong>
         </nav>
         <div className="viewer-topbar-actions">
+          <WorkspaceCommandMenu onSelect={runWorkspaceCommand} />
+          <StartSessionPopover
+            daemonUrl={params.daemonUrl}
+            disabled={health !== "online"}
+            disabledReason="Start the Atlas Loop daemon before creating a session."
+            onStarted={(createdSession) => selectSession(createdSession.id)}
+          />
           <span className={`viewer-runtime-state tone-${healthTone(health)}`}>
             <span aria-hidden="true" />
             {health === "online" ? "Daemon live" : health === "checking" ? "Checking daemon" : "Daemon offline"}
