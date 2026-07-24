@@ -185,6 +185,7 @@ describe("viewer app interactions", { timeout: 30_000 }, () => {
     await act(async () => root?.render(<App />));
 
     await waitFor(() => getButtonByAriaLabel("Select artifact shot_checkout from timeline"), "timeline screenshot card");
+    expect(container?.querySelector("[role='group'][aria-label='iPhone 16 live viewport']")).not.toBeNull();
 
     await click(getFilterButton("Artifact type filters", "log"));
     await setInputValue(getInputByPlaceholder("Search artifacts"), "debug");

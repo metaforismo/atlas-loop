@@ -38,6 +38,7 @@ import { AtlasView } from "./atlas/AtlasView.js";
 import { ActionDetailPanel } from "./components/ActionDetailPanel.js";
 import { EmptyState, ErrorNotice, MetricTile, StatusRow } from "./components/common.js";
 import { ImageLightbox } from "./components/ImageLightbox.js";
+import { IOSDeviceFrame } from "./components/IOSDeviceFrame.js";
 import { LibraryWorkspace } from "./components/LibraryWorkspace.js";
 import { EvidenceHealthPanel } from "./components/EvidenceHealthPanel.js";
 import { FlowRunPanel } from "./components/FlowRunPanel.js";
@@ -724,8 +725,12 @@ export function App() {
           </div>
 
           <div className="phone-stand">
-            <div className="phone-frame">
-              <div className="phone-speaker" />
+            <IOSDeviceFrame
+              label={`${session?.simulator?.name ?? "iPhone Simulator"} live viewport`}
+              meta={`${session?.simulator?.runtime ?? session?.platform ?? "iOS runtime"} · ${session?.inputBackend ?? session?.backend ?? "input pending"}`}
+              status={health === "online" ? "online" : health === "checking" ? "idle" : "offline"}
+              variant="viewer"
+            >
               <ScreenshotView
                 screenshot={screenshot}
                 emptyMessage={isLatestFirstRun ? firstRunState.detail : undefined}
@@ -739,7 +744,7 @@ export function App() {
                 tapTarget={tapTarget}
                 onTapTarget={selectScreenshotTapTarget}
               />
-            </div>
+            </IOSDeviceFrame>
           </div>
 
           <div className="viewport-footer">
