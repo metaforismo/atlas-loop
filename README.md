@@ -13,6 +13,7 @@ The device frame shared by the landing preview and the live viewport is drawn fr
 Selector-heavy tests often fail when an interface is renamed or rearranged even though the user journey still works. Atlas Loop centers the observed flow instead: what action ran, what appeared on screen, what evidence was captured, and whether the outcome held.
 
 - **Drive the Simulator** — build, install, deterministically relaunch, tap, type, swipe, edge-navigate, long-press, pinch, rotate, two-finger tap, wait, and assert through CLI, MCP, or the live viewer.
+- **Put the device somewhere** — place the Simulator at any coordinate, or at one of eleven named presets chosen to cover the differences that actually break apps: both hemispheres, the equator, the date line, right-to-left and non-Latin locales, and half-hour time offsets. Coordinates are validated before they reach `simctl`, and the place a run believed it was in travels with its evidence.
 - **Author readable local tests** — write one deterministic command per line, inspect the exact action payload before execution, and keep the latest result beside the definition. Unsupported lines report their source number, an optional bundle guard blocks wrong-app runs, and saved definitions are recompiled at the storage boundary instead of trusting edited browser data.
 - **Compose visible step modules** — reuse built-in or browser-saved command blocks without introducing hidden runtime references. A module previews its exact actions, then copies its readable source into the test so the resulting definition stays inspectable, editable, and portable.
 - **Launch deterministic app states** — save reusable launch profiles beside step modules, then start an installed app with exact ordered arguments and non-secret environment values. Profiles are revalidated when loaded, malformed records are ignored, and secret-like or prototype-polluting keys are rejected before anything reaches browser storage.
@@ -110,6 +111,17 @@ npm run cli -- two-finger-tap --session latest --id gesture-lab.canvas
 ```
 
 The bundled demo exposes `gesture-lab.canvas` through the catalog or the deterministic `gesture-lab` launch route. Atlas relaunches an already-running app before applying launch arguments or environment, so route-dependent tests start from the requested state.
+
+Location is part of the run, not a manual step before it. Business logic that differs by region is otherwise only exercised wherever the machine happens to be:
+
+```bash
+npm run cli -- location presets
+npm run cli -- location set --session latest --preset tokyo
+npm run cli -- location set --session latest --lat 35.689487 --lon 139.691711
+npm run cli -- location clear --session latest
+```
+
+Coordinates are validated before they reach `simctl`: both axes are range-checked, both problems are reported together, a blank value is never read as zero, and the pair is always formatted with a dot separator and no exponent notation so a host set to a comma-decimal locale — or a coordinate near the prime meridian — cannot produce a command the device silently misreads. Each change is recorded as a `setLocation` action, so a run states where it believed it was.
 
 ## What is included
 

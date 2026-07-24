@@ -6,6 +6,9 @@ import type {
   LaunchRequest,
   SimulatorRef
 } from "@atlas-loop/protocol";
+import { locationClearArgs, locationSetArgs, type DeviceLocation } from "./location.js";
+
+export * from "./location.js";
 
 export interface SimulatorCommandResult {
   command: string;
@@ -53,6 +56,8 @@ export interface LaunchOptions extends SimulatorTargetOptions, LaunchRequest {}
 export interface ScreenshotOptions extends SimulatorTargetOptions {
   outputPath: string;
 }
+
+export interface SetLocationOptions extends SimulatorTargetOptions, DeviceLocation {}
 
 export interface RecordVideoOptions extends SimulatorTargetOptions {
   outputPath: string;
@@ -183,6 +188,29 @@ export function createSimulator(options: SimulatorOptions = {}) {
         "screenshot",
         options.outputPath
       ], { timeoutMs: options.timeoutMs });
+    },
+
+    /**
+     * Places the device at a coordinate. Callers validate with
+     * `parseDeviceLocation` first; this method only formats and runs.
+     */
+    async setLocation(options: SetLocationOptions): Promise<SimulatorCommandResult> {
+      return checked(
+        "COMMAND_FAILED",
+        "xcrun",
+        locationSetArgs(simulatorTarget(options.simulator), {
+          latitude: options.latitude,
+          longitude: options.longitude
+        }),
+        { timeoutMs: options.timeoutMs }
+      );
+    },
+
+    /** Returns the device to its own location, whatever that is. */
+    async clearLocation(options: SimulatorTargetOptions = {}): Promise<SimulatorCommandResult> {
+      return checked("COMMAND_FAILED", "xcrun", locationClearArgs(simulatorTarget(options.simulator)), {
+        timeoutMs: options.timeoutMs
+      });
     },
 
     async recordVideo(options: RecordVideoOptions): Promise<SimulatorCommandResult> {
