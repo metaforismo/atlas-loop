@@ -27,7 +27,23 @@ const sessions: SessionHistoryItem[] = [
     updatedAt: "2026-07-24T07:03:00.000Z",
     app: { bundleId: "dev.lantern.payments" },
     artifacts: { total: 3 },
-    events: { total: 2, latestAction: { actionId: "act_fail", ok: false } }
+    events: { total: 2, latestAction: { actionId: "act_fail", ok: false, error: { message: "Checkout button stayed disabled" } } }
+  },
+  {
+    id: "sess_complete",
+    status: "ended",
+    updatedAt: "2026-07-24T06:01:00.000Z",
+    simulator: { name: "iPhone 16 Pro" },
+    artifacts: { total: 1 },
+    events: { total: 3, latestAction: { actionId: "act_done", ok: true } }
+  },
+  {
+    id: "sess_blocked",
+    status: "ended",
+    updatedAt: "2026-07-24T05:02:00.000Z",
+    app: { bundleId: "dev.atlas.blocked" },
+    artifacts: { total: 1 },
+    blockingReasons: ["No displayable screenshot was captured"]
   }
 ];
 
@@ -64,10 +80,10 @@ describe("WorkspaceOverview", () => {
     render({ onOpen, onSelectSession });
 
     expect(container.querySelector("h1")?.textContent).toBe("Workspace overview");
-    expect(metric("Local sessions")).toContain("2");
+    expect(metric("Local sessions")).toContain("4");
     expect(metric("Active now")).toContain("1");
-    expect(metric("Evidence items")).toContain("11");
-    expect(metric("Needs attention")).toContain("1");
+    expect(metric("Evidence items")).toContain("13");
+    expect(metric("Needs attention")).toContain("2");
     expect(container.textContent).toContain("4/4 ready");
     expect(container.textContent).toContain("Review the observed flow");
 
@@ -77,6 +93,42 @@ describe("WorkspaceOverview", () => {
     const inspectButtons = [...container.querySelectorAll("button")].filter((button) => button.textContent === "Inspect");
     await act(async () => inspectButtons[1]?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
     expect(onSelectSession).toHaveBeenCalledWith("sess_failed");
+  });
+
+  it("turns failed runs into a searchable triage queue", async () => {
+    render();
+
+    const attentionQueue = container.querySelector<HTMLElement>(".overview-attention-queue")!;
+    expect(attentionQueue.textContent).toContain("Runs that need a closer look");
+    expect(attentionQueue.textContent).toContain("Checkout button stayed disabled");
+    expect(attentionQueue.textContent).toContain("No displayable screenshot was captured");
+
+    await click("Needs attention");
+    expect(container.querySelector(".overview-session-result-bar")?.textContent).toContain("2 of 4 sessions");
+    expect(container.querySelector(".overview-session-table")?.textContent).toContain("sess_failed");
+    expect(container.querySelector(".overview-session-table")?.textContent).not.toContain("sess_current");
+
+    const search = container.querySelector<HTMLInputElement>("input[aria-label='Search session history']")!;
+    await setInput(search, "missing flow");
+    expect(container.textContent).toContain("No sessions match");
+
+    await click("Clear filters");
+    expect(search.value).toBe("");
+    expect(container.querySelector(".overview-session-result-bar")?.textContent).toContain("4 of 4 sessions");
+  });
+
+  it("pages a large local history instead of rendering every run at once", async () => {
+    const largeHistory = Array.from({ length: 12 }, (_, index): SessionHistoryItem => ({
+      id: `sess_${String(index).padStart(2, "0")}`,
+      status: "ended",
+      updatedAt: `2026-07-23T${String(index).padStart(2, "0")}:00:00.000Z`,
+      artifacts: { total: index }
+    }));
+    render({ sessions: largeHistory });
+
+    expect(container.querySelectorAll(".overview-session-table-row")).toHaveLength(8);
+    await click("Show 4 more");
+    expect(container.querySelectorAll(".overview-session-table-row")).toHaveLength(12);
   });
 
   it("provides a purposeful first-run state and starts a session", async () => {
@@ -119,5 +171,14 @@ describe("WorkspaceOverview", () => {
     const button = [...container.querySelectorAll("button")].find((candidate) => candidate.textContent?.includes(text));
     if (!button) throw new Error(`Button ${text} not found`);
     await act(async () => button.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true })));
+  }
+
+  async function setInput(input: HTMLInputElement, value: string): Promise<void> {
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+      setter?.call(input, value);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      await Promise.resolve();
+    });
   }
 });

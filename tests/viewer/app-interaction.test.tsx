@@ -423,11 +423,45 @@ describe("viewer app interactions", { timeout: 30_000 }, () => {
     expect(document.querySelector("#workspace-overview-title")?.textContent).toBe("Workspace overview");
     expect(document.querySelector(".overview-recent-sessions")?.textContent).toContain(SESSION_ID);
     expect(getButtonByText(workspaceNavigation, "Overview").getAttribute("aria-current")).toBe("page");
+    expect(window.location.search).toContain("workspace=overview");
 
     const overview = document.querySelector<HTMLElement>(".workspace-overview")!;
     await click(getButtonByText(overview, "Open live evidence"));
     expect(shell.classList.contains("workspace-overview-active")).toBe(false);
     expect(getButtonByText(workspaceNavigation, "Live evidence").getAttribute("aria-current")).toBe("page");
+    expect(window.location.search).not.toContain("workspace=");
+  });
+
+  it("restores the workspace surface from browser history state", async () => {
+    window.history.replaceState(
+      null,
+      "",
+      `/?daemonUrl=${encodeURIComponent(DAEMON_URL)}&sessionId=${SESSION_ID}&workspace=overview`
+    );
+
+    await act(async () => root?.render(<App />));
+    await waitFor(() => {
+      const shell = document.querySelector("main.viewer-shell")!;
+      expect(shell.classList.contains("workspace-overview-active")).toBe(true);
+      expect(document.querySelector(".viewer-breadcrumb")?.textContent).toContain("Overview");
+      return true;
+    }, "deep-linked overview");
+
+    await act(async () => {
+      window.history.replaceState(
+        null,
+        "",
+        `/?daemonUrl=${encodeURIComponent(DAEMON_URL)}&sessionId=${SESSION_ID}`
+      );
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+
+    await waitFor(() => {
+      const shell = document.querySelector("main.viewer-shell")!;
+      expect(shell.classList.contains("workspace-overview-active")).toBe(false);
+      expect(document.querySelector(".viewer-breadcrumb")?.textContent).toContain("Evidence");
+      return true;
+    }, "history-restored evidence workspace");
   });
 });
 

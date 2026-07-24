@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-const VIEWER_URL = "/?sessionId=latest";
+const VIEWER_URL = "/?sessionId=latest&workspace=overview";
 const GITHUB_URL = "https://github.com/metaforismo/atlas-loop";
 
 export function LandingPage() {
@@ -17,6 +17,7 @@ export function LandingPage() {
           <a href="#gestures">Gestures</a>
           <a href="#evidence">Evidence</a>
           <a href="#atlas">Atlas</a>
+          <a href="#quickstart">Quickstart</a>
           <a href={GITHUB_URL} target="_blank" rel="noreferrer">
             GitHub
           </a>
@@ -28,6 +29,7 @@ export function LandingPage() {
             <a href="#gestures">Gestures</a>
             <a href="#evidence">Evidence</a>
             <a href="#atlas">Atlas</a>
+            <a href="#quickstart">Quickstart</a>
             <a href={GITHUB_URL} target="_blank" rel="noreferrer">GitHub</a>
           </div>
         </details>
@@ -135,6 +137,8 @@ export function LandingPage() {
         </div>
       </section>
 
+      <QuickstartSection />
+
       <section className="landing-closing">
         <p className="landing-section-index">READY WHEN THE SIMULATOR IS</p>
         <h2>Give the next agent proof,<br />not a hunch.</h2>
@@ -157,6 +161,95 @@ export function LandingPage() {
         </div>
       </footer>
     </main>
+  );
+}
+
+type QuickstartMode = "setup" | "services" | "session";
+type CopyState = "idle" | "copied" | "error";
+
+const QUICKSTARTS: Array<{ id: QuickstartMode; step: string; label: string; title: string; detail: string; commands: string }> = [
+  {
+    id: "setup",
+    step: "01",
+    label: "Verify",
+    title: "Verify the checkout",
+    detail: "Install dependencies, then confirm the types and local test suite before touching the Simulator.",
+    commands: "npm install\nnpm run typecheck\nnpm test"
+  },
+  {
+    id: "services",
+    step: "02",
+    label: "Start",
+    title: "Start the local control plane",
+    detail: "Run the evidence daemon and the viewer in separate terminals. Both bind to loopback by default.",
+    commands: "npm run daemon -- --port 4317\n# In another terminal\nnpm run viewer"
+  },
+  {
+    id: "session",
+    step: "03",
+    label: "Observe",
+    title: "Open the first observable run",
+    detail: "Check the host, select a Simulator, and launch a deep-linked workspace that follows the new session.",
+    commands: "npm run cli -- doctor\nnpm run cli -- session start --simulator \"iPhone 16\" --viewer"
+  }
+];
+
+function QuickstartSection() {
+  const [selectedMode, setSelectedMode] = useState<QuickstartMode>("setup");
+  const [copyState, setCopyState] = useState<CopyState>("idle");
+  const quickstart = QUICKSTARTS.find((candidate) => candidate.id === selectedMode) ?? QUICKSTARTS[0]!;
+
+  const copyCommands = async (): Promise<void> => {
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error("Clipboard API unavailable");
+      await navigator.clipboard.writeText(quickstart.commands);
+      setCopyState("copied");
+    } catch {
+      setCopyState("error");
+    }
+  };
+
+  return (
+    <section className="landing-quickstart" id="quickstart" aria-labelledby="landing-quickstart-title">
+      <div className="landing-quickstart-copy">
+        <p className="landing-section-index">06 / FROM SOURCE TO SIGNAL</p>
+        <h2 id="landing-quickstart-title">A useful first run in three steps.</h2>
+        <p>Atlas Loop does not hide the runtime behind a hosted account. Verify the repo, start two local processes, and follow the first Simulator session into an evidence-ready workspace.</p>
+        <div className="landing-quickstart-links">
+          <a href={VIEWER_URL}>Open the local overview →</a>
+          <a href={`${GITHUB_URL}#quick-start`} target="_blank" rel="noreferrer">Read the full setup</a>
+        </div>
+      </div>
+      <div className="landing-quickstart-console">
+        <div className="quickstart-tabs" role="tablist" aria-label="Quickstart steps">
+          {QUICKSTARTS.map((candidate) => (
+            <button
+              key={candidate.id}
+              id={`quickstart-tab-${candidate.id}`}
+              type="button"
+              role="tab"
+              aria-selected={candidate.id === selectedMode}
+              aria-controls="quickstart-command-panel"
+              onClick={() => { setSelectedMode(candidate.id); setCopyState("idle"); }}
+            >
+              <span>{candidate.step}</span>{candidate.label}
+            </button>
+          ))}
+        </div>
+        <div id="quickstart-command-panel" className="quickstart-command-panel" role="tabpanel" aria-labelledby={`quickstart-tab-${selectedMode}`} aria-live="polite">
+          <header>
+            <div><span>STEP {quickstart.step}</span><strong>{quickstart.title}</strong></div>
+            <button type="button" onClick={() => void copyCommands()}>{copyState === "copied" ? "Copied" : "Copy commands"}</button>
+          </header>
+          <p>{quickstart.detail}</p>
+          <pre><code>{quickstart.commands}</code></pre>
+          <footer>
+            <span><i aria-hidden="true" /> LOCAL ONLY</span>
+            <span role="status">{copyState === "error" ? "Clipboard blocked — select the commands manually." : copyState === "copied" ? "Commands copied to clipboard." : "No hosted account required."}</span>
+          </footer>
+        </div>
+      </div>
+    </section>
   );
 }
 

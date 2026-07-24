@@ -295,12 +295,15 @@ export interface ApiEnvelope<T> {
 }
 
 export type ViewerView = "session" | "atlas";
+export type ViewerWorkspace = "overview" | "evidence";
 
 export interface ViewerParams {
   daemonUrl: string;
   sessionId: string;
   viewerBaseUrl?: string;
   view?: ViewerView;
+  /** Deep link: open the operational overview or the evidence workspace. */
+  workspace?: ViewerWorkspace;
   /** Deep link: preselect this action's evidence pair in the session view. */
   actionId?: string;
   /** Deep link: preselect this artifact in the session view. */

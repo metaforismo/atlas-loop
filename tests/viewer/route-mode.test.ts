@@ -7,7 +7,7 @@ describe("shouldShowViewer", () => {
     expect(shouldShowViewer("?utm_source=github#workflow")).toBe(false);
   });
 
-  it.each(["daemonUrl", "sessionId", "view", "actionId", "artifactId"])(
+  it.each(["daemonUrl", "sessionId", "view", "workspace", "actionId", "artifactId"])(
     "preserves existing viewer deep links containing %s",
     (key) => {
       expect(shouldShowViewer(`?${key}=`)).toBe(true);
