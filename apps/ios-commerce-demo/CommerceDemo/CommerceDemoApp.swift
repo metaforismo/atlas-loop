@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import UIKit
 
 @main
 struct CommerceDemoApp: App {
@@ -282,64 +283,68 @@ private struct CatalogView: View {
 }
 
 private struct GestureLabView: View {
-    @State private var scale = 1.0
+    @State private var scale: CGFloat = 1
     @State private var rotation = Angle.zero
     @State private var longPressCount = 0
+    @State private var twoFingerTapCount = 0
 
     var body: some View {
         VStack(spacing: 24) {
             VStack(spacing: 6) {
                 Text("Native gesture target")
                     .font(.title2.bold())
-                Text("Pinch, rotate, or hold the canvas. Atlas Loop records every action and its after-state.")
+                Text("Pinch, rotate, hold, or two-finger tap the canvas. Atlas Loop records every action and its after-state.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
             }
 
             ZStack {
-                RoundedRectangle(cornerRadius: 34, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [.indigo, .blue, .cyan],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                Circle()
-                    .stroke(.white.opacity(0.7), lineWidth: 2)
-                    .frame(width: 112, height: 112)
-                Image(systemName: "rotate.3d")
-                    .font(.system(size: 44, weight: .semibold))
-                    .foregroundStyle(.white)
-            }
-            .frame(width: 230, height: 230)
-            .scaleEffect(scale)
-            .rotationEffect(rotation)
-            .shadow(color: .blue.opacity(0.28), radius: 26, y: 16)
-            .contentShape(Rectangle())
-            .simultaneousGesture(
-                MagnificationGesture()
-                    .onChanged { scale = min(max($0, 0.55), 2.4) }
-            )
-            .simultaneousGesture(
-                RotationGesture()
-                    .onChanged { rotation = $0 }
-            )
-            .simultaneousGesture(
-                LongPressGesture(minimumDuration: 0.55)
-                    .onEnded { _ in longPressCount += 1 }
-            )
-            .accessibilityElement(children: .ignore)
-            .accessibilityAddTraits(.isButton)
-            .accessibilityLabel("Native gesture canvas")
-            .accessibilityValue("Scale \(scale, specifier: "%.2f"), rotation \(rotation.radians, specifier: "%.2f") radians, long presses \(longPressCount)")
-            .accessibilityIdentifier("gesture-lab.canvas")
+                RoundedRectangle(cornerRadius: 30, style: .continuous)
+                    .fill(.blue.opacity(0.055))
 
-            HStack(spacing: 10) {
-                GestureMetric(label: "Scale", value: scale.formatted(.number.precision(.fractionLength(2))))
+                ZStack {
+                    RoundedRectangle(cornerRadius: 30, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [.indigo, .blue, .cyan],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                    Circle()
+                        .stroke(.white.opacity(0.7), lineWidth: 2)
+                        .frame(width: 84, height: 84)
+                    Image(systemName: "rotate.3d")
+                        .font(.system(size: 34, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+                .frame(width: 176, height: 176)
+                .scaleEffect(scale)
+                .rotationEffect(rotation)
+                .shadow(color: .blue.opacity(0.24), radius: 22, y: 14)
+
+                NativeGestureSurface(
+                    scale: $scale,
+                    rotation: $rotation,
+                    longPressCount: $longPressCount,
+                    twoFingerTapCount: $twoFingerTapCount
+                )
+                .frame(width: 176, height: 176)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 294)
+            .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 30, style: .continuous)
+                    .stroke(.blue.opacity(0.10), lineWidth: 1)
+            }
+
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible())], spacing: 10) {
+                GestureMetric(label: "Scale", value: Double(scale).formatted(.number.precision(.fractionLength(2))))
                 GestureMetric(label: "Radians", value: rotation.radians.formatted(.number.precision(.fractionLength(2))))
                 GestureMetric(label: "Holds", value: String(longPressCount))
+                GestureMetric(label: "Two-finger taps", value: String(twoFingerTapCount))
             }
             .accessibilityIdentifier("gesture-lab.metrics")
 
@@ -348,6 +353,7 @@ private struct GestureLabView: View {
                     scale = 1
                     rotation = .zero
                     longPressCount = 0
+                    twoFingerTapCount = 0
                 }
             }
             .buttonStyle(.bordered)
@@ -358,6 +364,101 @@ private struct GestureLabView: View {
         .padding(24)
         .navigationTitle("Gesture Lab")
         .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+private struct NativeGestureSurface: UIViewRepresentable {
+    @Binding var scale: CGFloat
+    @Binding var rotation: Angle
+    @Binding var longPressCount: Int
+    @Binding var twoFingerTapCount: Int
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(surface: self)
+    }
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.backgroundColor = .clear
+        view.isMultipleTouchEnabled = true
+        view.isAccessibilityElement = true
+        view.accessibilityIdentifier = "gesture-lab.canvas"
+        view.accessibilityLabel = "Native gesture canvas"
+        view.accessibilityTraits = .button
+
+        let pinch = UIPinchGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePinch(_:)))
+        let rotation = UIRotationGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleRotation(_:)))
+        let longPress = UILongPressGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleLongPress(_:)))
+        longPress.minimumPressDuration = 0.55
+        let twoFingerTap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleTwoFingerTap(_:)))
+        twoFingerTap.numberOfTouchesRequired = 2
+        twoFingerTap.require(toFail: pinch)
+        twoFingerTap.require(toFail: rotation)
+
+        for recognizer in [pinch, rotation, longPress, twoFingerTap] {
+            recognizer.delegate = context.coordinator
+            view.addGestureRecognizer(recognizer)
+        }
+        return view
+    }
+
+    func updateUIView(_ view: UIView, context: Context) {
+        context.coordinator.surface = self
+        view.accessibilityValue = String(
+            format: "Scale %.2f, rotation %.2f radians, long presses %d, two-finger taps %d",
+            locale: Locale(identifier: "en_US_POSIX"),
+            Double(scale),
+            rotation.radians,
+            longPressCount,
+            twoFingerTapCount
+        )
+    }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        var surface: NativeGestureSurface
+        private var initialScale: CGFloat = 1
+        private var initialRotation: Double = 0
+
+        init(surface: NativeGestureSurface) {
+            self.surface = surface
+        }
+
+        @objc func handlePinch(_ recognizer: UIPinchGestureRecognizer) {
+            if recognizer.state == .began {
+                initialScale = surface.scale
+            }
+            if recognizer.state == .began || recognizer.state == .changed || recognizer.state == .ended {
+                surface.scale = min(max(initialScale * recognizer.scale, 0.55), 2.4)
+            }
+        }
+
+        @objc func handleRotation(_ recognizer: UIRotationGestureRecognizer) {
+            if recognizer.state == .began {
+                initialRotation = surface.rotation.radians
+            }
+            if recognizer.state == .began || recognizer.state == .changed || recognizer.state == .ended {
+                surface.rotation = .radians(initialRotation + recognizer.rotation)
+            }
+        }
+
+        @objc func handleLongPress(_ recognizer: UILongPressGestureRecognizer) {
+            if recognizer.state == .ended {
+                surface.longPressCount += 1
+            }
+        }
+
+        @objc func handleTwoFingerTap(_ recognizer: UITapGestureRecognizer) {
+            if recognizer.state == .ended {
+                surface.twoFingerTapCount += 1
+            }
+        }
+
+        func gestureRecognizer(
+            _ gestureRecognizer: UIGestureRecognizer,
+            shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+        ) -> Bool {
+            !(gestureRecognizer is UITapGestureRecognizer || otherGestureRecognizer is UITapGestureRecognizer)
+        }
     }
 }
 

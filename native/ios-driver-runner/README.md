@@ -49,8 +49,8 @@ the server listens on `ATLAS_DRIVER_PORT` (default 4700).
   - `pinch { scale, velocity, identifier?, timeoutMs? }` — two-touch pinch on the app or one accessibility element
   - `rotate { rotation, velocity, identifier?, timeoutMs? }` — two-touch rotation in radians on the app or one accessibility element
   - `twoFingerTap { identifier?, timeoutMs? }` — two-touch tap on the app or one accessibility element
-  - `tapElement { identifier, timeoutMs? }` — waits for the accessibility id, taps it
-  - `assertVisible { identifier, timeoutMs? }` — returns `{ exists, isHittable, label, frame }`
+  - `tapElement { identifier, timeoutMs? }` — waits for the accessibility id and synthesizes a center-coordinate tap anchored to that resolved element
+  - `assertVisible { identifier, timeoutMs? }` — returns `{ exists, isHittable, label, value, frame }`
 - `POST /shutdown` → `{ ok, shuttingDown }`, then the driver loop ends and
   `xcodebuild` exits.
 

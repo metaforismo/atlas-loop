@@ -120,16 +120,21 @@ final class DriverController {
             guard frame.width > 0, frame.height > 0 else {
                 throw DriverError(.elementNotHittable, "element \(identifierText(json)) exists but has an empty frame", details: ["frame": frameDictionary(frame)])
             }
-            // XCUIElement.tap() silently drops events for apps this test did
-            // not launch itself (the daemon launches via simctl); synthesized
-            // coordinate taps always land, so tap the element's frame center.
-            // isHittable is recorded as evidence but not required: it flaps on
-            // SwiftUI list rows even when the coordinate tap succeeds.
+            // XCUIElement.tap() can silently drop events for apps this test did
+            // not launch itself (the daemon launches via simctl). Keep the
+            // synthesized coordinate anchored to the resolved element rather
+            // than translating it through the application frame: app-level
+            // coordinates stopped activating otherwise-hittable SwiftUI rows
+            // on iOS 26.5. isHittable remains evidence, not a hard requirement,
+            // because it can flap while the element coordinate still succeeds.
             let wasHittable = element.isHittable
-            let app = try requireTargetApp()
-            let tapPoint = try normalizedOffset(of: CGPoint(x: frame.midX, y: frame.midY), in: app)
-            app.coordinate(withNormalizedOffset: tapPoint).tap()
-            return ["identifier": identifierText(json), "frame": frameDictionary(frame), "wasHittable": wasHittable]
+            element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+            return [
+                "identifier": identifierText(json),
+                "frame": frameDictionary(frame),
+                "wasHittable": wasHittable,
+                "tapStrategy": "element-center-coordinate"
+            ]
         case "assertVisible":
             let (element, frame) = try resolveElement(json: json, kind: kind)
             let app = try requireTargetApp()
@@ -144,6 +149,7 @@ final class DriverController {
                 "exists": true,
                 "isHittable": element.isHittable,
                 "label": element.label,
+                "value": (element.value as? String) ?? "",
                 "frame": frameDictionary(frame),
                 "coversScreen": coverage >= 0.7
             ]
@@ -224,16 +230,6 @@ final class DriverController {
             throw DriverError(.invalidRequest, "\(label) requires an object with x and y")
         }
         return try normalizedPoint(x: point["x"], y: point["y"], label: label)
-    }
-
-    private func normalizedOffset(of point: CGPoint, in app: XCUIApplication) throws -> CGVector {
-        let appFrame = app.frame
-        guard appFrame.width > 0, appFrame.height > 0 else {
-            throw DriverError(.internalError, "target app frame is empty; cannot compute tap coordinates")
-        }
-        let dx = min(1, max(0, (point.x - appFrame.minX) / appFrame.width))
-        let dy = min(1, max(0, (point.y - appFrame.minY) / appFrame.height))
-        return CGVector(dx: dx, dy: dy)
     }
 
     private func validatedVector(x: Double, y: Double, label: String) throws -> CGVector {
