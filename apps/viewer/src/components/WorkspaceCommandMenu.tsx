@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
+import { Search01Icon } from "@hugeicons/core-free-icons";
 import { useModalDialog } from "../useModalDialog.js";
+import { ProductIcon } from "./ProductIcon.js";
 
 export type WorkspaceCommandId =
   | "overview"
+  | "tests"
   | "apps"
   | "workflows"
   | "sessions"
@@ -16,6 +19,7 @@ export type WorkspaceCommandId =
 
 const COMMANDS: Array<{ id: WorkspaceCommandId; label: string; group: string; hint: string }> = [
   { id: "overview", label: "Open workspace overview", group: "Workspace", hint: "Device viewport" },
+  { id: "tests", label: "Open local tests", group: "Workspace", hint: "Readable deterministic test steps" },
   { id: "apps", label: "Browse observed apps", group: "Workspace", hint: "App history and relaunch" },
   { id: "workflows", label: "Open workflow library", group: "Workspace", hint: "Saved flows and gesture templates" },
   { id: "sessions", label: "Browse sessions", group: "Workspace", hint: "Recent local runs" },
@@ -44,7 +48,7 @@ export function WorkspaceCommandMenu({ onSelect }: { onSelect: (command: Workspa
   return (
     <>
       <button type="button" className="command-menu-trigger" aria-label="Search workspace" aria-keyshortcuts="Meta+K Control+K" onClick={() => setOpen(true)}>
-        <span aria-hidden="true">⌕</span><span>Search workspace</span><kbd>⌘K</kbd>
+        <ProductIcon icon={Search01Icon} size={14} /><span>Search workspace</span><kbd>⌘K</kbd>
       </button>
       {open ? <WorkspaceCommandDialog onClose={() => setOpen(false)} onSelect={onSelect} /> : null}
     </>
@@ -113,7 +117,7 @@ function WorkspaceCommandDialog({
     <div className="command-menu-backdrop" onMouseDown={onClose}>
       <div ref={dialogRef} className="command-menu-dialog" role="dialog" aria-modal="true" aria-label="Search workspace" tabIndex={-1} onMouseDown={(event) => event.stopPropagation()}>
         <label className="command-menu-search">
-          <span aria-hidden="true">⌕</span>
+          <ProductIcon icon={Search01Icon} size={17} />
           <input
             autoFocus
             role="combobox"

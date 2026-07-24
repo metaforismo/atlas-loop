@@ -1,4 +1,5 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { Search01Icon } from "@hugeicons/core-free-icons";
 import {
   cloneGestureSteps,
   GESTURE_SEQUENCE_PRESETS,
@@ -12,6 +13,7 @@ import {
 import { runGestureSequenceSteps } from "../gestureSequenceRunner.js";
 import type { Session, ViewerParams } from "../types.js";
 import type { ActionMutationState } from "./ActionPanel.js";
+import { ProductIcon } from "./ProductIcon.js";
 
 type WorkflowScope = "all" | "saved" | "templates" | "multitouch";
 type WorkflowSort = "name" | "steps";
@@ -195,7 +197,7 @@ export function WorkflowWorkspace({
             <span>{visibleEntries.length} of {entries.length}</span>
           </div>
           <div className="workflow-controls" role="search" aria-label="Filter workflows">
-            <label className="workflow-search"><span aria-hidden="true">⌕</span><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search name, step, or action" aria-label="Search workflows" /></label>
+            <label className="workflow-search"><ProductIcon icon={Search01Icon} size={14} /><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search name, step, or action" aria-label="Search workflows" /></label>
             <div className="workflow-scopes" aria-label="Workflow source filter">
               {WORKFLOW_SCOPES.map((option) => <button type="button" key={option.id} aria-pressed={scope === option.id} onClick={() => setScope(option.id)}>{option.label}</button>)}
             </div>

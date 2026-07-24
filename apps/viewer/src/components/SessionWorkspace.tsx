@@ -1,4 +1,5 @@
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { Search01Icon } from "@hugeicons/core-free-icons";
 import { observedSessionNeedsAttention } from "../appCatalog.js";
 import {
   filterAndSortSessionHistory,
@@ -18,6 +19,7 @@ import {
 } from "../sessionCatalog.js";
 import type { HealthState, SessionHistoryItem } from "../types.js";
 import { formatDateTime, sessionUpdatedAt } from "../viewerPresentation.js";
+import { ProductIcon } from "./ProductIcon.js";
 
 interface SessionWorkspaceProps {
   sessions: SessionHistoryItem[];
@@ -134,7 +136,7 @@ export function SessionWorkspace({
 
       <div className="session-workspace-controls" aria-label="Filter session history">
         <label className="session-workspace-search">
-          <span aria-hidden="true">⌕</span>
+          <ProductIcon icon={Search01Icon} size={14} />
           <input value={query} onChange={(event) => { setQuery(event.target.value); setVisibleCount(PAGE_SIZE); }} placeholder="Search session, app, Simulator, or failure…" aria-label="Search all sessions" />
         </label>
         <div className="session-workspace-scopes" role="group" aria-label="Session status scope">

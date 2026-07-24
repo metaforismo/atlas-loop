@@ -1,5 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent as ReactKeyboardEvent } from "react";
+import {
+  ChartRelationshipIcon,
+  CheckListIcon,
+  CursorPointer02Icon,
+  DashboardSquare01Icon,
+  FileVerifiedIcon,
+  FolderFileStorageIcon,
+  GridViewIcon,
+  LibraryIcon,
+  SmartPhone01Icon,
+  SourceCodeIcon,
+  TimelineListIcon,
+  WorkflowSquare03Icon
+} from "@hugeicons/core-free-icons";
 import { isDisplayableScreenshot } from "./api.js";
 import {
   ARTIFACT_KIND_LABELS,
@@ -34,8 +48,10 @@ import { SessionBrowserContent } from "./components/SessionBrowser.js";
 import { SessionWorkspace } from "./components/SessionWorkspace.js";
 import { StartSessionPopover } from "./components/StartSessionPopover.js";
 import { ObservedAppsWorkspace } from "./components/ObservedAppsWorkspace.js";
+import { ProductIcon } from "./components/ProductIcon.js";
 import { WorkspaceOverview, type OverviewDestination } from "./components/WorkspaceOverview.js";
 import { WorkspaceCommandMenu, type WorkspaceCommandId } from "./components/WorkspaceCommandMenu.js";
+import { TestWorkspace } from "./components/TestWorkspace.js";
 import { WorkflowWorkspace } from "./components/WorkflowWorkspace.js";
 import { useAtlasLoopData, useViewerParams } from "./hooks/useAtlasLoopData.js";
 import { formatTapCoordinate, type ScreenshotTapTarget } from "./screenshotGeometry.js";
@@ -181,10 +197,13 @@ export function App() {
 
   useEffect(() => {
     const confirmedFirstRun = sessionListStatus === "error" || (sessionListStatus === "ready" && sessions.length === 0);
-    if (autoOpenedOverview.current || !isLatestFirstRun || !confirmedFirstRun) return;
+    // An explicit deep link is user intent. The first-run overview is only a
+    // fallback for an unscoped root visit, never a redirect away from Tests,
+    // Apps, Workflows, Sessions, or another requested workspace.
+    if (params.workspace || autoOpenedOverview.current || !isLatestFirstRun || !confirmedFirstRun) return;
     autoOpenedOverview.current = true;
     setWorkspaceView("overview");
-  }, [isLatestFirstRun, sessionListStatus, sessions.length]);
+  }, [isLatestFirstRun, params.workspace, sessionListStatus, sessions.length]);
 
   useEffect(() => {
     // No clearing when the list is empty: a deep-linked artifactId must survive
@@ -338,6 +357,10 @@ export function App() {
       openWorkspaceView("workflows");
       return;
     }
+    if (destination === "tests") {
+      openWorkspaceView("tests");
+      return;
+    }
     if (destination === "sessions") {
       openWorkspaceView("sessions");
       return;
@@ -352,6 +375,7 @@ export function App() {
   const runWorkspaceCommand = (command: WorkspaceCommandId): void => {
     const targets: Partial<Record<WorkspaceCommandId, string>> = {
       overview: "viewer-stage",
+      tests: "test-workspace",
       apps: "observed-apps-workspace",
       workflows: "workflow-workspace",
       sessions: "session-workspace",
@@ -366,6 +390,10 @@ export function App() {
     }
     if (command === "workflows") {
       openWorkspaceView("workflows");
+      return;
+    }
+    if (command === "tests") {
+      openWorkspaceView("tests");
       return;
     }
     if (command === "apps") {
@@ -399,15 +427,15 @@ export function App() {
   }
 
   return (
-    <main className={`viewer-shell health-${health} ${flowFocus ? "flow-focus" : ""} ${workspaceView === "overview" ? "workspace-overview-active" : ""} ${workspaceView === "sessions" ? "workspace-sessions-active" : ""} ${workspaceView === "apps" ? "workspace-apps-active" : ""} ${workspaceView === "workflows" ? "workspace-workflows-active" : ""}`}>
-      <a className="skip-link" href={workspaceView === "overview" ? "#workspace-overview" : workspaceView === "sessions" ? "#session-workspace" : workspaceView === "apps" ? "#observed-apps-workspace" : workspaceView === "workflows" ? "#workflow-workspace" : "#viewer-stage"}>
-        {workspaceView === "overview" ? "Skip to workspace overview" : workspaceView === "sessions" ? "Skip to session history" : workspaceView === "apps" ? "Skip to observed apps" : workspaceView === "workflows" ? "Skip to workflow library" : "Skip to device viewport"}
+    <main className={`viewer-shell health-${health} ${flowFocus ? "flow-focus" : ""} ${workspaceView === "overview" ? "workspace-overview-active" : ""} ${workspaceView === "tests" ? "workspace-tests-active" : ""} ${workspaceView === "sessions" ? "workspace-sessions-active" : ""} ${workspaceView === "apps" ? "workspace-apps-active" : ""} ${workspaceView === "workflows" ? "workspace-workflows-active" : ""}`}>
+      <a className="skip-link" href={workspaceView === "overview" ? "#workspace-overview" : workspaceView === "tests" ? "#test-workspace" : workspaceView === "sessions" ? "#session-workspace" : workspaceView === "apps" ? "#observed-apps-workspace" : workspaceView === "workflows" ? "#workflow-workspace" : "#viewer-stage"}>
+        {workspaceView === "overview" ? "Skip to workspace overview" : workspaceView === "tests" ? "Skip to local tests" : workspaceView === "sessions" ? "Skip to session history" : workspaceView === "apps" ? "Skip to observed apps" : workspaceView === "workflows" ? "Skip to workflow library" : "Skip to device viewport"}
       </a>
       <header className="viewer-topbar" aria-label="Viewer navigation">
         <nav className="viewer-breadcrumb" aria-label="Breadcrumb">
           <a href="/">Home</a>
           <span aria-hidden="true">/</span>
-          <strong>{workspaceView === "overview" ? "Overview" : workspaceView === "sessions" ? "Sessions" : workspaceView === "apps" ? "Apps" : workspaceView === "workflows" ? "Workflows" : "Evidence"}</strong>
+          <strong>{workspaceView === "overview" ? "Overview" : workspaceView === "tests" ? "Tests" : workspaceView === "sessions" ? "Sessions" : workspaceView === "apps" ? "Apps" : workspaceView === "workflows" ? "Workflows" : "Evidence"}</strong>
         </nav>
         <div className="viewer-topbar-actions">
           <WorkspaceCommandMenu onSelect={runWorkspaceCommand} />
@@ -458,28 +486,32 @@ export function App() {
         <nav className="viewer-nav" aria-label="Workspace navigation">
           <p>Home</p>
           <button type="button" className={`viewer-nav-item ${workspaceView === "overview" ? "selected" : ""}`} aria-current={workspaceView === "overview" ? "page" : undefined} onClick={() => openWorkspaceView("overview")}>
-            <span className="viewer-nav-icon overview" aria-hidden="true" />
+            <ProductIcon className="viewer-nav-icon" icon={DashboardSquare01Icon} />
             Overview
           </button>
           <p>Workspace</p>
+          <button type="button" className={`viewer-nav-item ${workspaceView === "tests" ? "selected" : ""}`} aria-current={workspaceView === "tests" ? "page" : undefined} onClick={() => openWorkspaceView("tests")}>
+            <ProductIcon className="viewer-nav-icon" icon={CheckListIcon} />
+            Tests
+          </button>
           <button type="button" className={`viewer-nav-item ${workspaceView === "apps" ? "selected" : ""}`} aria-current={workspaceView === "apps" ? "page" : undefined} onClick={() => openWorkspaceView("apps")}>
-            <span className="viewer-nav-icon apps" aria-hidden="true" />
+            <ProductIcon className="viewer-nav-icon" icon={GridViewIcon} />
             Apps
           </button>
           <button type="button" className={`viewer-nav-item ${workspaceView === "workflows" ? "selected" : ""}`} aria-current={workspaceView === "workflows" ? "page" : undefined} onClick={() => openWorkspaceView("workflows")}>
-            <span className="viewer-nav-icon workflows" aria-hidden="true" />
+            <ProductIcon className="viewer-nav-icon" icon={WorkflowSquare03Icon} />
             Workflows
           </button>
           <button type="button" className={`viewer-nav-item ${workspaceView === "sessions" ? "selected" : ""}`} aria-current={workspaceView === "sessions" ? "page" : undefined} onClick={() => openWorkspaceView("sessions")}>
-            <span className="viewer-nav-icon sessions" aria-hidden="true" />
+            <ProductIcon className="viewer-nav-icon" icon={TimelineListIcon} />
             Sessions
           </button>
           <button type="button" className={`viewer-nav-item ${workspaceView === "evidence" ? "selected" : ""}`} aria-current={workspaceView === "evidence" ? "page" : undefined} onClick={() => openWorkspaceSection("viewer-stage")}>
-            <span className="viewer-nav-icon evidence" aria-hidden="true" />
+            <ProductIcon className="viewer-nav-icon" icon={SmartPhone01Icon} />
             Live evidence
           </button>
           <button type="button" className="viewer-nav-item" onClick={() => openWorkspaceSection("viewer-actions")}>
-            <span className="viewer-nav-icon actions" aria-hidden="true" />
+            <ProductIcon className="viewer-nav-icon" icon={CursorPointer02Icon} />
             Actions
           </button>
           <button
@@ -487,25 +519,25 @@ export function App() {
             className="viewer-nav-item"
             onClick={() => applyViewerParams({ daemonUrl: params.daemonUrl, sessionId: params.sessionId, view: "atlas" })}
           >
-            <span className="viewer-nav-icon atlas" aria-hidden="true" />
+            <ProductIcon className="viewer-nav-icon" icon={ChartRelationshipIcon} />
             Atlas map
           </button>
           <p>System</p>
           <button type="button" className="viewer-nav-item" onClick={() => openWorkspaceSection("viewer-artifacts")}>
-            <span className="viewer-nav-icon artifacts" aria-hidden="true" />
+            <ProductIcon className="viewer-nav-icon" icon={FolderFileStorageIcon} />
             Artifacts
           </button>
           <button type="button" className="viewer-nav-item" onClick={() => openWorkspaceSection("viewer-health")}>
-            <span className="viewer-nav-icon health" aria-hidden="true" />
+            <ProductIcon className="viewer-nav-icon" icon={FileVerifiedIcon} />
             Evidence health
           </button>
           <p>Resources</p>
           <a className="viewer-nav-item" href="https://github.com/metaforismo/atlas-loop#readme" target="_blank" rel="noreferrer">
-            <span className="viewer-nav-icon docs" aria-hidden="true" />
+            <ProductIcon className="viewer-nav-icon" icon={LibraryIcon} />
             Documentation
           </a>
           <a className="viewer-nav-item" href="https://github.com/metaforismo/atlas-loop" target="_blank" rel="noreferrer">
-            <span className="viewer-nav-icon source" aria-hidden="true" />
+            <ProductIcon className="viewer-nav-icon" icon={SourceCodeIcon} />
             Source
           </a>
         </nav>
@@ -598,6 +630,17 @@ export function App() {
         onOpen={openOverviewDestination}
         onSelectSession={selectSession}
       />
+
+      {workspaceView === "tests" ? (
+        <TestWorkspace
+          params={params}
+          selectedSessionId={selectedSessionId}
+          session={session}
+          mutationState={actionMutationState}
+          onOpenEvidence={() => openWorkspaceView("evidence")}
+          onStartSession={requestStartSession}
+        />
+      ) : null}
 
       {workspaceView === "sessions" ? (
         <SessionWorkspace

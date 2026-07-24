@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
+import { Add01Icon, Cancel01Icon } from "@hugeicons/core-free-icons";
 import { createViewerSession } from "../api.js";
 import type { InputBackendKind, Session } from "../types.js";
+import { ProductIcon } from "./ProductIcon.js";
 
 export function StartSessionPopover({
   daemonUrl,
@@ -104,13 +106,13 @@ export function StartSessionPopover({
         title={disabled ? disabledReason : "Create a new local Simulator session"}
         onClick={() => setOpen((current) => !current)}
       >
-        <span aria-hidden="true">＋</span> Start session
+        <ProductIcon icon={Add01Icon} size={15} /> Start session
       </button>
       {open ? (
         <div ref={panelRef} className="start-session-popover" role="dialog" aria-label="Start local Simulator session">
           <div className="start-session-heading">
             <div><small>LOCAL RUNTIME</small><h2>Start session</h2></div>
-            <button type="button" aria-label="Close session launcher" onClick={close}>×</button>
+            <button type="button" aria-label="Close session launcher" onClick={close}><ProductIcon icon={Cancel01Icon} /></button>
           </div>
           <form onSubmit={(event) => void submit(event)}>
             <label>

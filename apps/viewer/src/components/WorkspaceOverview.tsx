@@ -1,4 +1,5 @@
 import { useDeferredValue, useMemo, useState } from "react";
+import { Search01Icon } from "@hugeicons/core-free-icons";
 import type {
   ArtifactHealth,
   ArtifactRef,
@@ -7,8 +8,9 @@ import type {
   SessionHistoryItem
 } from "../types.js";
 import { formatDateTime, sessionSignal, sessionTone, sessionUpdatedAt, type UiTone } from "../viewerPresentation.js";
+import { ProductIcon } from "./ProductIcon.js";
 
-export type OverviewDestination = "evidence" | "sessions" | "apps" | "workflows" | "actions" | "atlas" | "runtime" | "start";
+export type OverviewDestination = "evidence" | "tests" | "sessions" | "apps" | "workflows" | "actions" | "atlas" | "runtime" | "start";
 
 interface WorkspaceOverviewProps {
   health: HealthState;
@@ -134,11 +136,12 @@ export function WorkspaceOverview({
         <aside className="overview-quick-paths" aria-labelledby="overview-quick-paths-title">
           <div className="overview-section-heading"><div><p className="kicker">Operate</p><h2 id="overview-quick-paths-title">Quick paths</h2></div></div>
           <button type="button" onClick={() => onOpen("actions")}><span>01</span><div><strong>Run an action</strong><small>Tap, type, swipe, or use native gestures</small></div></button>
-          <button type="button" onClick={() => onOpen("workflows")}><span>02</span><div><strong>Run a workflow</strong><small>Reuse ordered gestures against this session</small></div></button>
-          <button type="button" onClick={() => onOpen("sessions")}><span>03</span><div><strong>Browse sessions</strong><small>Triage every local run and input path</small></div></button>
-          <button type="button" onClick={() => onOpen("apps")}><span>04</span><div><strong>Browse observed apps</strong><small>Relaunch from the local run history</small></div></button>
-          <button type="button" onClick={() => onOpen("atlas")}><span>05</span><div><strong>Open Atlas map</strong><small>Inspect observed screens and transitions</small></div></button>
-          <button type="button" onClick={() => onOpen("runtime")}><span>06</span><div><strong>Runtime settings</strong><small>Change daemon or follow another session</small></div></button>
+          <button type="button" onClick={() => onOpen("tests")}><span>02</span><div><strong>Author a local test</strong><small>Turn readable steps into exact simulator actions</small></div></button>
+          <button type="button" onClick={() => onOpen("workflows")}><span>03</span><div><strong>Run a workflow</strong><small>Reuse ordered gestures against this session</small></div></button>
+          <button type="button" onClick={() => onOpen("sessions")}><span>04</span><div><strong>Browse sessions</strong><small>Triage every local run and input path</small></div></button>
+          <button type="button" onClick={() => onOpen("apps")}><span>05</span><div><strong>Browse observed apps</strong><small>Relaunch from the local run history</small></div></button>
+          <button type="button" onClick={() => onOpen("atlas")}><span>06</span><div><strong>Open Atlas map</strong><small>Inspect observed screens and transitions</small></div></button>
+          <button type="button" onClick={() => onOpen("runtime")}><span>07</span><div><strong>Runtime settings</strong><small>Change daemon or follow another session</small></div></button>
         </aside>
 
         {sessionListStatus === "ready" && attentionSessions.length > 0 ? (
@@ -175,7 +178,7 @@ export function WorkspaceOverview({
             <>
               <div className="overview-session-controls" role="search" aria-label="Filter local sessions">
                 <label className="overview-session-search">
-                  <span aria-hidden="true">⌕</span>
+                  <ProductIcon icon={Search01Icon} size={14} />
                   <input
                     id="overview-session-search"
                     type="search"
