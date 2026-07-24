@@ -14,7 +14,8 @@ import {
   type SessionHandoffBundleManifest,
   type SessionHandoffBundleResult
 } from "@atlas-loop/artifacts";
-import { createSimulator, parseDeviceLocation, LOCATION_PRESETS } from "@atlas-loop/simulator";
+import { createSimulator } from "@atlas-loop/simulator";
+import { parseDeviceLocation, LOCATION_PRESETS } from "@atlas-loop/protocol";
 import { loadConfig } from "@atlas-loop/config";
 import {
   buildEvidenceHtmlReport,

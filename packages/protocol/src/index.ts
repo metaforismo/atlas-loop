@@ -524,3 +524,5 @@ export function materializeAction(sessionId: string, sequence: number, input: Ac
     createdAt: nowIso()
   } as Action;
 }
+
+export * from "./location.js";

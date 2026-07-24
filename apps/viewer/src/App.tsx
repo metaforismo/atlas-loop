@@ -37,6 +37,7 @@ import {
 } from "./components/ActionPanel.js";
 import { AtlasView } from "./atlas/AtlasView.js";
 import { ActionDetailPanel } from "./components/ActionDetailPanel.js";
+import { DeviceLocationPanel } from "./components/DeviceLocationPanel.js";
 import { EmptyState, ErrorNotice, MetricTile, StatusRow } from "./components/common.js";
 import { ImageLightbox } from "./components/ImageLightbox.js";
 import { IOSDeviceFrame } from "./components/IOSDeviceFrame.js";
@@ -853,6 +854,7 @@ export function App() {
         </section>
 
         <div id="viewer-actions">
+          <DeviceLocationPanel params={params} selectedSessionId={selectedSessionId} mutationState={actionMutationState} />
           <ActionPanel
             params={params}
             selectedSessionId={selectedSessionId}

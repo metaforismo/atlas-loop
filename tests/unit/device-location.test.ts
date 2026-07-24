@@ -1,15 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   LOCATION_PRESETS,
-  createSimulator,
   formatCoordinate,
   formatDeviceLocation,
   locationClearArgs,
   locationSetArgs,
-  parseDeviceLocation,
-  type RunCommand,
-  type SimulatorCommandResult
-} from "../../packages/simulator/src/index.js";
+  parseDeviceLocation
+} from "../../packages/protocol/src/index.js";
+import { createSimulator, type RunCommand, type SimulatorCommandResult } from "../../packages/simulator/src/index.js";
 
 function commandResult(overrides: Partial<SimulatorCommandResult> = {}): SimulatorCommandResult {
   return { command: "xcrun", args: [], exitCode: 0, stdout: "", stderr: "", durationMs: 1, ...overrides };

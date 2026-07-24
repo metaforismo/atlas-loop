@@ -28,6 +28,7 @@ import {
   makeId,
   materializeAction,
   nowIso,
+  parseDeviceLocation,
   type Action,
   type ActionInput,
   type ActionResult,
@@ -53,7 +54,7 @@ import {
   type TraceEvent
 } from "@atlas-loop/protocol";
 import { parseTraceLine } from "@atlas-loop/traces";
-import { createSimulator, parseDeviceLocation, type RecordingHandle } from "@atlas-loop/simulator";
+import { createSimulator, type RecordingHandle } from "@atlas-loop/simulator";
 import { validateArtifactTarget, type ValidationReport } from "../../../scripts/verify-artifacts.ts";
 import { deriveAtlasMap, loadHashCache, saveHashCache } from "@atlas-loop/atlas-map";
 import { XcuitestRunnerManager } from "@atlas-loop/xcuitest-client";

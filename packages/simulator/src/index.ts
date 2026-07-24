@@ -6,9 +6,7 @@ import type {
   LaunchRequest,
   SimulatorRef
 } from "@atlas-loop/protocol";
-import { locationClearArgs, locationSetArgs, type DeviceLocation } from "./location.js";
-
-export * from "./location.js";
+import { locationClearArgs, locationSetArgs, type DeviceLocation } from "@atlas-loop/protocol";
 
 export interface SimulatorCommandResult {
   command: string;
