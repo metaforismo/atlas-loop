@@ -31,6 +31,7 @@ import { MetricsPanel } from "./components/MetricsPanel.js";
 import { ReplayPanel } from "./components/ReplayPanel.js";
 import { ScreenshotView } from "./components/ScreenshotView.js";
 import { SessionBrowserContent } from "./components/SessionBrowser.js";
+import { SessionWorkspace } from "./components/SessionWorkspace.js";
 import { StartSessionPopover } from "./components/StartSessionPopover.js";
 import { ObservedAppsWorkspace } from "./components/ObservedAppsWorkspace.js";
 import { WorkspaceOverview, type OverviewDestination } from "./components/WorkspaceOverview.js";
@@ -337,6 +338,10 @@ export function App() {
       openWorkspaceView("workflows");
       return;
     }
+    if (destination === "sessions") {
+      openWorkspaceView("sessions");
+      return;
+    }
     if (destination === "apps") {
       openWorkspaceView("apps");
       return;
@@ -349,7 +354,7 @@ export function App() {
       overview: "viewer-stage",
       apps: "observed-apps-workspace",
       workflows: "workflow-workspace",
-      sessions: "viewer-sessions",
+      sessions: "session-workspace",
       evidence: "viewer-stage",
       actions: "viewer-actions",
       artifacts: "viewer-artifacts",
@@ -365,6 +370,10 @@ export function App() {
     }
     if (command === "apps") {
       openWorkspaceView("apps");
+      return;
+    }
+    if (command === "sessions") {
+      openWorkspaceView("sessions");
       return;
     }
     if (command === "atlas") {
@@ -383,22 +392,22 @@ export function App() {
     return (
       <AtlasView
         params={params}
-        onSwitchToSessions={() => applyViewerParams({ daemonUrl: params.daemonUrl, sessionId: params.sessionId })}
+        onSwitchToSessions={() => applyViewerParams({ daemonUrl: params.daemonUrl, sessionId: params.sessionId, workspace: "sessions" })}
         onOpenSession={(sessionId, target) => applyViewerParams({ daemonUrl: params.daemonUrl, sessionId, ...target })}
       />
     );
   }
 
   return (
-    <main className={`viewer-shell health-${health} ${flowFocus ? "flow-focus" : ""} ${workspaceView === "overview" ? "workspace-overview-active" : ""} ${workspaceView === "apps" ? "workspace-apps-active" : ""} ${workspaceView === "workflows" ? "workspace-workflows-active" : ""}`}>
-      <a className="skip-link" href={workspaceView === "overview" ? "#workspace-overview" : workspaceView === "apps" ? "#observed-apps-workspace" : workspaceView === "workflows" ? "#workflow-workspace" : "#viewer-stage"}>
-        {workspaceView === "overview" ? "Skip to workspace overview" : workspaceView === "apps" ? "Skip to observed apps" : workspaceView === "workflows" ? "Skip to workflow library" : "Skip to device viewport"}
+    <main className={`viewer-shell health-${health} ${flowFocus ? "flow-focus" : ""} ${workspaceView === "overview" ? "workspace-overview-active" : ""} ${workspaceView === "sessions" ? "workspace-sessions-active" : ""} ${workspaceView === "apps" ? "workspace-apps-active" : ""} ${workspaceView === "workflows" ? "workspace-workflows-active" : ""}`}>
+      <a className="skip-link" href={workspaceView === "overview" ? "#workspace-overview" : workspaceView === "sessions" ? "#session-workspace" : workspaceView === "apps" ? "#observed-apps-workspace" : workspaceView === "workflows" ? "#workflow-workspace" : "#viewer-stage"}>
+        {workspaceView === "overview" ? "Skip to workspace overview" : workspaceView === "sessions" ? "Skip to session history" : workspaceView === "apps" ? "Skip to observed apps" : workspaceView === "workflows" ? "Skip to workflow library" : "Skip to device viewport"}
       </a>
       <header className="viewer-topbar" aria-label="Viewer navigation">
         <nav className="viewer-breadcrumb" aria-label="Breadcrumb">
           <a href="/">Home</a>
           <span aria-hidden="true">/</span>
-          <strong>{workspaceView === "overview" ? "Overview" : workspaceView === "apps" ? "Apps" : workspaceView === "workflows" ? "Workflows" : "Evidence"}</strong>
+          <strong>{workspaceView === "overview" ? "Overview" : workspaceView === "sessions" ? "Sessions" : workspaceView === "apps" ? "Apps" : workspaceView === "workflows" ? "Workflows" : "Evidence"}</strong>
         </nav>
         <div className="viewer-topbar-actions">
           <WorkspaceCommandMenu onSelect={runWorkspaceCommand} />
@@ -461,7 +470,7 @@ export function App() {
             <span className="viewer-nav-icon workflows" aria-hidden="true" />
             Workflows
           </button>
-          <button type="button" className="viewer-nav-item" onClick={() => openWorkspaceSection("viewer-sessions")}>
+          <button type="button" className={`viewer-nav-item ${workspaceView === "sessions" ? "selected" : ""}`} aria-current={workspaceView === "sessions" ? "page" : undefined} onClick={() => openWorkspaceView("sessions")}>
             <span className="viewer-nav-icon sessions" aria-hidden="true" />
             Sessions
           </button>
@@ -589,6 +598,23 @@ export function App() {
         onOpen={openOverviewDestination}
         onSelectSession={selectSession}
       />
+
+      {workspaceView === "sessions" ? (
+        <SessionWorkspace
+          sessions={sessions}
+          status={sessionListStatus}
+          error={sessionListError}
+          health={health}
+          onOpenSession={selectSession}
+          onStartSession={requestStartSession}
+          onOpenAtlas={() => applyViewerParams({ daemonUrl: params.daemonUrl, sessionId: params.sessionId, view: "atlas" })}
+          onOpenRuntimeSettings={() => {
+            setRuntimeSettingsOpen(true);
+            openWorkspaceSection("viewer-connection-panel");
+            window.requestAnimationFrame(() => document.getElementById("daemon-url-input")?.focus());
+          }}
+        />
+      ) : null}
 
       {workspaceView === "apps" ? (
         <ObservedAppsWorkspace

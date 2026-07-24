@@ -91,6 +91,8 @@ describe("WorkspaceOverview", () => {
     expect(onOpen).toHaveBeenCalledWith("atlas");
     await click("Browse observed apps");
     expect(onOpen).toHaveBeenCalledWith("apps");
+    await click("Browse sessions");
+    expect(onOpen).toHaveBeenCalledWith("sessions");
 
     const inspectButtons = [...container.querySelectorAll("button")].filter((button) => button.textContent === "Inspect");
     await act(async () => inspectButtons[1]?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
