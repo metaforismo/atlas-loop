@@ -1033,44 +1033,6 @@ h2 {
   container-type: size;
 }
 
-.phone-frame {
-  position: relative;
-  width: min(100%, 405px);
-  max-height: 100%;
-  aspect-ratio: 393 / 852;
-  border: 8px solid #05080c;
-  border-radius: 38px;
-  background: #05080c;
-  box-shadow:
-    0 0 0 1px #34424d,
-    inset 0 0 0 1px rgba(255, 255, 255, 0.05),
-    0 26px 72px rgba(1, 4, 8, 0.58);
-  overflow: hidden;
-}
-
-.phone-frame::after {
-  position: absolute;
-  inset: 0;
-  border-radius: 29px;
-  pointer-events: none;
-  content: "";
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.055);
-}
-
-.phone-speaker {
-  position: absolute;
-  z-index: 1;
-  top: 11px;
-  left: 50%;
-  width: 86px;
-  height: 20px;
-  border: 1px solid rgba(255, 255, 255, 0.04);
-  border-radius: 999px;
-  background: #05080c;
-  pointer-events: none;
-  transform: translateX(-50%);
-}
-
 .screenshot-image-wrap {
   position: relative;
   appearance: none;
@@ -3899,10 +3861,6 @@ h2 {
     grid-template-rows: auto auto minmax(0, 1fr);
   }
 
-  .phone-frame {
-    width: min(100%, 340px);
-  }
-
   .inspector {
     overflow: visible;
   }
@@ -4332,34 +4290,6 @@ h2 {
     linear-gradient(90deg, rgba(255, 255, 255, 0.022) 1px, transparent 1px),
     #0d0f13;
   background-size: 24px 24px;
-}
-
-.preview-device {
-  position: relative;
-  display: flex;
-  width: 224px;
-  height: 456px;
-  overflow: hidden;
-  border: 6px solid #252932;
-  border-radius: 38px;
-  padding: 54px 15px 17px;
-  flex-direction: column;
-  background: #f2f0eb;
-  color: #17191d;
-  box-shadow:
-    inset 0 0 0 1px rgba(255, 255, 255, 0.24),
-    0 24px 46px rgba(2, 3, 5, 0.44);
-}
-
-.preview-island {
-  position: absolute;
-  top: 10px;
-  left: 50%;
-  width: 72px;
-  height: 20px;
-  border-radius: 999px;
-  background: #191b20;
-  transform: translateX(-50%);
 }
 
 .preview-app-bar {
@@ -10443,11 +10373,6 @@ body::before {
     min-height: 492px;
   }
 
-  .preview-device {
-    width: 205px;
-    height: 430px;
-  }
-
   .landing-proof-line {
     grid-row: 2;
   }
@@ -12864,13 +12789,6 @@ body::before {
 .preview-device-screen .preview-tap-target {
   inset: 0;
   margin: auto;
-}
-
-.preview-device,
-.preview-island,
-.phone-frame,
-.phone-speaker {
-  display: none;
 }
 
 /* A single operational surface for the selected Simulator, app, and input path. */
