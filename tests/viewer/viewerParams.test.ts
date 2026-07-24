@@ -48,7 +48,7 @@ describe("viewer params", () => {
     );
   });
 
-  it("round-trips the operational overview and defaults to evidence", () => {
+  it("round-trips full workspace surfaces and defaults to evidence", () => {
     const search = writeViewerSearch({
       daemonUrl: DEFAULT_DAEMON_URL,
       sessionId: "sess_triage",
@@ -60,5 +60,9 @@ describe("viewer params", () => {
     expect(readViewerParams("?workspace=evidence").workspace).toBeUndefined();
     expect(readViewerParams("?workspace=unknown").workspace).toBeUndefined();
     expect(writeViewerSearch({ daemonUrl: DEFAULT_DAEMON_URL, sessionId: "sess_triage", workspace: "evidence" })).not.toContain("workspace=");
+
+    const workflows = writeViewerSearch({ daemonUrl: DEFAULT_DAEMON_URL, sessionId: "sess_triage", workspace: "workflows" });
+    expect(workflows).toContain("workspace=workflows");
+    expect(readViewerParams(workflows).workspace).toBe("workflows");
   });
 });

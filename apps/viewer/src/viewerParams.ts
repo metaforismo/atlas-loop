@@ -40,8 +40,9 @@ export function normalizeViewerView(value: string | null | undefined): "session"
   return value === "atlas" ? "atlas" : "session";
 }
 
-export function normalizeViewerWorkspace(value: string | null | undefined): "overview" | "evidence" {
-  return value === "overview" ? "overview" : "evidence";
+export function normalizeViewerWorkspace(value: string | null | undefined): "overview" | "workflows" | "evidence" {
+  if (value === "overview" || value === "workflows") return value;
+  return "evidence";
 }
 
 export function readViewerParams(search: string, viewerBaseUrl?: string): ViewerParams {
@@ -54,7 +55,7 @@ export function readViewerParams(search: string, viewerBaseUrl?: string): Viewer
   const view = normalizeViewerView(params.get("view"));
   if (view === "atlas") result.view = view;
   const workspace = normalizeViewerWorkspace(params.get("workspace"));
-  if (workspace === "overview") result.workspace = workspace;
+  if (workspace !== "evidence") result.workspace = workspace;
   if (normalizedViewerBaseUrl) result.viewerBaseUrl = normalizedViewerBaseUrl;
   const actionId = params.get("actionId")?.trim();
   if (actionId) result.actionId = actionId;
@@ -68,7 +69,8 @@ export function writeViewerSearch(params: ViewerParams): string {
   search.set("daemonUrl", normalizeDaemonUrl(params.daemonUrl));
   search.set("sessionId", normalizeSessionId(params.sessionId));
   if (normalizeViewerView(params.view) === "atlas") search.set("view", "atlas");
-  if (normalizeViewerWorkspace(params.workspace) === "overview") search.set("workspace", "overview");
+  const workspace = normalizeViewerWorkspace(params.workspace);
+  if (workspace !== "evidence") search.set("workspace", workspace);
   const actionId = params.actionId?.trim();
   if (actionId) search.set("actionId", actionId);
   const artifactId = params.artifactId?.trim();

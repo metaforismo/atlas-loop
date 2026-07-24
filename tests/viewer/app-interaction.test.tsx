@@ -463,6 +463,29 @@ describe("viewer app interactions", { timeout: 30_000 }, () => {
       return true;
     }, "history-restored evidence workspace");
   });
+
+  it("deep-links the first-class workflow library and returns to evidence", async () => {
+    await act(async () => root?.render(<App />));
+    await waitFor(() => {
+      expect(getByAriaLabel<HTMLElement>(`Evidence for ${SESSION_ID}`)).toBeTruthy();
+      return true;
+    }, "session history before workflows");
+
+    const workspaceNavigation = getByAriaLabel<HTMLElement>("Workspace navigation");
+    await click(getButtonByText(workspaceNavigation, "Workflows"));
+
+    const shell = document.querySelector("main.viewer-shell")!;
+    expect(shell.classList.contains("workspace-workflows-active")).toBe(true);
+    expect(document.querySelector("#workflow-workspace-title")?.textContent).toBe("Reusable workflows");
+    expect(getButtonByText(workspaceNavigation, "Workflows").getAttribute("aria-current")).toBe("page");
+    expect(window.location.search).toContain("workspace=workflows");
+    expect(document.querySelector(".viewer-breadcrumb")?.textContent).toContain("Workflows");
+
+    const workflows = document.querySelector<HTMLElement>(".workflow-workspace")!;
+    await click(getButtonByText(workflows, "Open live evidence"));
+    expect(shell.classList.contains("workspace-workflows-active")).toBe(false);
+    expect(window.location.search).not.toContain("workspace=");
+  });
 });
 
 async function fetchResponse(input: RequestInfo | URL): Promise<Response> {

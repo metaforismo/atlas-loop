@@ -4,6 +4,7 @@ import { useModalDialog } from "../useModalDialog.js";
 
 export type WorkspaceCommandId =
   | "overview"
+  | "workflows"
   | "sessions"
   | "evidence"
   | "actions"
@@ -14,6 +15,7 @@ export type WorkspaceCommandId =
 
 const COMMANDS: Array<{ id: WorkspaceCommandId; label: string; group: string; hint: string }> = [
   { id: "overview", label: "Open workspace overview", group: "Workspace", hint: "Device viewport" },
+  { id: "workflows", label: "Open workflow library", group: "Workspace", hint: "Saved flows and gesture templates" },
   { id: "sessions", label: "Browse sessions", group: "Workspace", hint: "Recent local runs" },
   { id: "evidence", label: "Inspect live evidence", group: "Workspace", hint: "Latest screenshot" },
   { id: "actions", label: "Run an action", group: "Workspace", hint: "Tap, type, swipe, gesture" },

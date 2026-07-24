@@ -8,7 +8,7 @@ import type {
 } from "../types.js";
 import { formatDateTime, sessionSignal, sessionTone, sessionUpdatedAt, type UiTone } from "../viewerPresentation.js";
 
-export type OverviewDestination = "evidence" | "actions" | "atlas" | "runtime" | "start";
+export type OverviewDestination = "evidence" | "workflows" | "actions" | "atlas" | "runtime" | "start";
 
 interface WorkspaceOverviewProps {
   health: HealthState;
@@ -134,8 +134,9 @@ export function WorkspaceOverview({
         <aside className="overview-quick-paths" aria-labelledby="overview-quick-paths-title">
           <div className="overview-section-heading"><div><p className="kicker">Operate</p><h2 id="overview-quick-paths-title">Quick paths</h2></div></div>
           <button type="button" onClick={() => onOpen("actions")}><span>01</span><div><strong>Run an action</strong><small>Tap, type, swipe, or use native gestures</small></div></button>
-          <button type="button" onClick={() => onOpen("atlas")}><span>02</span><div><strong>Open Atlas map</strong><small>Inspect observed screens and transitions</small></div></button>
-          <button type="button" onClick={() => onOpen("runtime")}><span>03</span><div><strong>Runtime settings</strong><small>Change daemon or follow another session</small></div></button>
+          <button type="button" onClick={() => onOpen("workflows")}><span>02</span><div><strong>Run a workflow</strong><small>Reuse ordered gestures against this session</small></div></button>
+          <button type="button" onClick={() => onOpen("atlas")}><span>03</span><div><strong>Open Atlas map</strong><small>Inspect observed screens and transitions</small></div></button>
+          <button type="button" onClick={() => onOpen("runtime")}><span>04</span><div><strong>Runtime settings</strong><small>Change daemon or follow another session</small></div></button>
         </aside>
 
         {sessionListStatus === "ready" && attentionSessions.length > 0 ? (

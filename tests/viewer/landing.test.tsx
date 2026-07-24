@@ -27,7 +27,10 @@ describe("LandingPage", () => {
     expect(container.querySelector("img[src='/atlas-loop-mark.png']")).not.toBeNull();
     expect(container.querySelector("[aria-label='Atlas Loop product preview']")?.textContent).toContain("Checkout still works");
     expect(container.querySelector("[role='tablist'][aria-label='Product preview modes']")).not.toBeNull();
-    expect(container.querySelector("[aria-label='Multi-gesture flow preview']")?.textContent).toContain("Navigate back");
+    expect(container.querySelector("[aria-label='Multi-gesture flow preview']")?.textContent).toContain("Two-finger tap");
+    expect(container.querySelector("[aria-label='Reusable local workflow library preview']")?.textContent).toContain("Checkout recovery");
+    const workflowLinks = [...container.querySelectorAll("a")].filter((link) => link.getAttribute("href") === "/?sessionId=latest&workspace=workflows");
+    expect(workflowLinks.some((link) => link.textContent?.includes("workflow library"))).toBe(true);
     const atlasLink = [...container.querySelectorAll("a")].find((link) => link.getAttribute("href") === "/?sessionId=latest&workspace=overview&view=atlas");
     expect(atlasLink?.textContent).toContain("Atlas map");
     expect(container.querySelector("details.landing-mobile-menu")?.textContent).toContain("Evidence");
