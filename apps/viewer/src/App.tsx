@@ -34,6 +34,7 @@ import { SessionBrowserContent } from "./components/SessionBrowser.js";
 import { StartSessionPopover } from "./components/StartSessionPopover.js";
 import { WorkspaceOverview, type OverviewDestination } from "./components/WorkspaceOverview.js";
 import { WorkspaceCommandMenu, type WorkspaceCommandId } from "./components/WorkspaceCommandMenu.js";
+import { WorkflowWorkspace } from "./components/WorkflowWorkspace.js";
 import { useAtlasLoopData, useViewerParams } from "./hooks/useAtlasLoopData.js";
 import { formatTapCoordinate, type ScreenshotTapTarget } from "./screenshotGeometry.js";
 import type { ViewerParams, ViewerWorkspace } from "./types.js";
@@ -242,7 +243,7 @@ export function App() {
     applyViewerParams({
       ...params,
       view: undefined,
-      workspace: workspace === "overview" ? "overview" : undefined
+      workspace: workspace === "evidence" ? undefined : workspace
     });
   };
 
@@ -325,12 +326,17 @@ export function App() {
       window.requestAnimationFrame(() => document.getElementById("daemon-url-input")?.focus());
       return;
     }
+    if (destination === "workflows") {
+      openWorkspaceView("workflows");
+      return;
+    }
     openWorkspaceSection(destination === "actions" ? "viewer-actions" : "viewer-stage");
   };
 
   const runWorkspaceCommand = (command: WorkspaceCommandId): void => {
     const targets: Partial<Record<WorkspaceCommandId, string>> = {
       overview: "viewer-stage",
+      workflows: "workflow-workspace",
       sessions: "viewer-sessions",
       evidence: "viewer-stage",
       actions: "viewer-actions",
@@ -339,6 +345,10 @@ export function App() {
     };
     if (command === "overview") {
       openWorkspaceView("overview");
+      return;
+    }
+    if (command === "workflows") {
+      openWorkspaceView("workflows");
       return;
     }
     if (command === "atlas") {
@@ -364,15 +374,15 @@ export function App() {
   }
 
   return (
-    <main className={`viewer-shell health-${health} ${flowFocus ? "flow-focus" : ""} ${workspaceView === "overview" ? "workspace-overview-active" : ""}`}>
-      <a className="skip-link" href={workspaceView === "overview" ? "#workspace-overview" : "#viewer-stage"}>
-        {workspaceView === "overview" ? "Skip to workspace overview" : "Skip to device viewport"}
+    <main className={`viewer-shell health-${health} ${flowFocus ? "flow-focus" : ""} ${workspaceView === "overview" ? "workspace-overview-active" : ""} ${workspaceView === "workflows" ? "workspace-workflows-active" : ""}`}>
+      <a className="skip-link" href={workspaceView === "overview" ? "#workspace-overview" : workspaceView === "workflows" ? "#workflow-workspace" : "#viewer-stage"}>
+        {workspaceView === "overview" ? "Skip to workspace overview" : workspaceView === "workflows" ? "Skip to workflow library" : "Skip to device viewport"}
       </a>
       <header className="viewer-topbar" aria-label="Viewer navigation">
         <nav className="viewer-breadcrumb" aria-label="Breadcrumb">
           <a href="/">Home</a>
           <span aria-hidden="true">/</span>
-          <strong>{workspaceView === "overview" ? "Overview" : "Evidence"}</strong>
+          <strong>{workspaceView === "overview" ? "Overview" : workspaceView === "workflows" ? "Workflows" : "Evidence"}</strong>
         </nav>
         <div className="viewer-topbar-actions">
           <WorkspaceCommandMenu onSelect={runWorkspaceCommand} />
@@ -426,6 +436,10 @@ export function App() {
             Overview
           </button>
           <p>Workspace</p>
+          <button type="button" className={`viewer-nav-item ${workspaceView === "workflows" ? "selected" : ""}`} aria-current={workspaceView === "workflows" ? "page" : undefined} onClick={() => openWorkspaceView("workflows")}>
+            <span className="viewer-nav-icon workflows" aria-hidden="true" />
+            Workflows
+          </button>
           <button type="button" className="viewer-nav-item" onClick={() => openWorkspaceSection("viewer-sessions")}>
             <span className="viewer-nav-icon sessions" aria-hidden="true" />
             Sessions
@@ -554,6 +568,17 @@ export function App() {
         onOpen={openOverviewDestination}
         onSelectSession={selectSession}
       />
+
+      {workspaceView === "workflows" ? (
+        <WorkflowWorkspace
+          params={params}
+          selectedSessionId={selectedSessionId}
+          session={session}
+          mutationState={actionMutationState}
+          onOpenActions={() => openWorkspaceSection("viewer-actions")}
+          onOpenEvidence={() => openWorkspaceView("evidence")}
+        />
+      ) : null}
 
       <section id="viewer-stage" className="stage panel" aria-label="Latest iPhone screenshot" tabIndex={-1}>
         <div className="stage-topbar">

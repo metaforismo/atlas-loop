@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 const VIEWER_URL = "/?sessionId=latest&workspace=overview";
+const WORKFLOW_URL = "/?sessionId=latest&workspace=workflows";
 const GITHUB_URL = "https://github.com/metaforismo/atlas-loop";
 
 export function LandingPage() {
@@ -15,6 +16,7 @@ export function LandingPage() {
         <div className="landing-nav-links">
           <a href="#runtime">Runtime</a>
           <a href="#gestures">Gestures</a>
+          <a href="#workflows">Workflows</a>
           <a href="#evidence">Evidence</a>
           <a href="#atlas">Atlas</a>
           <a href="#quickstart">Quickstart</a>
@@ -27,6 +29,7 @@ export function LandingPage() {
           <div>
             <a href="#runtime">Runtime</a>
             <a href="#gestures">Gestures</a>
+            <a href="#workflows">Workflows</a>
             <a href="#evidence">Evidence</a>
             <a href="#atlas">Atlas</a>
             <a href="#quickstart">Quickstart</a>
@@ -102,15 +105,26 @@ export function LandingPage() {
           <div className="landing-chapter-copy">
             <p className="landing-section-index">03 / MULTI-GESTURE FLOWS</p>
             <h2>Test motion, not just destinations.</h2>
-            <p>Compose swipes, edge navigation, taps, waits, and evidence checkpoints. Run them in order, stop safely, then save useful flows to a local reusable library.</p>
-            <ul><li>Pull-to-refresh and carousel presets</li><li>Leading-edge iOS navigation</li><li>Per-step failure and cancellation</li></ul>
+            <p>Drive the gestures selectors cannot describe: pinch, rotate, two-finger tap, long press, edge navigation, swipes, waits, and evidence checkpoints.</p>
+            <ul><li>Native XCUITest multi-touch</li><li>Leading-edge iOS navigation</li><li>Per-step failure and cancellation</li></ul>
           </div>
           <GestureVisual />
         </article>
 
-        <article className="landing-chapter" id="evidence">
+        <article className="landing-chapter" id="workflows">
           <div className="landing-chapter-copy">
-            <p className="landing-section-index">04 / REPLAYABLE EVIDENCE</p>
+            <p className="landing-section-index">04 / LOCAL WORKFLOW LIBRARY</p>
+            <h2>Useful flows should stay useful.</h2>
+            <p>Turn ordered gestures into reusable browser-local workflows. Search templates and saved flows, check the selected run, then execute the whole sequence without rebuilding it step by step.</p>
+            <ul><li>Seven built-in flow templates</li><li>Safe local save, duplicate, and delete</li><li>One-click run into the evidence timeline</li></ul>
+            <a className="landing-inline-link" href={WORKFLOW_URL}>Open the workflow library →</a>
+          </div>
+          <WorkflowVisual />
+        </article>
+
+        <article className="landing-chapter landing-chapter-reverse" id="evidence">
+          <div className="landing-chapter-copy">
+            <p className="landing-section-index">05 / REPLAYABLE EVIDENCE</p>
             <h2>A failure should explain itself.</h2>
             <p>Every action can be paired with screenshots, video markers, CPU, memory, trace events, and artifact integrity. The handoff view turns that record into reproducible next commands.</p>
             <ul><li>Action-to-artifact correlation</li><li>Visual diff and replay tools</li><li>Portable artifact health reports</li></ul>
@@ -121,7 +135,7 @@ export function LandingPage() {
 
       <section className="landing-evidence" id="atlas">
         <div className="landing-evidence-copy">
-          <p className="landing-section-index">05 / ATLAS RUNTIME MAP</p>
+          <p className="landing-section-index">06 / ATLAS RUNTIME MAP</p>
           <h2>Every observed flow leaves a map.</h2>
           <p>
             The Atlas view derives screens and transitions from evidence already captured during a run. Deep links reconnect a map edge to the exact session, action, and artifact that produced it.
@@ -212,7 +226,7 @@ function QuickstartSection() {
   return (
     <section className="landing-quickstart" id="quickstart" aria-labelledby="landing-quickstart-title">
       <div className="landing-quickstart-copy">
-        <p className="landing-section-index">06 / FROM SOURCE TO SIGNAL</p>
+        <p className="landing-section-index">07 / FROM SOURCE TO SIGNAL</p>
         <h2 id="landing-quickstart-title">A useful first run in three steps.</h2>
         <p>Atlas Loop does not hide the runtime behind a hosted account. Verify the repo, start two local processes, and follow the first Simulator session into an evidence-ready workspace.</p>
         <div className="landing-quickstart-links">
@@ -270,14 +284,32 @@ function RuntimeVisual() {
 }
 
 function GestureVisual() {
-  const steps = ["Swipe up", "Wait for layout", "Navigate back", "Capture checkpoint"];
+  const steps = ["Pinch open", "Rotate clockwise", "Two-finger tap", "Capture checkpoint"];
   return (
     <div className="landing-feature-visual gesture-visual" aria-label="Multi-gesture flow preview">
-      <div className="feature-visual-bar"><span>FLOW LIBRARY / CHECKOUT RECOVERY</span><small>4 STEPS</small></div>
+      <div className="feature-visual-bar"><span>NATIVE GESTURE AUDIT / XCUITEST</span><small>4 STEPS</small></div>
       <ol>
-        {steps.map((step, index) => <li key={step}><b>{String(index + 1).padStart(2, "0")}</b><span><strong>{step}</strong><small>{index === 2 ? "edgeGesture · left" : index === 1 ? "wait · 500ms" : index === 3 ? "screenshot" : "swipe · 320ms"}</small></span><i /></li>)}
+        {steps.map((step, index) => <li key={step}><b>{String(index + 1).padStart(2, "0")}</b><span><strong>{step}</strong><small>{index === 0 ? "pinch · scale 1.8" : index === 1 ? "rotate · 1.57 rad" : index === 2 ? "twoFingerTap" : "screenshot"}</small></span><i /></li>)}
       </ol>
-      <div className="gesture-visual-footer"><span>Saved in this browser</span><button type="button" tabIndex={-1}>RUN FLOW →</button></div>
+      <div className="gesture-visual-footer"><span>Native multi-touch</span><a href={WORKFLOW_URL}>OPEN FLOWS →</a></div>
+    </div>
+  );
+}
+
+function WorkflowVisual() {
+  const workflows = [
+    { name: "Pinch zoom audit", meta: "4 steps", tag: "multi-touch" },
+    { name: "Scroll and reveal", meta: "3 steps", tag: "template" },
+    { name: "Checkout recovery", meta: "6 steps", tag: "saved" }
+  ];
+  return (
+    <div className="landing-feature-visual workflow-visual" aria-label="Reusable local workflow library preview">
+      <div className="feature-visual-bar"><span>LOCAL FLOW LIBRARY</span><small>SESSION READY</small></div>
+      <div className="workflow-visual-toolbar"><span>⌕ Search workflows</span><div><b>ALL</b><b>SAVED</b><b>MULTI-TOUCH</b></div></div>
+      <div className="workflow-visual-list">
+        {workflows.map((workflow, index) => <div className={index === 0 ? "selected" : ""} key={workflow.name}><i /><span><strong>{workflow.name}</strong><small>{workflow.tag}</small></span><em>{workflow.meta}</em></div>)}
+      </div>
+      <div className="workflow-visual-run"><span><small>SELECTED RUN</small>sess_4f8b · mutable</span><a href={WORKFLOW_URL}>RUN 4 STEPS →</a></div>
     </div>
   );
 }

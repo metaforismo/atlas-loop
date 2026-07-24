@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { performViewerAction } from "../api.js";
 import { GESTURE_SEQUENCE_PRESETS, type GestureSequencePreset } from "../gestureSequences.js";
+import { runGestureSequenceSteps } from "../gestureSequenceRunner.js";
 import { formatTapCoordinate } from "../screenshotGeometry.js";
 import { GestureSequenceComposer } from "./GestureSequenceComposer.js";
 import type {
@@ -194,20 +195,18 @@ export function ActionPanel({
     setActiveSequenceId(preset.id);
 
     try {
-      for (let index = 0; index < preset.steps.length; index += 1) {
-        const step = preset.steps[index];
-        if (!step) continue;
-        const progressLabel = `${preset.label} · ${index + 1}/${preset.steps.length}`;
-        setSubmitState({ status: "pending", label: progressLabel });
-        const result = await performViewerAction(actionParams, step.action, controller.signal);
-        if (!result.ok) {
-          setSubmitState({
-            status: "error",
-            label: preset.label,
-            message: `${step.label} failed: ${result.error?.message ?? "daemon rejected the action."}`
-          });
-          return;
+      const result = await runGestureSequenceSteps({
+        params: actionParams,
+        sequence: preset,
+        signal: controller.signal,
+        onProgress: (_step, index, total) => {
+          setSubmitState({ status: "pending", label: `${preset.label} · ${index + 1}/${total}` });
         }
+      });
+      if (result.status === "cancelled") return;
+      if (result.status === "error") {
+        setSubmitState({ status: "error", label: preset.label, message: `${result.failedStep.label} failed: ${result.message}` });
+        return;
       }
       setSubmitState({
         status: "success",
