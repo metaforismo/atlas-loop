@@ -13011,3 +13011,261 @@ body::before {
 @media (prefers-reduced-motion: reduce) {
   .overview-more-paths summary > i { transition: none; }
 }
+
+/* Filing an issue from a run: the evidence travels with the ticket. */
+.issue-export-trigger {
+  display: grid;
+  width: 100%;
+  margin-top: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px 14px;
+  gap: 3px;
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 160ms ease, background 160ms ease;
+}
+
+.issue-export-trigger:hover {
+  border-color: var(--accent);
+  background: rgba(232, 111, 89, 0.07);
+}
+
+.issue-export-trigger > span {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.issue-export-trigger > small {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+
+.issue-export-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(4, 6, 10, 0.82);
+  backdrop-filter: blur(4px);
+}
+
+.issue-export-dialog {
+  display: grid;
+  width: min(620px, 100%);
+  max-height: 100%;
+  gap: 14px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 22px;
+  background: #12141a;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+}
+
+.issue-export-dialog > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.issue-export-dialog h2 {
+  margin: 0;
+  font-size: 19px;
+  letter-spacing: -0.01em;
+}
+
+.issue-export-close {
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  width: 28px;
+  height: 28px;
+  background: transparent;
+  color: var(--soft);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.issue-export-close:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.issue-export-lede {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.issue-export-title-preview,
+.issue-export-failure {
+  display: grid;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 11px 13px;
+}
+
+.issue-export-failure.tone-bad {
+  border-left: 3px solid var(--bad);
+}
+
+.issue-export-title-preview small,
+.issue-export-failure small {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.issue-export-title-preview strong,
+.issue-export-failure strong {
+  font-size: 13px;
+}
+
+.issue-export-failure p {
+  margin: 0;
+  color: var(--soft);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.issue-export-fields {
+  display: grid;
+  margin: 0;
+  gap: 1px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.issue-export-fields > div {
+  display: grid;
+  gap: 2px;
+  padding: 9px 12px;
+  background: #12141a;
+}
+
+.issue-export-fields dt {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.issue-export-fields dd {
+  margin: 0;
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.issue-export-notes,
+.issue-export-repository {
+  display: grid;
+  gap: 5px;
+}
+
+.issue-export-notes > span,
+.issue-export-repository > span {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.issue-export-notes textarea,
+.issue-export-repository input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 9px 11px;
+  background: #0d1015;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12px;
+  resize: vertical;
+}
+
+.issue-export-notes textarea:focus-visible,
+.issue-export-repository input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.issue-export-warning {
+  margin: 0;
+  border: 1px solid var(--warn);
+  border-radius: 8px;
+  padding: 9px 11px;
+  color: var(--warn);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.issue-export-dialog > footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.issue-export-secondary,
+.issue-export-primary {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 9px 14px;
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.issue-export-primary {
+  border-color: transparent;
+  background: var(--accent);
+  color: #17110f;
+}
+
+.issue-export-primary.is-disabled {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+.issue-export-secondary:hover,
+.issue-export-primary:not(.is-disabled):hover {
+  border-color: var(--accent);
+}
+
+.issue-export-status {
+  margin: 0;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+
+.issue-export-status.failed {
+  color: var(--bad);
+}

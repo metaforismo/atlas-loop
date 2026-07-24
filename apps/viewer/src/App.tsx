@@ -83,6 +83,8 @@ import {
 } from "./viewerPresentation.js";
 import { DEFAULT_SESSION_ID, writeViewerSearch } from "./viewerParams.js";
 import { loadRailCollapsed, saveRailCollapsed } from "./railPreference.js";
+import { IssueExportDialog } from "./components/IssueExportDialog.js";
+import { loadIssueRepository, saveIssueRepository } from "./issueRepositoryStorage.js";
 import type { LocalTestModuleSeed } from "./localTestModules.js";
 import type { LocalLaunchProfile } from "./localLaunchProfiles.js";
 
@@ -165,6 +167,8 @@ export function App() {
   const [testComposerSeed, setTestComposerSeed] = useState<LocalTestModuleSeed>();
   const [workflowActivity, setWorkflowActivity] = useState<WorkflowMonitorActivity>({ status: "idle" });
   const [railCollapsed, setRailCollapsed] = useState(false);
+  const [issueExportOpen, setIssueExportOpen] = useState(false);
+  const [issueRepository, setIssueRepository] = useState("");
   const autoOpenedOverview = useRef(false);
 
   useEffect(() => {
@@ -174,6 +178,7 @@ export function App() {
   // Read after mount so a blocked or empty store just leaves the rail expanded.
   useEffect(() => {
     setRailCollapsed(loadRailCollapsed());
+    setIssueRepository(loadIssueRepository());
   }, []);
 
   useEffect(() => {
@@ -836,7 +841,13 @@ export function App() {
           {session ? <MetadataGrid session={session} /> : <MetadataSkeleton />}
           {sessionSummary ? <SummaryEvidence summary={sessionSummary} /> : null}
           <ActionDetailPanel pairs={actionEvidencePairs} selectedActionId={selectedActionId} onSelect={setSelectedActionId} />
-          <div id="viewer-handoff"><AgentHandoffPanel brief={handoffBrief} /></div>
+          <div id="viewer-handoff">
+            <AgentHandoffPanel brief={handoffBrief} />
+            <button type="button" className="issue-export-trigger" onClick={() => setIssueExportOpen(true)}>
+              <span>Create an issue from this run</span>
+              <small>{flowRunSummary.failed > 0 ? `${flowRunSummary.failed} failed action${flowRunSummary.failed === 1 ? "" : "s"} to attach` : "Run context and evidence link attached"}</small>
+            </button>
+          </div>
           <div id="viewer-health"><EvidenceHealthPanel health={artifactHealth} status={artifactHealthStatus} error={artifactHealthError} /></div>
           {session?.error ? <ErrorNotice message={session.error.message} compact /> : null}
         </section>
@@ -1013,6 +1024,26 @@ export function App() {
           )}
         </div>
       </section>
+
+      {issueExportOpen ? (
+        <IssueExportDialog
+          input={{
+            session,
+            sessionSummary,
+            artifacts,
+            events,
+            artifactHealth,
+            evidenceUrl: `${window.location.origin}${writeViewerSearch({ ...params, sessionId: selectedSessionId })}`
+          }}
+          repository={issueRepository}
+          onRepositoryChange={(value) => setIssueRepository(value)}
+          onClose={() => {
+            // Normalise on close so a half-typed slug is never stored.
+            setIssueRepository(saveIssueRepository(issueRepository));
+            setIssueExportOpen(false);
+          }}
+        />
+      ) : null}
     </main>
   );
 }

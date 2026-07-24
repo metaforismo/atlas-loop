@@ -24,6 +24,7 @@ Selector-heavy tests often fail when an interface is renamed or rearranged even 
 - **See the whole workspace** — start from a locally-derived overview of active runs, failure signals, evidence totals, and readiness. A selected-device cockpit keeps the real Simulator, observed app, runtime, input backend, and next actions in one place; failed or blocked runs become a triage queue, while search, status scopes, sorting, and incremental history keep large local stores usable.
 - **Map real journeys** — derive screens and transitions from captured evidence, with deep links back to the producing session and action.
 - **Hand work forward** — export verifiable local bundles and compact next-step commands for another human or coding agent.
+- **File the issue from the failure** — turn a run into a ready-to-file ticket carrying the failing step, the recorded reason, the device and input backend, the pass count, and a deep link back to this exact evidence. Linear and GitHub open prefilled; the markdown copies for anything else. A draft too long to survive a URL drops the link rather than truncating the part that matters.
 - **Keep evidence local** — the daemon binds to loopback and the source of truth is `artifacts/sessions/<session-id>/`.
 
 ## Quick start
