@@ -125,6 +125,9 @@ export const GESTURE_STEP_CATALOG: GestureSequenceStep[] = [
   { label: "Rotate clockwise", action: { kind: "rotate", rotation: "1.57", velocity: "1" } },
   { label: "Rotate counterclockwise", action: { kind: "rotate", rotation: "-1.57", velocity: "-1" } },
   { label: "Two-finger tap", action: { kind: "twoFingerTap" } },
+  { label: "Tap accessibility element", action: { kind: "tapElement", identifier: "" } },
+  { label: "Type text", action: { kind: "typeText", text: "" } },
+  { label: "Verify element is visible", action: { kind: "assertVisible", identifier: "" } },
   { label: "Wait for layout", action: { kind: "wait", durationMs: "500" } },
   { label: "Capture checkpoint", action: { kind: "screenshot", reason: "gesture sequence checkpoint" } }
 ];

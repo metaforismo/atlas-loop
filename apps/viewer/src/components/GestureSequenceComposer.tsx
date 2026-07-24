@@ -6,7 +6,7 @@ import {
   type GestureSequencePreset,
   type GestureSequenceStep
 } from "../gestureSequences.js";
-import { deleteGestureSequence, loadSavedGestureSequences, saveGestureSequence } from "../gestureSequenceStorage.js";
+import { createGestureSequenceId, deleteGestureSequence, loadSavedGestureSequences, saveGestureSequence } from "../gestureSequenceStorage.js";
 
 export function GestureSequenceComposer({
   disabled,
@@ -51,7 +51,7 @@ export function GestureSequenceComposer({
       return;
     }
     const label = name.trim() || "Custom gesture flow";
-    const id = savedFlowId || `flow-${Date.now().toString(36)}`;
+    const id = savedFlowId || createGestureSequenceId(savedFlows.map((flow) => flow.id));
     const sequence: GestureSequencePreset = {
       id,
       label,

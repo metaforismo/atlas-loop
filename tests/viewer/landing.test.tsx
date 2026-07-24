@@ -43,7 +43,7 @@ describe("LandingPage", () => {
     const libraryLinks = [...container.querySelectorAll("a")].filter((link) => link.getAttribute("href") === "/?sessionId=latest&workspace=library");
     expect(libraryLinks.some((link) => link.textContent?.includes("module library"))).toBe(true);
     expect(container.textContent).toContain("Reuse steps without hiding them.");
-    expect(container.querySelector("[aria-label='Reusable local workflow library preview']")?.textContent).toContain("Checkout recovery");
+    expect(container.querySelector("[aria-label='Validated local workflow builder preview']")?.textContent).toContain("Checkout recovery");
     const workflowLinks = [...container.querySelectorAll("a")].filter((link) => link.getAttribute("href") === "/?sessionId=latest&workspace=workflows");
     expect(workflowLinks.some((link) => link.textContent?.includes("workflow library"))).toBe(true);
     const atlasLink = [...container.querySelectorAll("a")].find((link) => link.getAttribute("href") === "/?sessionId=latest&workspace=overview&view=atlas");
