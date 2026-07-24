@@ -19,11 +19,15 @@ import {
 } from "../localTestModules.js";
 import { compileLocalTestScript } from "../localTests.js";
 import { useModalDialog } from "../useModalDialog.js";
+import { loadSavedLaunchProfiles } from "../localLaunchProfileStorage.js";
+import { LOCAL_LAUNCH_PROFILE_STARTERS, type LocalLaunchProfile } from "../localLaunchProfiles.js";
+import { LaunchProfilesPanel } from "./LaunchProfilesPanel.js";
 import { ProductIcon } from "./ProductIcon.js";
 
 type ModuleSource = "saved" | "starter";
 type ModuleScope = "all" | "saved" | "starters" | "multitouch";
 type ModuleSort = "recent" | "name" | "steps";
+type LibraryTab = "modules" | "launch-profiles";
 
 interface ModuleEntry extends LocalTestModule {
   key: string;
@@ -38,13 +42,22 @@ const MODULE_SCOPES: Array<{ id: ModuleScope; label: string }> = [
   { id: "multitouch", label: "Multi-touch" }
 ];
 
-export function LibraryWorkspace({ onCreateTest }: { onCreateTest: (seed: LocalTestModuleSeed) => void }) {
+export function LibraryWorkspace({
+  onCreateTest,
+  onStartWithProfile
+}: {
+  onCreateTest: (seed: LocalTestModuleSeed) => void;
+  onStartWithProfile: (profile: LocalLaunchProfile) => void;
+}) {
+  const [activeTab, setActiveTab] = useState<LibraryTab>("modules");
+  const [launchProfileCount, setLaunchProfileCount] = useState(() => loadSavedLaunchProfiles().length + LOCAL_LAUNCH_PROFILE_STARTERS.length);
   const [saved, setSaved] = useState<LocalTestModule[]>(() => loadSavedLocalTestModules());
   const [query, setQuery] = useState("");
   const [scope, setScope] = useState<ModuleScope>("all");
   const [sort, setSort] = useState<ModuleSort>("recent");
   const [selectedKey, setSelectedKey] = useState("");
   const [composerOpen, setComposerOpen] = useState(false);
+  const [launchComposerRequest, setLaunchComposerRequest] = useState(0);
   const [pendingDeleteId, setPendingDeleteId] = useState<string>();
   const [message, setMessage] = useState("");
   const deferredQuery = useDeferredValue(query);
@@ -112,11 +125,17 @@ export function LibraryWorkspace({ onCreateTest }: { onCreateTest: (seed: LocalT
         <div>
           <p className="kicker">Reusable local building blocks</p>
           <h1 id="library-workspace-title">Library</h1>
-          <p>Keep proven step blocks reusable without hiding what will run. Modules stay readable, browser-local, and compile through the same deterministic action protocol as Tests.</p>
+          <p>{activeTab === "modules" ? "Keep proven step blocks reusable without hiding what will run. Modules stay readable, browser-local, and compile through the same deterministic action protocol as Tests." : "Save deterministic, non-secret startup state for installed apps. Profiles preserve exact arguments and environment values, then hand them to the local session launcher."}</p>
         </div>
-        <button type="button" className="library-primary-action" onClick={() => setComposerOpen(true)}><ProductIcon icon={Add01Icon} />New module</button>
+        <button type="button" className="library-primary-action" onClick={() => activeTab === "modules" ? setComposerOpen(true) : setLaunchComposerRequest((request) => request + 1)}><ProductIcon icon={Add01Icon} />{activeTab === "modules" ? "New module" : "New launch profile"}</button>
       </header>
 
+      <div className="library-resource-tabs" role="tablist" aria-label="Library resource types">
+        <button type="button" role="tab" aria-selected={activeTab === "modules"} aria-controls="library-step-modules" onClick={() => setActiveTab("modules")}><span>Step modules</span><small>{entries.length}</small></button>
+        <button type="button" role="tab" aria-selected={activeTab === "launch-profiles"} aria-controls="library-launch-profiles" onClick={() => setActiveTab("launch-profiles")}><span>Launch profiles</span><small>{launchProfileCount}</small></button>
+      </div>
+
+      {activeTab === "modules" ? <div id="library-step-modules" role="tabpanel" aria-label="Step modules">
       <div className="library-metrics" aria-label="Local module metrics">
         <LibraryMetric label="Total modules" value={String(entries.length)} detail="Saved and built-in" />
         <LibraryMetric label="Saved locally" value={String(saved.length)} detail="Stored in this browser" />
@@ -182,6 +201,7 @@ export function LibraryWorkspace({ onCreateTest }: { onCreateTest: (seed: LocalT
       )}
 
       {composerOpen ? <ModuleComposer onClose={() => setComposerOpen(false)} onSaved={(module) => { persistModule(module, `${module.label} saved in this browser.`); setComposerOpen(false); }} /> : null}
+      </div> : <LaunchProfilesPanel onStart={onStartWithProfile} openComposerRequest={launchComposerRequest} onCountChange={setLaunchProfileCount} />}
     </section>
   );
 }

@@ -4,6 +4,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { StartSessionPopover } from "../../apps/viewer/src/components/StartSessionPopover.js";
+import type { LocalLaunchProfile } from "../../apps/viewer/src/localLaunchProfiles.js";
 import type { Session } from "../../apps/viewer/src/types.js";
 
 describe("StartSessionPopover", () => {
@@ -111,7 +112,42 @@ describe("StartSessionPopover", () => {
     expect(container.querySelector("[role='dialog']")).not.toBeNull();
   });
 
-  function render(overrides: { disabled?: boolean; onStarted?: (session: Session) => void; openRequest?: number; requestedBundleId?: string } = {}): void {
+  it("prefills a launch profile and sends its exact arguments and environment once", async () => {
+    const launchBodies: unknown[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith("/launch")) {
+        launchBodies.push(JSON.parse(String(init?.body)));
+        return new Response(JSON.stringify({ ok: true, data: { actionId: "act_launch", ok: true, artifacts: [] } }), { status: 200 });
+      }
+      if (init?.method === "POST") {
+        return new Response(JSON.stringify({ ok: true, data: { id: "sess_profile", status: "created" } }), { status: 201 });
+      }
+      return new Response(JSON.stringify({ ok: true, data: { id: "sess_profile", status: "running" } }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const requestedLaunchProfile: LocalLaunchProfile = {
+      id: "gesture-lab",
+      label: "Gesture Lab",
+      detail: "Native canvas",
+      bundleId: "app.atlasloop.CommerceDemo",
+      arguments: ["--uitesting"],
+      environment: { ATLAS_LOOP_DEMO_ROUTE: "gesture-lab" }
+    };
+
+    render({ openRequest: 1, requestedLaunchProfile });
+    expect(container.textContent).toContain("LAUNCH PROFILE");
+    expect(container.textContent).toContain("1 arguments · 1 environment");
+    await click("Start local session");
+    await waitFor(() => launchBodies.length === 1);
+
+    expect(launchBodies).toEqual([{
+      bundleId: "app.atlasloop.CommerceDemo",
+      arguments: ["--uitesting"],
+      environment: { ATLAS_LOOP_DEMO_ROUTE: "gesture-lab" }
+    }]);
+  });
+
+  function render(overrides: { disabled?: boolean; onStarted?: (session: Session) => void; openRequest?: number; requestedBundleId?: string; requestedLaunchProfile?: LocalLaunchProfile } = {}): void {
     act(() => root.render(
       <StartSessionPopover
         daemonUrl="http://127.0.0.1:4317"
@@ -120,6 +156,7 @@ describe("StartSessionPopover", () => {
         onStarted={overrides.onStarted ?? vi.fn()}
         openRequest={overrides.openRequest}
         requestedBundleId={overrides.requestedBundleId}
+        requestedLaunchProfile={overrides.requestedLaunchProfile}
       />
     ));
   }

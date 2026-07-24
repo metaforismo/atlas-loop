@@ -4,6 +4,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LibraryWorkspace } from "../../apps/viewer/src/components/LibraryWorkspace.js";
+import { LOCAL_LAUNCH_PROFILE_STORAGE_KEY } from "../../apps/viewer/src/localLaunchProfileStorage.js";
 import { LOCAL_TEST_MODULE_STORAGE_KEY } from "../../apps/viewer/src/localTestModuleStorage.js";
 
 describe("LibraryWorkspace", () => {
@@ -112,8 +113,39 @@ describe("LibraryWorkspace", () => {
     });
   });
 
-  function render(onCreateTest = vi.fn()): void {
-    act(() => root.render(<LibraryWorkspace onCreateTest={onCreateTest} />));
+  it("switches to launch profiles, blocks stored secrets, and hands valid startup state to the launcher", async () => {
+    const onStartWithProfile = vi.fn();
+    render(vi.fn(), onStartWithProfile);
+
+    await click("Launch profiles");
+    expect(container.textContent).toContain("Profiles make startup deterministic");
+    expect(metric("Total profiles")).toContain("3");
+    expect(container.textContent).toContain("Gesture Lab");
+
+    await click("Gesture Lab");
+    await click("Start with profile");
+    expect(onStartWithProfile).toHaveBeenCalledWith(expect.objectContaining({
+      bundleId: "app.atlasloop.CommerceDemo",
+      environment: { ATLAS_LOOP_DEMO_ROUTE: "gesture-lab" }
+    }));
+
+    await click("New launch profile");
+    const name = container.querySelector<HTMLInputElement>("input[placeholder='Gesture Lab ready']")!;
+    const environment = container.querySelector<HTMLTextAreaElement>("textarea[aria-label='Launch environment']")!;
+    await setControl(name, "Authenticated checkout");
+    await setControl(environment, "API_TOKEN=do-not-store");
+    expect(container.textContent).toContain("Pass secrets through your shell");
+    expect(button("Save profile").disabled).toBe(true);
+
+    await setControl(environment, "ATLAS_LOOP_DEMO_ROUTE=shipping");
+    await click("Save profile");
+    expect(JSON.parse(storageValues.get(LOCAL_LAUNCH_PROFILE_STORAGE_KEY) ?? "[]")).toHaveLength(1);
+    expect(metric("Total profiles")).toContain("4");
+    expect(container.textContent).toContain("Authenticated checkout saved in this browser");
+  });
+
+  function render(onCreateTest = vi.fn(), onStartWithProfile = vi.fn()): void {
+    act(() => root.render(<LibraryWorkspace onCreateTest={onCreateTest} onStartWithProfile={onStartWithProfile} />));
   }
 
   function metric(label: string): string {

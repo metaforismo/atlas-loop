@@ -111,6 +111,8 @@ export type InputBackendKind = "cgevent" | "xcuitest";
 export interface CreateSessionInput {
   simulatorName?: string;
   bundleId?: string;
+  launchArguments?: string[];
+  launchEnvironment?: Record<string, string>;
   inputBackend: InputBackendKind;
   record: boolean;
 }

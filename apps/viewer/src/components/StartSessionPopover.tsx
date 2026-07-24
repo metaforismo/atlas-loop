@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
-import { Add01Icon, Cancel01Icon } from "@hugeicons/core-free-icons";
+import { Add01Icon, Cancel01Icon, Rocket01Icon } from "@hugeicons/core-free-icons";
 import { createViewerSession } from "../api.js";
+import type { LocalLaunchProfile } from "../localLaunchProfiles.js";
 import type { InputBackendKind, Session } from "../types.js";
 import { ProductIcon } from "./ProductIcon.js";
 
@@ -11,7 +12,8 @@ export function StartSessionPopover({
   disabledReason,
   onStarted,
   openRequest,
-  requestedBundleId
+  requestedBundleId,
+  requestedLaunchProfile
 }: {
   daemonUrl: string;
   disabled: boolean;
@@ -19,12 +21,14 @@ export function StartSessionPopover({
   onStarted: (session: Session) => void;
   openRequest?: number;
   requestedBundleId?: string;
+  requestedLaunchProfile?: LocalLaunchProfile;
 }) {
   const [open, setOpen] = useState(false);
   const [simulatorName, setSimulatorName] = useState("");
   const [bundleId, setBundleId] = useState("app.atlasloop.CommerceDemo");
   const [inputBackend, setInputBackend] = useState<InputBackendKind>("xcuitest");
   const [record, setRecord] = useState(true);
+  const [launchProfile, setLaunchProfile] = useState<LocalLaunchProfile>();
   const [status, setStatus] = useState<"idle" | "starting" | "error">("idle");
   const [message, setMessage] = useState("");
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -37,6 +41,7 @@ export function StartSessionPopover({
     requestRef.current = null;
     setStatus("idle");
     setMessage("");
+    setLaunchProfile(undefined);
     setOpen(false);
   };
 
@@ -64,10 +69,11 @@ export function StartSessionPopover({
 
   useEffect(() => {
     if (!openRequest) return;
-    const nextBundleId = requestedBundleId?.trim();
-    if (nextBundleId) setBundleId(nextBundleId);
+    const nextBundleId = requestedLaunchProfile?.bundleId.trim() || requestedBundleId?.trim() || "app.atlasloop.CommerceDemo";
+    setBundleId(nextBundleId);
+    setLaunchProfile(requestedLaunchProfile ? { ...requestedLaunchProfile, arguments: [...requestedLaunchProfile.arguments], environment: { ...requestedLaunchProfile.environment } } : undefined);
     setOpen(true);
-  }, [openRequest, requestedBundleId]);
+  }, [openRequest, requestedBundleId, requestedLaunchProfile]);
 
   useEffect(() => () => requestRef.current?.abort(), []);
 
@@ -80,10 +86,18 @@ export function StartSessionPopover({
     setStatus("starting");
     setMessage("Creating a local Simulator session…");
     try {
-      const session = await createViewerSession(daemonUrl, { simulatorName, bundleId, inputBackend, record }, controller.signal);
+      const session = await createViewerSession(daemonUrl, {
+        simulatorName,
+        bundleId,
+        launchArguments: launchProfile?.arguments,
+        launchEnvironment: launchProfile?.environment,
+        inputBackend,
+        record
+      }, controller.signal);
       if (requestRef.current !== controller) return;
       setStatus("idle");
       setMessage("");
+      setLaunchProfile(undefined);
       setOpen(false);
       onStarted(session);
     } catch (error) {
@@ -104,7 +118,7 @@ export function StartSessionPopover({
         aria-expanded={open}
         aria-haspopup="dialog"
         title={disabled ? disabledReason : "Create a new local Simulator session"}
-        onClick={() => setOpen((current) => !current)}
+        onClick={() => open ? close() : setOpen(true)}
       >
         <ProductIcon icon={Add01Icon} size={15} /> Start session
       </button>
@@ -141,20 +155,31 @@ export function StartSessionPopover({
               <span>App bundle ID</span>
               <input
                 value={bundleId}
-                onChange={(event) => setBundleId(event.target.value)}
+                onChange={(event) => {
+                  const nextBundleId = event.target.value;
+                  setBundleId(nextBundleId);
+                  if (launchProfile && nextBundleId.trim() !== launchProfile.bundleId) setLaunchProfile(undefined);
+                }}
                 placeholder="app.example.YourApp"
                 spellCheck={false}
                 required={inputBackend === "xcuitest"}
               />
               <small>{inputBackend === "xcuitest" ? "Required: Atlas Loop launches this installed app before gestures." : "Optional: launch an installed app with the session."}</small>
             </label>
+            {launchProfile ? (
+              <div className="start-session-profile" aria-label={`Launch profile ${launchProfile.label}`}>
+                <ProductIcon icon={Rocket01Icon} size={17} />
+                <span><small>LAUNCH PROFILE</small><strong>{launchProfile.label}</strong><em>{launchProfile.arguments.length} arguments · {Object.keys(launchProfile.environment).length} environment</em></span>
+                <button type="button" onClick={() => setLaunchProfile(undefined)}>Clear</button>
+              </div>
+            ) : null}
             <label className="start-session-checkbox">
               <input type="checkbox" checked={record} onChange={(event) => setRecord(event.target.checked)} />
               <span>Record replayable video evidence</span>
             </label>
             <div className="start-session-note">
               <strong>Runtime overrides</strong>
-              <span>Viewer link, artifact storage, and action history are configured automatically.</span>
+              <span>{launchProfile ? "The profile is sent to this app launch only. It is never added to session metadata by the viewer." : "Viewer link, artifact storage, and action history are configured automatically."}</span>
             </div>
             {message ? <p className={`start-session-message ${status}`} role="status">{message}</p> : null}
             <button type="submit" className="start-session-submit" disabled={disabled || status === "starting"}>

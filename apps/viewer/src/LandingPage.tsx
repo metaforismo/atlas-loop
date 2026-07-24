@@ -146,11 +146,11 @@ export function LandingPage() {
 
         <article className="landing-chapter" id="library">
           <div className="landing-chapter-copy">
-            <p className="landing-section-index">06 / VISIBLE STEP MODULES</p>
-            <h2>Reuse steps without hiding them.</h2>
-            <p>Keep proven command blocks in a local module library, then insert their readable source into a test. The result stays inspectable, editable, and independent of a remote registry.</p>
-            <ul><li>Built-in and browser-saved modules</li><li>Exact action preview before saving</li><li>Storage boundaries recompile readable source</li></ul>
-            <a className="landing-inline-link" href={LIBRARY_URL}>Open the module library →</a>
+            <p className="landing-section-index">06 / LOCAL TEST ASSETS</p>
+            <h2>Reuse the steps and the startup state.</h2>
+            <p>Keep proven command blocks and deterministic launch profiles in one local library. Tests stay readable, while installed apps can open at the exact fixture a run expects.</p>
+            <ul><li>Built-in and browser-saved step modules</li><li>Exact launch arguments and non-secret environment values</li><li>Validated again at every storage boundary</li></ul>
+            <a className="landing-inline-link" href={LIBRARY_URL}>Open the local library →</a>
           </div>
           <ModuleLibraryVisual />
         </article>
@@ -424,23 +424,23 @@ function ModuleLibraryVisual() {
     { name: "Native canvas stress", tag: "multi-touch", steps: "4 steps" }
   ];
   return (
-    <div className="landing-feature-visual module-library-visual" aria-label="Reusable local step module preview">
-      <div className="feature-visual-bar"><span>LOCAL STEP MODULES</span><small>3 READY</small></div>
+    <div className="landing-feature-visual module-library-visual" aria-label="Reusable local test assets preview">
+      <div className="feature-visual-bar"><span>LOCAL TEST ASSETS</span><small>6 READY</small></div>
+      <div className="module-library-tabs"><span className="active">STEP MODULES <b>3</b></span><span>LAUNCH PROFILES <b>3</b></span></div>
       <div className="module-library-body">
         <div className="module-library-list">
           <header><span>MODULE</span><small>VISIBLE SOURCE</small></header>
           {modules.map((module, index) => <div className={index === 0 ? "selected" : ""} key={module.name}><i /><span><strong>{module.name}</strong><small>{module.tag}</small></span><em>{module.steps}</em></div>)}
         </div>
-        <div className="module-library-insert">
-          <header><span>INSERTED INTO TEST</span><em>NO HIDDEN REF</em></header>
-          <code>Tap "cart.continue"</code>
-          <code>Tap "shipping.continue"</code>
-          <code>Tap "payment-review.place-order"</code>
-          <code>Verify "confirmation" is visible</code>
-          <small>Readable commands are copied into the test definition.</small>
+        <div className="module-library-insert launch-profile-visual-card">
+          <header><span>DETERMINISTIC STARTUP</span><em>VALID</em></header>
+          <div><small>PROFILE</small><strong>Gesture Lab</strong></div>
+          <code>app.atlasloop.CommerceDemo</code>
+          <code><b>ATLAS_LOOP_DEMO_ROUTE</b>=gesture-lab</code>
+          <small>One click prepares the installed app and native multi-touch canvas. Secret-like keys are never stored.</small>
         </div>
       </div>
-      <div className="module-library-footer"><span><i /> Source recompiled on save</span><a href={LIBRARY_URL}>OPEN LIBRARY →</a></div>
+      <div className="module-library-footer"><span><i /> Readable source · safe local launch state</span><a href={LIBRARY_URL}>OPEN LIBRARY →</a></div>
     </div>
   );
 }

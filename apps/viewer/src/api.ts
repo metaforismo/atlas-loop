@@ -143,6 +143,10 @@ export async function createViewerSession(
   }
   const bundleId = input.bundleId?.trim();
   if (!bundleId) return session;
+  const launchArguments = input.launchArguments?.filter((argument) => typeof argument === "string").slice(0, 32) ?? [];
+  const launchEnvironment = Object.fromEntries(
+    Object.entries(input.launchEnvironment ?? {}).filter(([key, value]) => typeof key === "string" && typeof value === "string").slice(0, 32)
+  );
 
   const launchResponse = await fetch(buildSessionUrl({ daemonUrl, sessionId: session.id }, "launch"), {
     method: "POST",
@@ -152,7 +156,11 @@ export async function createViewerSession(
       Accept: "application/json",
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({ bundleId })
+    body: JSON.stringify({
+      bundleId,
+      ...(launchArguments.length ? { arguments: launchArguments } : {}),
+      ...(Object.keys(launchEnvironment).length ? { environment: launchEnvironment } : {})
+    })
   });
   const launchText = await launchResponse.text();
   let launchPayload: unknown;

@@ -25,14 +25,19 @@ export function IOSDeviceFrame({
         </div>
       ) : null}
       <div className="ios-device-hardware">
-        <span className="ios-device-button ios-device-button-mute" aria-hidden="true" />
+        <span className="ios-device-antenna ios-device-antenna-top-left" aria-hidden="true" />
+        <span className="ios-device-antenna ios-device-antenna-top-right" aria-hidden="true" />
+        <span className="ios-device-antenna ios-device-antenna-bottom-left" aria-hidden="true" />
+        <span className="ios-device-antenna ios-device-antenna-bottom-right" aria-hidden="true" />
+        <span className="ios-device-button ios-device-button-action" aria-hidden="true" />
         <span className="ios-device-button ios-device-button-volume-up" aria-hidden="true" />
         <span className="ios-device-button ios-device-button-volume-down" aria-hidden="true" />
         <span className="ios-device-button ios-device-button-power" aria-hidden="true" />
+        <span className="ios-device-button ios-device-button-camera" aria-hidden="true" />
         <div className="ios-device-rim">
           <div className="ios-device-screen">
             {children}
-            <span className="ios-device-island" aria-hidden="true"><i /></span>
+            <span className="ios-device-island" aria-hidden="true"><b /><i /></span>
             <span className="ios-device-home-indicator" aria-hidden="true" />
           </div>
         </div>
