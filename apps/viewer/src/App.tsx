@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent as ReactKeyboardEvent } from "react";
 import {
+  BookOpen01Icon,
   ChartRelationshipIcon,
   CheckListIcon,
   CursorPointer02Icon,
@@ -37,6 +38,7 @@ import { AtlasView } from "./atlas/AtlasView.js";
 import { ActionDetailPanel } from "./components/ActionDetailPanel.js";
 import { EmptyState, ErrorNotice, MetricTile, StatusRow } from "./components/common.js";
 import { ImageLightbox } from "./components/ImageLightbox.js";
+import { LibraryWorkspace } from "./components/LibraryWorkspace.js";
 import { EvidenceHealthPanel } from "./components/EvidenceHealthPanel.js";
 import { FlowRunPanel } from "./components/FlowRunPanel.js";
 import { AgentHandoffPanel } from "./components/HandoffPanel.js";
@@ -77,6 +79,7 @@ import {
   type UiTone
 } from "./viewerPresentation.js";
 import { DEFAULT_SESSION_ID, writeViewerSearch } from "./viewerParams.js";
+import type { LocalTestModuleSeed } from "./localTestModules.js";
 
 export function App() {
   const params = useViewerParams();
@@ -112,6 +115,7 @@ export function App() {
   const [workspaceView, setWorkspaceView] = useState<ViewerWorkspace>(params.workspace ?? "evidence");
   const [startSessionRequest, setStartSessionRequest] = useState(0);
   const [startSessionBundleId, setStartSessionBundleId] = useState<string>();
+  const [testComposerSeed, setTestComposerSeed] = useState<LocalTestModuleSeed>();
   const autoOpenedOverview = useRef(false);
 
   useEffect(() => {
@@ -361,6 +365,10 @@ export function App() {
       openWorkspaceView("tests");
       return;
     }
+    if (destination === "library") {
+      openWorkspaceView("library");
+      return;
+    }
     if (destination === "sessions") {
       openWorkspaceView("sessions");
       return;
@@ -376,6 +384,7 @@ export function App() {
     const targets: Partial<Record<WorkspaceCommandId, string>> = {
       overview: "viewer-stage",
       tests: "test-workspace",
+      library: "library-workspace",
       apps: "observed-apps-workspace",
       workflows: "workflow-workspace",
       sessions: "session-workspace",
@@ -394,6 +403,10 @@ export function App() {
     }
     if (command === "tests") {
       openWorkspaceView("tests");
+      return;
+    }
+    if (command === "library") {
+      openWorkspaceView("library");
       return;
     }
     if (command === "apps") {
@@ -427,15 +440,15 @@ export function App() {
   }
 
   return (
-    <main className={`viewer-shell health-${health} ${flowFocus ? "flow-focus" : ""} ${workspaceView === "overview" ? "workspace-overview-active" : ""} ${workspaceView === "tests" ? "workspace-tests-active" : ""} ${workspaceView === "sessions" ? "workspace-sessions-active" : ""} ${workspaceView === "apps" ? "workspace-apps-active" : ""} ${workspaceView === "workflows" ? "workspace-workflows-active" : ""}`}>
-      <a className="skip-link" href={workspaceView === "overview" ? "#workspace-overview" : workspaceView === "tests" ? "#test-workspace" : workspaceView === "sessions" ? "#session-workspace" : workspaceView === "apps" ? "#observed-apps-workspace" : workspaceView === "workflows" ? "#workflow-workspace" : "#viewer-stage"}>
-        {workspaceView === "overview" ? "Skip to workspace overview" : workspaceView === "tests" ? "Skip to local tests" : workspaceView === "sessions" ? "Skip to session history" : workspaceView === "apps" ? "Skip to observed apps" : workspaceView === "workflows" ? "Skip to workflow library" : "Skip to device viewport"}
+    <main className={`viewer-shell health-${health} ${flowFocus ? "flow-focus" : ""} ${workspaceView === "overview" ? "workspace-overview-active" : ""} ${workspaceView === "tests" ? "workspace-tests-active" : ""} ${workspaceView === "library" ? "workspace-library-active" : ""} ${workspaceView === "sessions" ? "workspace-sessions-active" : ""} ${workspaceView === "apps" ? "workspace-apps-active" : ""} ${workspaceView === "workflows" ? "workspace-workflows-active" : ""}`}>
+      <a className="skip-link" href={workspaceView === "overview" ? "#workspace-overview" : workspaceView === "tests" ? "#test-workspace" : workspaceView === "library" ? "#library-workspace" : workspaceView === "sessions" ? "#session-workspace" : workspaceView === "apps" ? "#observed-apps-workspace" : workspaceView === "workflows" ? "#workflow-workspace" : "#viewer-stage"}>
+        {workspaceView === "overview" ? "Skip to workspace overview" : workspaceView === "tests" ? "Skip to local tests" : workspaceView === "library" ? "Skip to local module library" : workspaceView === "sessions" ? "Skip to session history" : workspaceView === "apps" ? "Skip to observed apps" : workspaceView === "workflows" ? "Skip to workflow library" : "Skip to device viewport"}
       </a>
       <header className="viewer-topbar" aria-label="Viewer navigation">
         <nav className="viewer-breadcrumb" aria-label="Breadcrumb">
           <a href="/">Home</a>
           <span aria-hidden="true">/</span>
-          <strong>{workspaceView === "overview" ? "Overview" : workspaceView === "tests" ? "Tests" : workspaceView === "sessions" ? "Sessions" : workspaceView === "apps" ? "Apps" : workspaceView === "workflows" ? "Workflows" : "Evidence"}</strong>
+          <strong>{workspaceView === "overview" ? "Overview" : workspaceView === "tests" ? "Tests" : workspaceView === "library" ? "Library" : workspaceView === "sessions" ? "Sessions" : workspaceView === "apps" ? "Apps" : workspaceView === "workflows" ? "Workflows" : "Evidence"}</strong>
         </nav>
         <div className="viewer-topbar-actions">
           <WorkspaceCommandMenu onSelect={runWorkspaceCommand} />
@@ -501,6 +514,10 @@ export function App() {
           <button type="button" className={`viewer-nav-item ${workspaceView === "workflows" ? "selected" : ""}`} aria-current={workspaceView === "workflows" ? "page" : undefined} onClick={() => openWorkspaceView("workflows")}>
             <ProductIcon className="viewer-nav-icon" icon={WorkflowSquare03Icon} />
             Workflows
+          </button>
+          <button type="button" className={`viewer-nav-item ${workspaceView === "library" ? "selected" : ""}`} aria-current={workspaceView === "library" ? "page" : undefined} onClick={() => openWorkspaceView("library")}>
+            <ProductIcon className="viewer-nav-icon" icon={BookOpen01Icon} />
+            Library
           </button>
           <button type="button" className={`viewer-nav-item ${workspaceView === "sessions" ? "selected" : ""}`} aria-current={workspaceView === "sessions" ? "page" : undefined} onClick={() => openWorkspaceView("sessions")}>
             <ProductIcon className="viewer-nav-icon" icon={TimelineListIcon} />
@@ -639,7 +656,13 @@ export function App() {
           mutationState={actionMutationState}
           onOpenEvidence={() => openWorkspaceView("evidence")}
           onStartSession={requestStartSession}
+          composerSeed={testComposerSeed}
+          onComposerSeedHandled={() => setTestComposerSeed(undefined)}
         />
+      ) : null}
+
+      {workspaceView === "library" ? (
+        <LibraryWorkspace onCreateTest={(seed) => { setTestComposerSeed(seed); openWorkspaceView("tests"); }} />
       ) : null}
 
       {workspaceView === "sessions" ? (

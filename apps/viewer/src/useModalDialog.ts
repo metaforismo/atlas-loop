@@ -13,10 +13,15 @@ export function useModalDialog(onClose: () => void) {
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const initialFocusRef = useRef<HTMLButtonElement | null>(null);
   const onCloseRef = useRef(onClose);
+  // Capture focus during render, before React's `autoFocus` moves it inside
+  // the newly mounted dialog. Reading it in the effect would already be too
+  // late and could leave focus pointing at a detached input after close.
+  const previouslyFocusedRef = useRef<HTMLElement | null>(
+    typeof document !== "undefined" && document.activeElement instanceof HTMLElement ? document.activeElement : null
+  );
   onCloseRef.current = onClose;
 
   useEffect(() => {
-    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     initialFocusRef.current?.focus();
@@ -53,7 +58,7 @@ export function useModalDialog(onClose: () => void) {
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
       document.body.style.overflow = previousOverflow;
-      previouslyFocused?.focus();
+      if (previouslyFocusedRef.current?.isConnected) previouslyFocusedRef.current.focus();
     };
   }, []);
 

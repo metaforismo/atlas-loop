@@ -11,6 +11,13 @@ import {
   StopIcon
 } from "@hugeicons/core-free-icons";
 import { runGestureSequenceSteps } from "../gestureSequenceRunner.js";
+import { loadSavedLocalTestModules } from "../localTestModuleStorage.js";
+import {
+  appendLocalTestModuleScript,
+  LOCAL_TEST_MODULE_STARTERS,
+  type LocalTestModule,
+  type LocalTestModuleSeed
+} from "../localTestModules.js";
 import {
   compileLocalTestScript,
   DEFAULT_LOCAL_TEST_SCRIPT,
@@ -68,7 +75,9 @@ export function TestWorkspace({
   session,
   mutationState,
   onOpenEvidence,
-  onStartSession
+  onStartSession,
+  composerSeed,
+  onComposerSeedHandled
 }: {
   params: ViewerParams;
   selectedSessionId: string;
@@ -76,6 +85,8 @@ export function TestWorkspace({
   mutationState: ActionMutationState;
   onOpenEvidence: () => void;
   onStartSession: (bundleId?: string) => void;
+  composerSeed?: LocalTestModuleSeed;
+  onComposerSeedHandled?: () => void;
 }) {
   const [saved, setSaved] = useState<LocalTestDefinition[]>(() => loadSavedLocalTests());
   const [runs, setRuns] = useState<LocalTestRunRecord[]>(() => loadLocalTestRuns());
@@ -85,6 +96,7 @@ export function TestWorkspace({
   const [sort, setSort] = useState<TestSort>("recent");
   const [selectedKey, setSelectedKey] = useState("");
   const [composerOpen, setComposerOpen] = useState(false);
+  const [activeComposerSeed, setActiveComposerSeed] = useState<LocalTestModuleSeed>();
   const [pendingDeleteId, setPendingDeleteId] = useState<string>();
   const [message, setMessage] = useState("");
   const [runState, setRunState] = useState<TestRunState>({ status: "idle" });
@@ -121,6 +133,13 @@ export function TestWorkspace({
     setRunState({ status: "idle" });
     return () => abortRef.current?.abort();
   }, [params.daemonUrl, selectedSessionId]);
+
+  useEffect(() => {
+    if (!composerSeed) return;
+    setActiveComposerSeed(composerSeed);
+    setComposerOpen(true);
+    onComposerSeedHandled?.();
+  }, [composerSeed, onComposerSeedHandled]);
 
   const resetFilters = (): void => {
     setQuery("");
@@ -210,7 +229,7 @@ export function TestWorkspace({
         </div>
         <div className="test-workspace-header-actions">
           <button type="button" className="test-secondary-action" onClick={onOpenEvidence}><ProductIcon icon={EyeIcon} />Open live evidence</button>
-          <button type="button" className="test-primary-action" onClick={() => setComposerOpen(true)}><ProductIcon icon={Add01Icon} />Create test</button>
+          <button type="button" className="test-primary-action" onClick={() => { setActiveComposerSeed(undefined); setComposerOpen(true); }}><ProductIcon icon={Add01Icon} />Create test</button>
         </div>
       </header>
 
@@ -294,7 +313,7 @@ export function TestWorkspace({
         </div>
       )}
 
-      {composerOpen ? <TestComposer onClose={() => setComposerOpen(false)} onSaved={(test) => {
+      {composerOpen ? <TestComposer initialSeed={activeComposerSeed} onClose={() => setComposerOpen(false)} onSaved={(test) => {
         try {
           setSaved(saveLocalTest(test));
           setSelectedKey(`saved:${test.id}`);
@@ -310,14 +329,19 @@ export function TestWorkspace({
   );
 }
 
-function TestComposer({ onClose, onSaved }: { onClose: () => void; onSaved: (test: LocalTestDefinition) => void }) {
-  const [name, setName] = useState("");
+function TestComposer({ initialSeed, onClose, onSaved }: { initialSeed?: LocalTestModuleSeed; onClose: () => void; onSaved: (test: LocalTestDefinition) => void }) {
+  const [name, setName] = useState(initialSeed?.name ?? "");
+  const [detail, setDetail] = useState(initialSeed?.detail ?? "");
   const [bundleId, setBundleId] = useState("");
-  const [tags, setTags] = useState("smoke");
-  const [script, setScript] = useState(DEFAULT_LOCAL_TEST_SCRIPT);
+  const [tags, setTags] = useState(initialSeed?.tags?.join(", ") ?? "smoke");
+  const [script, setScript] = useState(initialSeed?.script ?? DEFAULT_LOCAL_TEST_SCRIPT);
+  const [moduleKey, setModuleKey] = useState("");
+  const modules = useMemo(() => buildComposerModules(), []);
+  const selectedModule = modules.find((module) => module.key === moduleKey);
   const compiled = useMemo(() => compileLocalTestScript(script), [script]);
-  const nameError = name.trim() ? "" : "Give this test a name.";
-  const canSave = !nameError && compiled.errors.length === 0 && compiled.steps.length > 0;
+  const nameError = !name.trim() ? "Give this test a name." : name.trim().length > 80 ? "Keep the test name under 80 characters." : "";
+  const detailError = detail.trim().length > 240 ? "Keep the description under 240 characters." : "";
+  const canSave = !nameError && !detailError && compiled.errors.length === 0 && compiled.steps.length > 0;
   const { dialogRef } = useModalDialog(onClose);
 
   const save = (): void => {
@@ -326,7 +350,7 @@ function TestComposer({ onClose, onSaved }: { onClose: () => void; onSaved: (tes
     onSaved({
       id: `test-${Date.now().toString(36)}`,
       label: name.trim(),
-      detail: `${compiled.steps.length} deterministic local steps compiled from readable commands.`,
+      detail: detail.trim() || `${compiled.steps.length} deterministic local steps compiled from readable commands.`,
       platform: "ios-simulator",
       appBundleId: bundleId.trim() || undefined,
       tags: [...new Set(tags.split(",").map((tag) => tag.trim().toLowerCase()).filter(Boolean))].slice(0, 8),
@@ -344,8 +368,14 @@ function TestComposer({ onClose, onSaved }: { onClose: () => void; onSaved: (tes
         <div className="test-composer-body">
           <div className="test-composer-fields">
             <label><span>Test name</span><input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="Checkout stays recoverable" aria-invalid={Boolean(nameError)} />{nameError ? <small className="test-field-error">{nameError}</small> : <small>Used in the local test library.</small>}</label>
+            <label><span>Description</span><textarea className="test-description-field" value={detail} onChange={(event) => setDetail(event.target.value)} placeholder="What this flow proves and when to run it." aria-invalid={Boolean(detailError)} />{detailError ? <small className="test-field-error">{detailError}</small> : <small>Optional context shown beside the compiled steps.</small>}</label>
             <label><span>Expected app bundle ID</span><input value={bundleId} onChange={(event) => setBundleId(event.target.value)} placeholder="app.atlasloop.CommerceDemo" spellCheck={false} /><small>Optional. A mismatch blocks accidental execution against the wrong app.</small></label>
             <label><span>Tags</span><input value={tags} onChange={(event) => setTags(event.target.value)} placeholder="smoke, checkout" /><small>Comma-separated, stored only in this browser.</small></label>
+            <div className="test-module-insert">
+              <label><span>Insert step module</span><select value={moduleKey} onChange={(event) => setModuleKey(event.target.value)} aria-label="Select a local step module"><option value="">Choose a reusable module</option>{modules.map((module) => <option value={module.key} key={module.key}>{module.label} · {module.steps.length} steps</option>)}</select></label>
+              <button type="button" disabled={!selectedModule} onClick={() => { if (!selectedModule) return; setScript((current) => appendLocalTestModuleScript(current, selectedModule)); setModuleKey(""); }}>Insert readable steps</button>
+              <small>The commands are copied into this test, so execution never depends on a hidden module reference.</small>
+            </div>
             <label className="test-script-field"><span>Plain-language test steps</span><textarea value={script} onChange={(event) => setScript(event.target.value)} aria-label="Plain-language test steps" spellCheck={false} /><small>One deterministic command per line. Comments start with #.</small></label>
             <details className="test-command-reference"><summary>Supported commands</summary><code>Tap "identifier"</code><code>Tap at 50% 80%</code><code>Type "text"</code><code>Swipe up</code><code>Wait 800ms</code><code>Back</code><code>Long press center</code><code>Pinch open on "identifier"</code><code>Rotate clockwise</code><code>Two-finger tap "identifier"</code><code>Verify "identifier" is visible</code><code>Capture "reason"</code></details>
           </div>
@@ -358,6 +388,13 @@ function TestComposer({ onClose, onSaved }: { onClose: () => void; onSaved: (tes
       </div>
     </div>
   );
+}
+
+function buildComposerModules(): Array<LocalTestModule & { key: string }> {
+  return [
+    ...loadSavedLocalTestModules().map((module) => ({ ...module, key: `saved:${module.id}` })),
+    ...LOCAL_TEST_MODULE_STARTERS.map((module) => ({ ...module, key: `starter:${module.id}` }))
+  ];
 }
 
 function buildTestEntries(saved: LocalTestDefinition[]): TestEntry[] {

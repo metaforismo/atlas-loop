@@ -7,6 +7,7 @@ import { ProductIcon } from "./ProductIcon.js";
 export type WorkspaceCommandId =
   | "overview"
   | "tests"
+  | "library"
   | "apps"
   | "workflows"
   | "sessions"
@@ -20,6 +21,7 @@ export type WorkspaceCommandId =
 const COMMANDS: Array<{ id: WorkspaceCommandId; label: string; group: string; hint: string }> = [
   { id: "overview", label: "Open workspace overview", group: "Workspace", hint: "Device viewport" },
   { id: "tests", label: "Open local tests", group: "Workspace", hint: "Readable deterministic test steps" },
+  { id: "library", label: "Open step module library", group: "Workspace", hint: "Reusable visible command blocks" },
   { id: "apps", label: "Browse observed apps", group: "Workspace", hint: "App history and relaunch" },
   { id: "workflows", label: "Open workflow library", group: "Workspace", hint: "Saved flows and gesture templates" },
   { id: "sessions", label: "Browse sessions", group: "Workspace", hint: "Recent local runs" },
@@ -127,7 +129,7 @@ function WorkspaceCommandDialog({
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={handleSearchKeyDown}
-            placeholder="Search apps, sessions, actions, or evidence…"
+            placeholder="Search tests, modules, sessions, actions, or evidence…"
           />
           <kbd>ESC</kbd>
         </label>
