@@ -407,6 +407,28 @@ describe("viewer app interactions", { timeout: 30_000 }, () => {
       return true;
     }, "wait preset applied");
   });
+
+  it("opens the operational overview and returns to live evidence", async () => {
+    await act(async () => root?.render(<App />));
+    await waitFor(() => {
+      expect(getByAriaLabel<HTMLElement>(`Evidence for ${SESSION_ID}`)).toBeTruthy();
+      return true;
+    }, "session history before overview");
+
+    const workspaceNavigation = getByAriaLabel<HTMLElement>("Workspace navigation");
+    await click(getButtonByText(workspaceNavigation, "Overview"));
+
+    const shell = document.querySelector("main.viewer-shell")!;
+    expect(shell.classList.contains("workspace-overview-active")).toBe(true);
+    expect(document.querySelector("#workspace-overview-title")?.textContent).toBe("Workspace overview");
+    expect(document.querySelector(".overview-recent-sessions")?.textContent).toContain(SESSION_ID);
+    expect(getButtonByText(workspaceNavigation, "Overview").getAttribute("aria-current")).toBe("page");
+
+    const overview = document.querySelector<HTMLElement>(".workspace-overview")!;
+    await click(getButtonByText(overview, "Open live evidence"));
+    expect(shell.classList.contains("workspace-overview-active")).toBe(false);
+    expect(getButtonByText(workspaceNavigation, "Live evidence").getAttribute("aria-current")).toBe("page");
+  });
 });
 
 async function fetchResponse(input: RequestInfo | URL): Promise<Response> {

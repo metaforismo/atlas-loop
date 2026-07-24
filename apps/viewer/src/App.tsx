@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent as ReactKeyboardEvent } from "react";
 import { isDisplayableScreenshot } from "./api.js";
 import {
@@ -32,6 +32,7 @@ import { ReplayPanel } from "./components/ReplayPanel.js";
 import { ScreenshotView } from "./components/ScreenshotView.js";
 import { SessionBrowserContent } from "./components/SessionBrowser.js";
 import { StartSessionPopover } from "./components/StartSessionPopover.js";
+import { WorkspaceOverview, type OverviewDestination } from "./components/WorkspaceOverview.js";
 import { WorkspaceCommandMenu, type WorkspaceCommandId } from "./components/WorkspaceCommandMenu.js";
 import { useAtlasLoopData, useViewerParams } from "./hooks/useAtlasLoopData.js";
 import { formatTapCoordinate, type ScreenshotTapTarget } from "./screenshotGeometry.js";
@@ -89,6 +90,9 @@ export function App() {
   const [stageZoomed, setStageZoomed] = useState(false);
   const [flowFocus, setFlowFocus] = useState(false);
   const [runtimeSettingsOpen, setRuntimeSettingsOpen] = useState(false);
+  const [workspaceView, setWorkspaceView] = useState<"overview" | "evidence">("evidence");
+  const [startSessionRequest, setStartSessionRequest] = useState(0);
+  const autoOpenedOverview = useRef(false);
 
   useEffect(() => {
     setDraft(params);
@@ -168,6 +172,13 @@ export function App() {
   );
 
   useEffect(() => {
+    const confirmedFirstRun = sessionListStatus === "error" || (sessionListStatus === "ready" && sessions.length === 0);
+    if (autoOpenedOverview.current || !isLatestFirstRun || !confirmedFirstRun) return;
+    autoOpenedOverview.current = true;
+    setWorkspaceView("overview");
+  }, [isLatestFirstRun, sessionListStatus, sessions.length]);
+
+  useEffect(() => {
     // No clearing when the list is empty: a deep-linked artifactId must survive
     // until artifacts finish loading.
     if (!selectedArtifact) return;
@@ -223,6 +234,7 @@ export function App() {
   const selectSession = (sessionId: string): void => {
     const nextParams = { daemonUrl: params.daemonUrl, sessionId };
     setDraft(nextParams);
+    setWorkspaceView("evidence");
     applyViewerParams(nextParams);
   };
 
@@ -275,7 +287,30 @@ export function App() {
   };
 
   const scrollToWorkspaceSection = (id: string): void => {
-    document.getElementById(id)?.scrollIntoView({ block: "start", behavior: "smooth" });
+    document.getElementById(id)?.scrollIntoView?.({ block: "start", behavior: "smooth" });
+  };
+
+  const openWorkspaceSection = (id: string): void => {
+    setWorkspaceView("evidence");
+    window.requestAnimationFrame(() => scrollToWorkspaceSection(id));
+  };
+
+  const openOverviewDestination = (destination: OverviewDestination): void => {
+    if (destination === "atlas") {
+      applyViewerParams({ daemonUrl: params.daemonUrl, sessionId: params.sessionId, view: "atlas" });
+      return;
+    }
+    if (destination === "start") {
+      setStartSessionRequest((current) => current + 1);
+      return;
+    }
+    if (destination === "runtime") {
+      setRuntimeSettingsOpen(true);
+      openWorkspaceSection("viewer-connection-panel");
+      window.requestAnimationFrame(() => document.getElementById("daemon-url-input")?.focus());
+      return;
+    }
+    openWorkspaceSection(destination === "actions" ? "viewer-actions" : "viewer-stage");
   };
 
   const runWorkspaceCommand = (command: WorkspaceCommandId): void => {
@@ -287,6 +322,11 @@ export function App() {
       artifacts: "viewer-artifacts",
       health: "viewer-health"
     };
+    if (command === "overview") {
+      setFlowFocus(false);
+      setWorkspaceView("overview");
+      return;
+    }
     if (command === "atlas") {
       applyViewerParams({ daemonUrl: params.daemonUrl, sessionId: params.sessionId, view: "atlas" });
       return;
@@ -296,7 +336,7 @@ export function App() {
       return;
     }
     const target = targets[command];
-    if (target) scrollToWorkspaceSection(target);
+    if (target) openWorkspaceSection(target);
   };
 
   if (params.view === "atlas") {
@@ -310,13 +350,15 @@ export function App() {
   }
 
   return (
-    <main className={`viewer-shell health-${health} ${flowFocus ? "flow-focus" : ""}`}>
-      <a className="skip-link" href="#viewer-stage">Skip to device viewport</a>
+    <main className={`viewer-shell health-${health} ${flowFocus ? "flow-focus" : ""} ${workspaceView === "overview" ? "workspace-overview-active" : ""}`}>
+      <a className="skip-link" href={workspaceView === "overview" ? "#workspace-overview" : "#viewer-stage"}>
+        {workspaceView === "overview" ? "Skip to workspace overview" : "Skip to device viewport"}
+      </a>
       <header className="viewer-topbar" aria-label="Viewer navigation">
         <nav className="viewer-breadcrumb" aria-label="Breadcrumb">
           <a href="/">Home</a>
           <span aria-hidden="true">/</span>
-          <strong>Evidence</strong>
+          <strong>{workspaceView === "overview" ? "Overview" : "Evidence"}</strong>
         </nav>
         <div className="viewer-topbar-actions">
           <WorkspaceCommandMenu onSelect={runWorkspaceCommand} />
@@ -325,6 +367,7 @@ export function App() {
             disabled={health !== "online"}
             disabledReason="Start the Atlas Loop daemon before creating a session."
             onStarted={(createdSession) => selectSession(createdSession.id)}
+            openRequest={startSessionRequest}
           />
           <span className={`viewer-runtime-state tone-${healthTone(health)}`}>
             <span aria-hidden="true" />
@@ -337,15 +380,17 @@ export function App() {
           >
             Atlas
           </button>
-          <button
-            type="button"
-            className="flow-focus-toggle"
-            aria-pressed={flowFocus}
-            onClick={toggleFlowFocus}
-            title={flowFocus ? "Return to the full evidence workspace" : "Put the device and observed flow side by side"}
-          >
-            {flowFocus ? "Exit focus" : "Flow focus"}
-          </button>
+          {workspaceView === "evidence" ? (
+            <button
+              type="button"
+              className="flow-focus-toggle"
+              aria-pressed={flowFocus}
+              onClick={toggleFlowFocus}
+              title={flowFocus ? "Return to the full evidence workspace" : "Put the device and observed flow side by side"}
+            >
+              {flowFocus ? "Exit focus" : "Flow focus"}
+            </button>
+          ) : null}
         </div>
       </header>
       <aside id="viewer-connection-panel" className="rail panel" aria-label="Viewer connection and session list">
@@ -362,20 +407,20 @@ export function App() {
 
         <nav className="viewer-nav" aria-label="Workspace navigation">
           <p>Home</p>
-          <button type="button" className="viewer-nav-item selected" aria-current="page" onClick={() => scrollToWorkspaceSection("viewer-stage")}>
+          <button type="button" className={`viewer-nav-item ${workspaceView === "overview" ? "selected" : ""}`} aria-current={workspaceView === "overview" ? "page" : undefined} onClick={() => { setFlowFocus(false); setWorkspaceView("overview"); }}>
             <span className="viewer-nav-icon overview" aria-hidden="true" />
             Overview
           </button>
           <p>Workspace</p>
-          <button type="button" className="viewer-nav-item" onClick={() => scrollToWorkspaceSection("viewer-sessions")}>
+          <button type="button" className="viewer-nav-item" onClick={() => openWorkspaceSection("viewer-sessions")}>
             <span className="viewer-nav-icon sessions" aria-hidden="true" />
             Sessions
           </button>
-          <button type="button" className="viewer-nav-item" onClick={() => scrollToWorkspaceSection("viewer-stage")}>
+          <button type="button" className={`viewer-nav-item ${workspaceView === "evidence" ? "selected" : ""}`} aria-current={workspaceView === "evidence" ? "page" : undefined} onClick={() => openWorkspaceSection("viewer-stage")}>
             <span className="viewer-nav-icon evidence" aria-hidden="true" />
             Live evidence
           </button>
-          <button type="button" className="viewer-nav-item" onClick={() => scrollToWorkspaceSection("viewer-actions")}>
+          <button type="button" className="viewer-nav-item" onClick={() => openWorkspaceSection("viewer-actions")}>
             <span className="viewer-nav-icon actions" aria-hidden="true" />
             Actions
           </button>
@@ -388,11 +433,11 @@ export function App() {
             Atlas map
           </button>
           <p>System</p>
-          <button type="button" className="viewer-nav-item" onClick={() => scrollToWorkspaceSection("viewer-artifacts")}>
+          <button type="button" className="viewer-nav-item" onClick={() => openWorkspaceSection("viewer-artifacts")}>
             <span className="viewer-nav-icon artifacts" aria-hidden="true" />
             Artifacts
           </button>
-          <button type="button" className="viewer-nav-item" onClick={() => scrollToWorkspaceSection("viewer-health")}>
+          <button type="button" className="viewer-nav-item" onClick={() => openWorkspaceSection("viewer-health")}>
             <span className="viewer-nav-icon health" aria-hidden="true" />
             Evidence health
           </button>
@@ -480,6 +525,21 @@ export function App() {
 
         {showLastError ? <ErrorNotice message={lastError!} /> : null}
       </aside>
+
+      <WorkspaceOverview
+        health={health}
+        session={session}
+        sessions={sessions}
+        sessionListStatus={sessionListStatus}
+        artifacts={artifacts}
+        eventCount={events.length}
+        screenshotStatus={screenshot.status}
+        artifactHealth={artifactHealth}
+        artifactHealthStatus={artifactHealthStatus}
+        onStartSession={() => setStartSessionRequest((current) => current + 1)}
+        onOpen={openOverviewDestination}
+        onSelectSession={selectSession}
+      />
 
       <section id="viewer-stage" className="stage panel" aria-label="Latest iPhone screenshot" tabIndex={-1}>
         <div className="stage-topbar">
