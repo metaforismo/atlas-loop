@@ -32,6 +32,11 @@ type WorkflowRunState =
   | { status: "cancelled"; workflowKey: string; message: string }
   | { status: "error"; workflowKey: string; message: string };
 
+export type WorkflowMonitorActivity =
+  | { status: "idle" }
+  | { status: "running"; workflowLabel: string; step: number; total: number; stepLabel: string }
+  | { status: "success" | "cancelled" | "error"; workflowLabel: string; message: string };
+
 const MULTITOUCH_KINDS = new Set(["pinch", "rotate", "twoFingerTap"]);
 const WORKFLOW_SCOPES: Array<{ id: WorkflowScope; label: string }> = [
   { id: "all", label: "All" },
@@ -46,7 +51,8 @@ export function WorkflowWorkspace({
   session,
   mutationState,
   onOpenActions,
-  onOpenEvidence
+  onOpenEvidence,
+  onRunActivityChange
 }: {
   params: ViewerParams;
   selectedSessionId: string;
@@ -54,6 +60,7 @@ export function WorkflowWorkspace({
   mutationState: ActionMutationState;
   onOpenActions: () => void;
   onOpenEvidence: () => void;
+  onRunActivityChange?: (activity: WorkflowMonitorActivity) => void;
 }) {
   const [saved, setSaved] = useState<GestureSequencePreset[]>(() => loadSavedGestureSequences());
   const [query, setQuery] = useState("");
@@ -83,6 +90,28 @@ export function WorkflowWorkspace({
   const multitouchCount = entries.filter((entry) => entry.multitouch).length;
   const isRunning = runState.status === "running";
   const hasFilters = query.trim().length > 0 || scope !== "all";
+
+  useEffect(() => {
+    if (!onRunActivityChange) return;
+    if (runState.status === "idle") {
+      onRunActivityChange({ status: "idle" });
+      return;
+    }
+    const workflowLabel = entries.find((entry) => entry.key === runState.workflowKey)?.label ?? "Workflow";
+    if (runState.status === "running") {
+      onRunActivityChange({
+        status: "running",
+        workflowLabel,
+        step: runState.step,
+        total: runState.total,
+        stepLabel: runState.label
+      });
+      return;
+    }
+    onRunActivityChange({ status: runState.status, workflowLabel, message: runState.message });
+  }, [entries, onRunActivityChange, runState]);
+
+  useEffect(() => () => onRunActivityChange?.({ status: "idle" }), [onRunActivityChange]);
 
   useEffect(() => {
     if (!selected) {

@@ -61,6 +61,13 @@ describe("LandingPage", () => {
     expect(container.querySelector("[aria-label='Atlas Loop product preview']")?.textContent).toContain("Rotation 0.35 rad");
     expect(container.querySelector("[role='group'][aria-label='Gesture Lab running on an iPhone Simulator']")).not.toBeNull();
 
+    const monitorTab = [...container.querySelectorAll<HTMLButtonElement>("[role='tab']")].find((button) => button.textContent === "Live monitor")!;
+    await act(async () => monitorTab.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true })));
+    expect(monitorTab.getAttribute("aria-selected")).toBe("true");
+    expect(container.querySelector("[aria-label='Atlas Loop product preview']")?.textContent).toContain("Every run stays in sight");
+    expect(container.querySelector("[aria-label='Atlas Loop product preview']")?.textContent).toContain("Checkout regression");
+    expect(container.querySelector("[role='group'][aria-label='Runtime Watch running on an iPhone Simulator']")).not.toBeNull();
+
     const clipboardWrite = vi.fn(async () => undefined);
     Object.defineProperty(window.navigator, "clipboard", { configurable: true, value: { writeText: clipboardWrite } });
     const quickstartSection = container.querySelector<HTMLElement>("#quickstart")!;

@@ -40,6 +40,7 @@ import { EmptyState, ErrorNotice, MetricTile, StatusRow } from "./components/com
 import { ImageLightbox } from "./components/ImageLightbox.js";
 import { IOSDeviceFrame } from "./components/IOSDeviceFrame.js";
 import { LibraryWorkspace } from "./components/LibraryWorkspace.js";
+import { LiveMonitor } from "./components/LiveMonitor.js";
 import { EvidenceHealthPanel } from "./components/EvidenceHealthPanel.js";
 import { FlowRunPanel } from "./components/FlowRunPanel.js";
 import { AgentHandoffPanel } from "./components/HandoffPanel.js";
@@ -55,7 +56,7 @@ import { ProductIcon } from "./components/ProductIcon.js";
 import { WorkspaceOverview, type OverviewDestination } from "./components/WorkspaceOverview.js";
 import { WorkspaceCommandMenu, type WorkspaceCommandId } from "./components/WorkspaceCommandMenu.js";
 import { TestWorkspace } from "./components/TestWorkspace.js";
-import { WorkflowWorkspace } from "./components/WorkflowWorkspace.js";
+import { WorkflowWorkspace, type WorkflowMonitorActivity } from "./components/WorkflowWorkspace.js";
 import { useAtlasLoopData, useViewerParams } from "./hooks/useAtlasLoopData.js";
 import { formatTapCoordinate, type ScreenshotTapTarget } from "./screenshotGeometry.js";
 import type { ViewerParams, ViewerWorkspace } from "./types.js";
@@ -117,6 +118,7 @@ export function App() {
   const [startSessionRequest, setStartSessionRequest] = useState(0);
   const [startSessionBundleId, setStartSessionBundleId] = useState<string>();
   const [testComposerSeed, setTestComposerSeed] = useState<LocalTestModuleSeed>();
+  const [workflowActivity, setWorkflowActivity] = useState<WorkflowMonitorActivity>({ status: "idle" });
   const autoOpenedOverview = useRef(false);
 
   useEffect(() => {
@@ -279,6 +281,12 @@ export function App() {
     setDraft(nextParams);
     setWorkspaceView("evidence");
     applyViewerParams(nextParams);
+  };
+
+  const openRuntimeSettings = (): void => {
+    setRuntimeSettingsOpen(true);
+    openWorkspaceSection("viewer-connection-panel");
+    window.requestAnimationFrame(() => document.getElementById("daemon-url-input")?.focus());
   };
 
   const focusArtifactOption = (artifactId: string): void => {
@@ -453,6 +461,22 @@ export function App() {
         </nav>
         <div className="viewer-topbar-actions">
           <WorkspaceCommandMenu onSelect={runWorkspaceCommand} />
+          <LiveMonitor
+            health={health}
+            sessions={sessions}
+            sessionListStatus={sessionListStatus}
+            sessionListError={sessionListError}
+            selectedSessionId={selectedSessionId}
+            selectedSession={session}
+            artifactCount={artifacts.length}
+            eventCount={events.length}
+            workflowActivity={workflowActivity}
+            onOpenSession={selectSession}
+            onOpenEvidence={() => openWorkspaceView("evidence")}
+            onOpenWorkflows={() => openWorkspaceView("workflows")}
+            onStartSession={requestStartSession}
+            onOpenRuntime={openRuntimeSettings}
+          />
           <StartSessionPopover
             daemonUrl={params.daemonUrl}
             disabled={health !== "online"}
@@ -675,11 +699,7 @@ export function App() {
           onOpenSession={selectSession}
           onStartSession={requestStartSession}
           onOpenAtlas={() => applyViewerParams({ daemonUrl: params.daemonUrl, sessionId: params.sessionId, view: "atlas" })}
-          onOpenRuntimeSettings={() => {
-            setRuntimeSettingsOpen(true);
-            openWorkspaceSection("viewer-connection-panel");
-            window.requestAnimationFrame(() => document.getElementById("daemon-url-input")?.focus());
-          }}
+          onOpenRuntimeSettings={openRuntimeSettings}
         />
       ) : null}
 
@@ -701,6 +721,7 @@ export function App() {
           mutationState={actionMutationState}
           onOpenActions={() => openWorkspaceSection("viewer-actions")}
           onOpenEvidence={() => openWorkspaceView("evidence")}
+          onRunActivityChange={setWorkflowActivity}
         />
       ) : null}
 
