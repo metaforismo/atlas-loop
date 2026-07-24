@@ -47,4 +47,18 @@ describe("viewer params", () => {
       "?daemonUrl=http%3A%2F%2F127.0.0.1%3A4317&sessionId=abc"
     );
   });
+
+  it("round-trips the operational overview and defaults to evidence", () => {
+    const search = writeViewerSearch({
+      daemonUrl: DEFAULT_DAEMON_URL,
+      sessionId: "sess_triage",
+      workspace: "overview"
+    });
+
+    expect(search).toContain("workspace=overview");
+    expect(readViewerParams(search).workspace).toBe("overview");
+    expect(readViewerParams("?workspace=evidence").workspace).toBeUndefined();
+    expect(readViewerParams("?workspace=unknown").workspace).toBeUndefined();
+    expect(writeViewerSearch({ daemonUrl: DEFAULT_DAEMON_URL, sessionId: "sess_triage", workspace: "evidence" })).not.toContain("workspace=");
+  });
 });

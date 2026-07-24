@@ -12,7 +12,7 @@ Selector-heavy tests often fail when an interface is renamed or rearranged even 
 
 - **Drive the Simulator** — build, install, deterministically relaunch, tap, type, swipe, edge-navigate, long-press, pinch, rotate, two-finger tap, wait, and assert through CLI, MCP, or the live viewer.
 - **Run and compose gesture sequences** — exercise pull-to-refresh, repeated scroll, edge-back, carousel, pinch-zoom, rotation, and press-context flows, or assemble a custom ordered flow from the complete gesture catalog. Runs fail fast, can be cancelled, save evidence after every completed step, and can be kept in a browser-local flow library.
-- **See the whole workspace** — start from a locally-derived overview of active runs, failure signals, evidence totals, readiness, and recent sessions, then move into the current screenshot, observed-flow verdict, timeline, action evidence, metrics, recording, and artifact health.
+- **See the whole workspace** — start from a locally-derived overview of active runs, failure signals, evidence totals, and readiness. Failed or blocked runs become a triage queue, while search, status scopes, sorting, and incremental history keep large local stores usable.
 - **Map real journeys** — derive screens and transitions from captured evidence, with deep links back to the producing session and action.
 - **Hand work forward** — export verifiable local bundles and compact next-step commands for another human or coding agent.
 - **Keep evidence local** — the daemon binds to loopback and the source of truth is `artifacts/sessions/<session-id>/`.
@@ -41,9 +41,11 @@ npm run cli -- doctor
 npm run cli -- session start --simulator "iPhone 16" --viewer
 ```
 
-The root URL is the product landing page. Viewer deep links such as `/?sessionId=latest`, `?actionId=...`, and `?artifactId=...` continue directly into runtime evidence.
+The root URL is the product landing page. Its interactive quickstart exposes the real verify, service, and first-session commands with copy feedback. Viewer deep links such as `/?sessionId=latest&workspace=overview`, `?actionId=...`, and `?artifactId=...` continue directly into the operational overview or exact runtime evidence.
 
-The viewer opens first-time and disconnected environments on a purposeful workspace overview. Its counts come from the local daemon: recent sessions, active runs, stored evidence, failures, and four readiness checks. From there you can inspect a run, open Atlas, jump to actions, repair the runtime connection, or create a session without leaving the workspace. Choose the Simulator input backend, provide an installed app bundle ID, and Atlas Loop creates the session, launches the app, and follows the new evidence stream. The bundled demo defaults to `app.atlasloop.CommerceDemo`; replace it for your own installed app. Press <kbd>⌘K</kbd> or <kbd>Ctrl K</kbd> to search workspace destinations with the mouse or arrow keys and <kbd>Enter</kbd>.
+The viewer opens first-time and disconnected environments on a purposeful workspace overview. Its counts come from the local daemon: recent sessions, active runs, stored evidence, failures, and four readiness checks. Failed runs surface their latest error and evidence count, and the full history can be searched by session, app, Simulator, or error text; scoped to active, attention, or complete runs; and sorted by time, evidence, or status. Overview/evidence state is URL-backed, so refresh and browser navigation preserve the selected workspace. From there you can inspect a run, open Atlas, jump to actions, repair the runtime connection, or create a session without leaving the workspace. Choose the Simulator input backend, provide an installed app bundle ID, and Atlas Loop creates the session, launches the app, and follows the new evidence stream. The bundled demo defaults to `app.atlasloop.CommerceDemo`; replace it for your own installed app. Press <kbd>⌘K</kbd> or <kbd>Ctrl K</kbd> to search workspace destinations with the mouse or arrow keys and <kbd>Enter</kbd>.
+
+![Atlas Loop operational workspace with local runtime health and session evidence](docs/assets/atlas-loop-dashboard.png)
 
 ## A minimal observed flow
 
@@ -78,7 +80,7 @@ The bundled demo exposes `gesture-lab.canvas` through the catalog or the determi
 | Local daemon | Session lifecycle, app operations, input, screenshots, recordings, metrics, and evidence routes |
 | CLI | Operator-friendly access to every runtime and export command |
 | MCP server | Structured tools for coding agents using the same local controls |
-| React viewer | Operational overview, session launcher, keyboard command search, live device image, reusable gesture sequences, observed-flow summary, timeline, evidence inspection, Atlas map, visual diffs, and handoff UI |
+| React viewer | Operational overview, failure triage, searchable and sortable session history, URL-backed navigation, session launcher, keyboard command search, live device image, reusable gesture sequences, observed-flow summary, timeline, evidence inspection, Atlas map, visual diffs, and handoff UI |
 | Native helper | Repo-owned NDJSON action protocol with `xcuitest` and visible-window `cgevent` backends |
 | Commerce demo | Deterministic SwiftUI checkout plus an instrumented Gesture Lab for end-to-end Simulator verification |
 

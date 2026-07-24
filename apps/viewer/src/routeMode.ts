@@ -1,4 +1,4 @@
-const VIEWER_QUERY_KEYS = ["daemonUrl", "sessionId", "view", "actionId", "artifactId"] as const;
+const VIEWER_QUERY_KEYS = ["daemonUrl", "sessionId", "view", "workspace", "actionId", "artifactId"] as const;
 
 export function shouldShowViewer(search: string) {
   const params = new URLSearchParams(search);

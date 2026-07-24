@@ -36,7 +36,7 @@ import { WorkspaceOverview, type OverviewDestination } from "./components/Worksp
 import { WorkspaceCommandMenu, type WorkspaceCommandId } from "./components/WorkspaceCommandMenu.js";
 import { useAtlasLoopData, useViewerParams } from "./hooks/useAtlasLoopData.js";
 import { formatTapCoordinate, type ScreenshotTapTarget } from "./screenshotGeometry.js";
-import type { ViewerParams } from "./types.js";
+import type { ViewerParams, ViewerWorkspace } from "./types.js";
 import {
   artifactTypeOptions,
   buildActionEvidencePairs,
@@ -90,13 +90,17 @@ export function App() {
   const [stageZoomed, setStageZoomed] = useState(false);
   const [flowFocus, setFlowFocus] = useState(false);
   const [runtimeSettingsOpen, setRuntimeSettingsOpen] = useState(false);
-  const [workspaceView, setWorkspaceView] = useState<"overview" | "evidence">("evidence");
+  const [workspaceView, setWorkspaceView] = useState<ViewerWorkspace>(params.workspace ?? "evidence");
   const [startSessionRequest, setStartSessionRequest] = useState(0);
   const autoOpenedOverview = useRef(false);
 
   useEffect(() => {
     setDraft(params);
   }, [params]);
+
+  useEffect(() => {
+    setWorkspaceView(params.workspace ?? "evidence");
+  }, [params.workspace]);
 
   useEffect(() => {
     setArtifactTypeFilter("all");
@@ -231,6 +235,17 @@ export function App() {
     window.dispatchEvent(new PopStateEvent("popstate"));
   };
 
+  const openWorkspaceView = (workspace: ViewerWorkspace): void => {
+    setFlowFocus(false);
+    setWorkspaceView(workspace);
+    if ((params.workspace ?? "evidence") === workspace) return;
+    applyViewerParams({
+      ...params,
+      view: undefined,
+      workspace: workspace === "overview" ? "overview" : undefined
+    });
+  };
+
   const selectSession = (sessionId: string): void => {
     const nextParams = { daemonUrl: params.daemonUrl, sessionId };
     setDraft(nextParams);
@@ -291,7 +306,7 @@ export function App() {
   };
 
   const openWorkspaceSection = (id: string): void => {
-    setWorkspaceView("evidence");
+    openWorkspaceView("evidence");
     window.requestAnimationFrame(() => scrollToWorkspaceSection(id));
   };
 
@@ -323,8 +338,7 @@ export function App() {
       health: "viewer-health"
     };
     if (command === "overview") {
-      setFlowFocus(false);
-      setWorkspaceView("overview");
+      openWorkspaceView("overview");
       return;
     }
     if (command === "atlas") {
@@ -407,7 +421,7 @@ export function App() {
 
         <nav className="viewer-nav" aria-label="Workspace navigation">
           <p>Home</p>
-          <button type="button" className={`viewer-nav-item ${workspaceView === "overview" ? "selected" : ""}`} aria-current={workspaceView === "overview" ? "page" : undefined} onClick={() => { setFlowFocus(false); setWorkspaceView("overview"); }}>
+          <button type="button" className={`viewer-nav-item ${workspaceView === "overview" ? "selected" : ""}`} aria-current={workspaceView === "overview" ? "page" : undefined} onClick={() => openWorkspaceView("overview")}>
             <span className="viewer-nav-icon overview" aria-hidden="true" />
             Overview
           </button>
