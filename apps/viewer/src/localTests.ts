@@ -33,6 +33,9 @@ export interface LocalTestCompileResult {
   errors: LocalTestCompileError[];
 }
 
+export const MAX_LOCAL_TEST_SCRIPT_LENGTH = 20_000;
+export const MAX_LOCAL_TEST_STEPS = 100;
+
 export const DEFAULT_LOCAL_TEST_SCRIPT = `Tap "cart.continue"
 Verify "confirmation" is visible
 Capture "checkout confirmation"`;
@@ -83,9 +86,26 @@ export function compileLocalTestScript(script: string): LocalTestCompileResult {
   const steps: GestureSequenceStep[] = [];
   const errors: LocalTestCompileError[] = [];
 
+  if (script.length > MAX_LOCAL_TEST_SCRIPT_LENGTH) {
+    return {
+      steps,
+      errors: [{ line: 1, source: "", message: `Test scripts are limited to ${MAX_LOCAL_TEST_SCRIPT_LENGTH.toLocaleString()} characters.` }]
+    };
+  }
+
   script.split(/\r?\n/).forEach((sourceLine, index) => {
     const source = sourceLine.trim();
     if (!source || source.startsWith("#")) return;
+    if (steps.length >= MAX_LOCAL_TEST_STEPS) {
+      if (!errors.some((error) => error.message.includes("supported steps"))) {
+        errors.push({ line: index + 1, source, message: `A test can contain at most ${MAX_LOCAL_TEST_STEPS} supported steps.` });
+      }
+      return;
+    }
+    if (source.length > 1_000) {
+      errors.push({ line: index + 1, source: `${source.slice(0, 80)}…`, message: "A single command cannot exceed 1,000 characters." });
+      return;
+    }
     const step = compileLine(source);
     if (typeof step === "string") {
       errors.push({ line: index + 1, source, message: step });

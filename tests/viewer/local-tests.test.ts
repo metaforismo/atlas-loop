@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  MAX_LOCAL_TEST_SCRIPT_LENGTH,
+  MAX_LOCAL_TEST_STEPS,
   compileLocalTestScript,
   localTestUsesMultiTouch,
   type LocalTestDefinition,
@@ -63,6 +65,22 @@ Teleport home`);
       expect.objectContaining({ line: 4, message: expect.stringContaining("Unsupported command") })
     ]);
     expect(compileLocalTestScript("\n# comment only").errors[0]).toEqual(expect.objectContaining({ line: 1, message: expect.stringContaining("at least one") }));
+  });
+
+  it("bounds source size and compiled work before a local run can start", () => {
+    const oversized = compileLocalTestScript("Capture\n".repeat(Math.ceil(MAX_LOCAL_TEST_SCRIPT_LENGTH / 8) + 1));
+    expect(oversized.steps).toEqual([]);
+    expect(oversized.errors[0]).toEqual(expect.objectContaining({ message: expect.stringContaining("20,000 characters") }));
+
+    const tooManySteps = compileLocalTestScript(Array.from({ length: MAX_LOCAL_TEST_STEPS + 2 }, () => "Capture").join("\n"));
+    expect(tooManySteps.steps).toHaveLength(MAX_LOCAL_TEST_STEPS);
+    expect(tooManySteps.errors).toEqual([
+      expect.objectContaining({ line: MAX_LOCAL_TEST_STEPS + 1, message: expect.stringContaining("at most 100") })
+    ]);
+
+    const oversizedCommand = compileLocalTestScript(`Tap "${"x".repeat(1_001)}"`);
+    expect(oversizedCommand.steps).toEqual([]);
+    expect(oversizedCommand.errors[0]).toEqual(expect.objectContaining({ message: expect.stringContaining("1,000 characters") }));
   });
 });
 

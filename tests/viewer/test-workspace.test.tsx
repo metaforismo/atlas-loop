@@ -98,6 +98,37 @@ describe("TestWorkspace", () => {
     expect(metric("Total tests")).toContain("3");
   });
 
+  it("opens from the Library with prefilled readable source and can compose another module", async () => {
+    const onComposerSeedHandled = vi.fn();
+    render({
+      composerSeed: {
+        name: "Checkout handoff test",
+        detail: "Keep the handoff reusable and visible.",
+        tags: ["checkout", "smoke"],
+        script: "Tap \"cart.continue\"\nCapture \"handoff\""
+      },
+      onComposerSeedHandled
+    });
+
+    expect(container.querySelector("[role='dialog']")?.textContent).toContain("Create test");
+    expect(container.querySelector<HTMLInputElement>("input[placeholder='Checkout stays recoverable']")?.value).toBe("Checkout handoff test");
+    expect(container.querySelector<HTMLTextAreaElement>("textarea[placeholder^='What this flow']")?.value).toBe("Keep the handoff reusable and visible.");
+    expect(container.querySelector<HTMLInputElement>("input[placeholder='smoke, checkout']")?.value).toBe("checkout, smoke");
+    const script = container.querySelector<HTMLTextAreaElement>("textarea[aria-label='Plain-language test steps']")!;
+    expect(script.value).toContain("Tap \"cart.continue\"");
+    expect(onComposerSeedHandled).toHaveBeenCalledTimes(1);
+
+    const moduleSelect = container.querySelector<HTMLSelectElement>("select[aria-label='Select a local step module']")!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set?.call(moduleSelect, "starter:settle-and-capture");
+      moduleSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await click("Insert readable steps");
+    expect(script.value).toContain("# Module: Settle and capture");
+    expect(script.value).toContain("Wait 500ms");
+    expect(script.value).not.toContain("moduleRef");
+  });
+
   it("blocks the wrong app, offers a matching session, and runs the right app into evidence", async () => {
     const onStartSession = vi.fn();
     render({ session: { ...session, app: { bundleId: "dev.other.app" } }, onStartSession });

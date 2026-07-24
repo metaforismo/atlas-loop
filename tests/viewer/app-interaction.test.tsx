@@ -529,6 +529,35 @@ describe("viewer app interactions", { timeout: 30_000 }, () => {
     expect(window.location.search).not.toContain("workspace=");
   });
 
+  it("opens the step-module Library and hands visible source to the Tests composer", async () => {
+    await act(async () => root?.render(<App />));
+    await waitFor(() => {
+      expect(getByAriaLabel<HTMLElement>(`Evidence for ${SESSION_ID}`)).toBeTruthy();
+      return true;
+    }, "session history before module library");
+
+    const workspaceNavigation = getByAriaLabel<HTMLElement>("Workspace navigation");
+    await click(getButtonByText(workspaceNavigation, "Library"));
+
+    const shell = document.querySelector("main.viewer-shell")!;
+    expect(shell.classList.contains("workspace-library-active")).toBe(true);
+    expect(document.querySelector("#library-workspace-title")?.textContent).toBe("Library");
+    expect(getButtonByText(workspaceNavigation, "Library").getAttribute("aria-current")).toBe("page");
+    expect(window.location.search).toContain("workspace=library");
+
+    const library = document.querySelector<HTMLElement>(".library-workspace")!;
+    await click(getButtonByText(library, "Create test from module"));
+    expect(shell.classList.contains("workspace-tests-active")).toBe(true);
+    expect(window.location.search).toContain("workspace=tests");
+    expect(document.querySelector<HTMLInputElement>("input[placeholder='Checkout stays recoverable']")?.value).toBe("Checkout handoff test");
+    expect(document.querySelector<HTMLTextAreaElement>("textarea[aria-label='Plain-language test steps']")?.value).toContain("Tap \"cart.continue\"");
+
+    await click(getButtonByAriaLabel("Close test composer"));
+    await click(getButtonByText(workspaceNavigation, "Live evidence"));
+    expect(shell.classList.contains("workspace-tests-active")).toBe(false);
+    expect(window.location.search).not.toContain("workspace=");
+  });
+
   it("opens the first-class session history and repeats a captured app", async () => {
     await act(async () => root?.render(<App />));
     await waitFor(() => {

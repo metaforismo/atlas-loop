@@ -4,6 +4,7 @@ const VIEWER_URL = "/?sessionId=latest&workspace=overview";
 const APPS_URL = "/?sessionId=latest&workspace=apps";
 const SESSIONS_URL = "/?sessionId=latest&workspace=sessions";
 const TESTS_URL = "/?sessionId=latest&workspace=tests";
+const LIBRARY_URL = "/?sessionId=latest&workspace=library";
 const WORKFLOW_URL = "/?sessionId=latest&workspace=workflows";
 const GITHUB_URL = "https://github.com/metaforismo/atlas-loop";
 
@@ -18,10 +19,8 @@ export function LandingPage() {
         </a>
         <div className="landing-nav-links">
           <a href="#runtime">Runtime</a>
-          <a href="#apps">Apps</a>
-          <a href="#sessions">Sessions</a>
           <a href="#tests">Tests</a>
-          <a href="#gestures">Gestures</a>
+          <a href="#library">Library</a>
           <a href="#workflows">Workflows</a>
           <a href="#evidence">Evidence</a>
           <a href="#atlas">Atlas</a>
@@ -37,6 +36,7 @@ export function LandingPage() {
             <a href="#apps">Apps</a>
             <a href="#sessions">Sessions</a>
             <a href="#tests">Tests</a>
+            <a href="#library">Library</a>
             <a href="#gestures">Gestures</a>
             <a href="#workflows">Workflows</a>
             <a href="#evidence">Evidence</a>
@@ -143,9 +143,20 @@ export function LandingPage() {
           <TestAuthoringVisual />
         </article>
 
-        <article className="landing-chapter" id="gestures">
+        <article className="landing-chapter" id="library">
           <div className="landing-chapter-copy">
-            <p className="landing-section-index">06 / MULTI-GESTURE FLOWS</p>
+            <p className="landing-section-index">06 / VISIBLE STEP MODULES</p>
+            <h2>Reuse steps without hiding them.</h2>
+            <p>Keep proven command blocks in a local module library, then insert their readable source into a test. The result stays inspectable, editable, and independent of a remote registry.</p>
+            <ul><li>Built-in and browser-saved modules</li><li>Exact action preview before saving</li><li>Storage boundaries recompile readable source</li></ul>
+            <a className="landing-inline-link" href={LIBRARY_URL}>Open the module library →</a>
+          </div>
+          <ModuleLibraryVisual />
+        </article>
+
+        <article className="landing-chapter landing-chapter-reverse" id="gestures">
+          <div className="landing-chapter-copy">
+            <p className="landing-section-index">07 / MULTI-GESTURE FLOWS</p>
             <h2>Test motion, not just destinations.</h2>
             <p>Drive the gestures selectors cannot describe: pinch, rotate, two-finger tap, long press, edge navigation, swipes, waits, and evidence checkpoints.</p>
             <ul><li>Native XCUITest multi-touch</li><li>Leading-edge iOS navigation</li><li>Per-step failure and cancellation</li></ul>
@@ -153,9 +164,9 @@ export function LandingPage() {
           <GestureVisual />
         </article>
 
-        <article className="landing-chapter landing-chapter-reverse" id="workflows">
+        <article className="landing-chapter" id="workflows">
           <div className="landing-chapter-copy">
-            <p className="landing-section-index">07 / LOCAL WORKFLOW LIBRARY</p>
+            <p className="landing-section-index">08 / LOCAL WORKFLOW LIBRARY</p>
             <h2>Useful flows should stay useful.</h2>
             <p>Turn ordered gestures into reusable browser-local workflows. Search templates and saved flows, check the selected run, then execute the whole sequence without rebuilding it step by step.</p>
             <ul><li>Seven built-in flow templates</li><li>Safe local save, duplicate, and delete</li><li>One-click run into the evidence timeline</li></ul>
@@ -164,9 +175,9 @@ export function LandingPage() {
           <WorkflowVisual />
         </article>
 
-        <article className="landing-chapter" id="evidence">
+        <article className="landing-chapter landing-chapter-reverse" id="evidence">
           <div className="landing-chapter-copy">
-            <p className="landing-section-index">08 / REPLAYABLE EVIDENCE</p>
+            <p className="landing-section-index">09 / REPLAYABLE EVIDENCE</p>
             <h2>A failure should explain itself.</h2>
             <p>Every action can be paired with screenshots, video markers, CPU, memory, trace events, and artifact integrity. The handoff view turns that record into reproducible next commands.</p>
             <ul><li>Action-to-artifact correlation</li><li>Visual diff and replay tools</li><li>Portable artifact health reports</li></ul>
@@ -177,7 +188,7 @@ export function LandingPage() {
 
       <section className="landing-evidence" id="atlas">
         <div className="landing-evidence-copy">
-          <p className="landing-section-index">09 / ATLAS RUNTIME MAP</p>
+          <p className="landing-section-index">10 / ATLAS RUNTIME MAP</p>
           <h2>Every observed flow leaves a map.</h2>
           <p>
             The Atlas view derives screens and transitions from evidence already captured during a run. Deep links reconnect a map edge to the exact session, action, and artifact that produced it.
@@ -268,7 +279,7 @@ function QuickstartSection() {
   return (
     <section className="landing-quickstart" id="quickstart" aria-labelledby="landing-quickstart-title">
       <div className="landing-quickstart-copy">
-        <p className="landing-section-index">10 / FROM SOURCE TO SIGNAL</p>
+        <p className="landing-section-index">11 / FROM SOURCE TO SIGNAL</p>
         <h2 id="landing-quickstart-title">A useful first run in three steps.</h2>
         <p>Atlas Loop does not hide the runtime behind a hosted account. Verify the repo, start two local processes, and follow the first Simulator session into an evidence-ready workspace.</p>
         <div className="landing-quickstart-links">
@@ -401,6 +412,34 @@ function TestAuthoringVisual() {
         </div>
       </div>
       <div className="test-authoring-footer"><span><i /> App guard · app.atlasloop.CommerceDemo</span><a href={TESTS_URL}>RUN 4 STEPS →</a></div>
+    </div>
+  );
+}
+
+function ModuleLibraryVisual() {
+  const modules = [
+    { name: "Checkout handoff", tag: "commerce", steps: "5 steps" },
+    { name: "Settle and capture", tag: "evidence", steps: "2 steps" },
+    { name: "Native canvas stress", tag: "multi-touch", steps: "4 steps" }
+  ];
+  return (
+    <div className="landing-feature-visual module-library-visual" aria-label="Reusable local step module preview">
+      <div className="feature-visual-bar"><span>LOCAL STEP MODULES</span><small>3 READY</small></div>
+      <div className="module-library-body">
+        <div className="module-library-list">
+          <header><span>MODULE</span><small>VISIBLE SOURCE</small></header>
+          {modules.map((module, index) => <div className={index === 0 ? "selected" : ""} key={module.name}><i /><span><strong>{module.name}</strong><small>{module.tag}</small></span><em>{module.steps}</em></div>)}
+        </div>
+        <div className="module-library-insert">
+          <header><span>INSERTED INTO TEST</span><em>NO HIDDEN REF</em></header>
+          <code>Tap "cart.continue"</code>
+          <code>Tap "shipping.continue"</code>
+          <code>Tap "payment-review.place-order"</code>
+          <code>Verify "confirmation" is visible</code>
+          <small>Readable commands are copied into the test definition.</small>
+        </div>
+      </div>
+      <div className="module-library-footer"><span><i /> Source recompiled on save</span><a href={LIBRARY_URL}>OPEN LIBRARY →</a></div>
     </div>
   );
 }

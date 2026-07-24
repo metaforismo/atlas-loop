@@ -37,6 +37,10 @@ describe("LandingPage", () => {
     expect(container.querySelector("[aria-label='Readable local test compiler preview']")?.textContent).toContain("assertVisible");
     const testLinks = [...container.querySelectorAll("a")].filter((link) => link.getAttribute("href") === "/?sessionId=latest&workspace=tests");
     expect(testLinks.some((link) => link.textContent?.includes("local tests"))).toBe(true);
+    expect(container.querySelector("[aria-label='Reusable local step module preview']")?.textContent).toContain("NO HIDDEN REF");
+    const libraryLinks = [...container.querySelectorAll("a")].filter((link) => link.getAttribute("href") === "/?sessionId=latest&workspace=library");
+    expect(libraryLinks.some((link) => link.textContent?.includes("module library"))).toBe(true);
+    expect(container.textContent).toContain("Reuse steps without hiding them.");
     expect(container.querySelector("[aria-label='Reusable local workflow library preview']")?.textContent).toContain("Checkout recovery");
     const workflowLinks = [...container.querySelectorAll("a")].filter((link) => link.getAttribute("href") === "/?sessionId=latest&workspace=workflows");
     expect(workflowLinks.some((link) => link.textContent?.includes("workflow library"))).toBe(true);
@@ -44,6 +48,7 @@ describe("LandingPage", () => {
     expect(atlasLink?.textContent).toContain("Atlas map");
     expect(container.querySelector("details.landing-mobile-menu")?.textContent).toContain("Evidence");
     expect(container.querySelector("details.landing-mobile-menu")?.textContent).toContain("Tests");
+    expect(container.querySelector("details.landing-mobile-menu")?.textContent).toContain("Library");
     expect(container.querySelector(".landing-footer-links")?.textContent).toContain("Protocol");
     expect(container.querySelector("#quickstart")?.textContent).toContain("A useful first run in three steps");
 

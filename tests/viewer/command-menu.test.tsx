@@ -27,7 +27,7 @@ describe("WorkspaceCommandMenu", () => {
     act(() => root.render(<WorkspaceCommandMenu onSelect={onSelect} />));
 
     await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true })));
-    const input = container.querySelector<HTMLInputElement>("input[placeholder^='Search apps']")!;
+    const input = container.querySelector<HTMLInputElement>("input[placeholder^='Search tests']")!;
     expect(input).not.toBeNull();
     await setInput(input, "atlas");
     const command = [...container.querySelectorAll(".command-menu-results button")].find((button) => button.textContent?.includes("Open Atlas map"));
@@ -42,7 +42,7 @@ describe("WorkspaceCommandMenu", () => {
   it("matches natural plural workspace queries", async () => {
     act(() => root.render(<WorkspaceCommandMenu onSelect={vi.fn()} />));
     await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", ctrlKey: true, bubbles: true })));
-    const input = container.querySelector<HTMLInputElement>("input[placeholder^='Search apps']")!;
+    const input = container.querySelector<HTMLInputElement>("input[placeholder^='Search tests']")!;
     await setInput(input, "actions");
     expect(container.textContent).toContain("Run an action");
   });
@@ -61,6 +61,16 @@ describe("WorkspaceCommandMenu", () => {
 
     expect(onSelect).toHaveBeenCalledWith("tests");
     expect(container.querySelector("[role='dialog']")).toBeNull();
+  });
+
+  it("discovers the reusable step-module library from natural language", async () => {
+    act(() => root.render(<WorkspaceCommandMenu onSelect={vi.fn()} />));
+    await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true })));
+    const input = container.querySelector<HTMLInputElement>("input[role='combobox']")!;
+    await setInput(input, "reusable modules");
+
+    expect(container.textContent).toContain("Open step module library");
+    expect(container.textContent).not.toContain("Browse observed apps");
   });
 
   async function setInput(input: HTMLInputElement, value: string): Promise<void> {
