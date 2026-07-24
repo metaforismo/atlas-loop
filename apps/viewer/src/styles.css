@@ -1029,7 +1029,8 @@ h2 {
   display: grid;
   min-height: 0;
   place-items: center;
-  overflow: hidden;
+  /* Scroll instead of clipping the device once the frame hits its floor. */
+  overflow: auto;
   container-type: size;
 }
 
@@ -12530,6 +12531,13 @@ body::before {
 .ios-device-hardware {
   position: relative;
   width: 100%;
+  /*
+   * A grid item's automatic minimum size is its min-content width, which the
+   * screen's own contents can push past `width: 100%`. Without this the frame
+   * refuses to shrink and overflows a short stage.
+   */
+  min-width: 0;
+  min-height: 0;
   aspect-ratio: var(--ios-aspect);
   border-radius: var(--ios-body-radius);
   padding: var(--ios-bezel);
@@ -12686,7 +12694,12 @@ body::before {
  * letting `max-height` squash the aspect ratio.
  */
 .ios-device-viewer {
-  width: min(100%, 405px, calc((100cqh - 27px) * var(--ios-aspect)));
+  /*
+   * Shrink proportionally to the height budget, but stop at a width where the
+   * screen is still readable. Below that floor `.phone-stand` scrolls rather
+   * than rendering a sliver of a phone.
+   */
+  width: max(148px, min(100%, 405px, calc((100cqh - 27px) * var(--ios-aspect))));
   max-height: 100%;
 }
 
@@ -12986,7 +12999,7 @@ body::before {
 @media (max-width: 520px) {
   /* Only the outer size changes: the frame's proportions are percentage-based. */
   .ios-device-hero { width: min(214px, 84vw); }
-  .ios-device-viewer { width: min(100%, 340px, calc((100cqh - 27px) * var(--ios-aspect))); }
+  .ios-device-viewer { width: max(132px, min(100%, 340px, calc((100cqh - 27px) * var(--ios-aspect)))); }
   .overview-device-facts { grid-template-columns: 1fr; }
   .overview-device-facts > div,
   .overview-device-facts > div:nth-child(2) { border-right: 0; border-bottom: 1px solid var(--line); }
