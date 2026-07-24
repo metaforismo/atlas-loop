@@ -51,4 +51,20 @@ describe("WorkspaceCommandMenu", () => {
     });
     expect(container.textContent).toContain("Run an action");
   });
+
+  it("supports arrow-key discovery and Enter selection", async () => {
+    const onSelect = vi.fn();
+    act(() => root.render(<WorkspaceCommandMenu onSelect={onSelect} />));
+    await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true, bubbles: true })));
+
+    const input = container.querySelector<HTMLInputElement>("input[role='combobox']")!;
+    expect(input.getAttribute("aria-activedescendant")).toBe("workspace-command-overview");
+    await act(async () => input.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
+    expect(input.getAttribute("aria-activedescendant")).toBe("workspace-command-sessions");
+    expect(container.querySelector("#workspace-command-sessions")?.getAttribute("aria-selected")).toBe("true");
+    await act(async () => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+
+    expect(onSelect).toHaveBeenCalledWith("sessions");
+    expect(container.querySelector("[role='dialog']")).toBeNull();
+  });
 });

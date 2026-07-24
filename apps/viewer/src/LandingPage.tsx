@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 const VIEWER_URL = "/?sessionId=latest";
 const GITHUB_URL = "https://github.com/metaforismo/atlas-loop";
 
@@ -13,11 +15,22 @@ export function LandingPage() {
         <div className="landing-nav-links">
           <a href="#runtime">Runtime</a>
           <a href="#gestures">Gestures</a>
+          <a href="#evidence">Evidence</a>
           <a href="#atlas">Atlas</a>
           <a href={GITHUB_URL} target="_blank" rel="noreferrer">
             GitHub
           </a>
         </div>
+        <details className="landing-mobile-menu">
+          <summary>Menu</summary>
+          <div>
+            <a href="#runtime">Runtime</a>
+            <a href="#gestures">Gestures</a>
+            <a href="#evidence">Evidence</a>
+            <a href="#atlas">Atlas</a>
+            <a href={GITHUB_URL} target="_blank" rel="noreferrer">GitHub</a>
+          </div>
+        </details>
         <a className="landing-nav-cta" href={VIEWER_URL}>
           Launch workspace <span aria-hidden="true">↗</span>
         </a>
@@ -137,7 +150,11 @@ export function LandingPage() {
           <span>Atlas Loop</span>
         </div>
         <p>Local evidence for agents that touch real interfaces.</p>
-        <a href={GITHUB_URL} target="_blank" rel="noreferrer">Apache-2.0 · GitHub</a>
+        <div className="landing-footer-links">
+          <a href="https://github.com/metaforismo/atlas-loop#readme" target="_blank" rel="noreferrer">Documentation</a>
+          <a href="https://github.com/metaforismo/atlas-loop/blob/main/docs/protocol.md" target="_blank" rel="noreferrer">Protocol</a>
+          <a href={GITHUB_URL} target="_blank" rel="noreferrer">Apache-2.0 · GitHub</a>
+        </div>
       </footer>
     </main>
   );
@@ -189,44 +206,139 @@ function EvidenceVisual() {
   );
 }
 
+type HeroPreviewMode = "flow" | "gestures" | "handoff";
+
+const HERO_PREVIEWS: Array<{
+  id: HeroPreviewMode;
+  label: string;
+  runLabel: string;
+  title: string;
+  completed: number;
+  appTitle: string;
+  appMeta: string;
+  cardLabel: string;
+  cardTitle: string;
+  cardDetail: string;
+  metricLabel: string;
+  metricValue: string;
+  action: string;
+  evidence: string[];
+  steps: Array<{ label: string; meta: string; state: "passed" | "running" }>;
+}> = [
+  {
+    id: "flow",
+    label: "Observed flow",
+    runLabel: "OBSERVED FLOW",
+    title: "Checkout still works",
+    completed: 3,
+    appTitle: "Checkout",
+    appMeta: "Secure",
+    cardLabel: "ORDER SUMMARY",
+    cardTitle: "Canvas Weekender",
+    cardDetail: "Natural canvas · one size",
+    metricLabel: "Total",
+    metricValue: "$84",
+    action: "Place order",
+    evidence: ["7 screenshots", "trace.jsonl", "CPU 4.7%"],
+    steps: [
+      { label: "Launch CommerceDemo", meta: "1.4s", state: "passed" },
+      { label: "Open the cart", meta: "0.8s", state: "passed" },
+      { label: "Continue to checkout", meta: "1.1s", state: "passed" },
+      { label: "Confirm the order", meta: "running", state: "running" }
+    ]
+  },
+  {
+    id: "gestures",
+    label: "Native gestures",
+    runLabel: "GESTURE AUDIT",
+    title: "Motion stays testable",
+    completed: 2,
+    appTitle: "Gesture Lab",
+    appMeta: "XCUITest",
+    cardLabel: "CANVAS STATE",
+    cardTitle: "Scale 1.30",
+    cardDetail: "Rotation 0.35 rad",
+    metricLabel: "Touches",
+    metricValue: "2",
+    action: "Run gesture",
+    evidence: ["pinch + rotate", "after.png", "0 issues"],
+    steps: [
+      { label: "Open gesture canvas", meta: "0.6s", state: "passed" },
+      { label: "Pinch open", meta: "scale 1.30", state: "passed" },
+      { label: "Rotate clockwise", meta: "0.35 rad", state: "running" },
+      { label: "Capture checkpoint", meta: "queued", state: "running" }
+    ]
+  },
+  {
+    id: "handoff",
+    label: "Agent handoff",
+    runLabel: "HANDOFF BUNDLE",
+    title: "The next agent gets proof",
+    completed: 4,
+    appTitle: "Evidence",
+    appMeta: "Local only",
+    cardLabel: "BUNDLE READY",
+    cardTitle: "sess_4f8b",
+    cardDetail: "Manifest and commands verified",
+    metricLabel: "Files",
+    metricValue: "14",
+    action: "Copy commands",
+    evidence: ["handoff.json", "manifest.json", "verified"],
+    steps: [
+      { label: "Verify artifacts", meta: "clean", state: "passed" },
+      { label: "Build evidence report", meta: "saved", state: "passed" },
+      { label: "Export local bundle", meta: "14 files", state: "passed" },
+      { label: "Prepare next commands", meta: "ready", state: "passed" }
+    ]
+  }
+];
+
 function HeroWorkbench() {
-  const steps = [
-    { label: "Launch CommerceDemo", meta: "1.4s", state: "passed" },
-    { label: "Open the cart", meta: "0.8s", state: "passed" },
-    { label: "Continue to checkout", meta: "1.1s", state: "passed" },
-    { label: "Confirm the order", meta: "running", state: "running" }
-  ];
+  const [selectedMode, setSelectedMode] = useState<HeroPreviewMode>("flow");
+  const preview = HERO_PREVIEWS.find((candidate) => candidate.id === selectedMode) ?? HERO_PREVIEWS[0]!;
 
   return (
     <div className="landing-workbench" aria-label="Atlas Loop product preview">
       <div className="landing-workbench-topbar">
         <div><span className="window-dot" /><span className="window-dot" /><span className="window-dot" /></div>
-        <p>checkout-handoff</p>
+        <div className="preview-mode-tabs" role="tablist" aria-label="Product preview modes">
+          {HERO_PREVIEWS.map((mode) => (
+            <button
+              key={mode.id}
+              type="button"
+              role="tab"
+              aria-selected={mode.id === selectedMode}
+              onClick={() => setSelectedMode(mode.id)}
+            >
+              {mode.label}
+            </button>
+          ))}
+        </div>
         <span className="preview-status">Live</span>
       </div>
-      <div className="landing-workbench-body">
+      <div className={`landing-workbench-body preview-mode-${preview.id}`} aria-live="polite">
         <div className="preview-device-column">
           <div className="preview-device">
             <div className="preview-island" />
-            <div className="preview-app-bar"><span>Checkout</span><small>Secure</small></div>
+            <div className="preview-app-bar"><span>{preview.appTitle}</span><small>{preview.appMeta}</small></div>
             <div className="preview-order-card">
-              <span>ORDER SUMMARY</span>
-              <strong>Canvas Weekender</strong>
-              <p>Natural canvas · one size</p>
-              <div><span>Total</span><strong>$84</strong></div>
+              <span>{preview.cardLabel}</span>
+              <strong>{preview.cardTitle}</strong>
+              <p>{preview.cardDetail}</p>
+              <div><span>{preview.metricLabel}</span><strong>{preview.metricValue}</strong></div>
             </div>
-            <div className="preview-device-action">Place order</div>
+            <div className="preview-device-action">{preview.action}</div>
             <span className="preview-tap-target" />
           </div>
         </div>
         <div className="preview-steps-column">
           <div className="preview-run-heading">
-            <div><small>OBSERVED FLOW</small><strong>Checkout still works</strong></div>
-            <span>3 / 4</span>
+            <div><small>{preview.runLabel}</small><strong>{preview.title}</strong></div>
+            <span>{preview.completed} / {preview.steps.length}</span>
           </div>
-          <div className="preview-progress"><span /></div>
+          <div className="preview-progress"><span style={{ transform: `scaleX(${preview.completed / preview.steps.length})` }} /></div>
           <div className="preview-step-list">
-            {steps.map((step, index) => (
+            {preview.steps.map((step, index) => (
               <div className={`preview-step ${step.state}`} key={step.label}>
                 <span>{index + 1}</span>
                 <div><strong>{step.label}</strong><small>{step.meta}</small></div>
@@ -235,7 +347,7 @@ function HeroWorkbench() {
             ))}
           </div>
           <div className="preview-evidence-bar">
-            <span>7 screenshots</span><span>trace.jsonl</span><span>CPU 4.7%</span>
+            {preview.evidence.map((item) => <span key={item}>{item}</span>)}
           </div>
         </div>
       </div>

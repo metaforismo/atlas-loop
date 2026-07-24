@@ -95,13 +95,22 @@ describe("StartSessionPopover", () => {
     expect(container.querySelector("[role='dialog']")).toBeNull();
   });
 
-  function render(overrides: { disabled?: boolean; onStarted?: (session: Session) => void } = {}): void {
+  it("opens from an external workspace quick action", async () => {
+    render({ openRequest: 0 });
+    render({ openRequest: 1 });
+
+    expect(container.querySelector("[role='dialog'][aria-label='Start local Simulator session']")).not.toBeNull();
+    expect(document.activeElement).toBe(container.querySelector("input[placeholder='Auto-select booted Simulator']"));
+  });
+
+  function render(overrides: { disabled?: boolean; onStarted?: (session: Session) => void; openRequest?: number } = {}): void {
     act(() => root.render(
       <StartSessionPopover
         daemonUrl="http://127.0.0.1:4317"
         disabled={overrides.disabled ?? false}
         disabledReason="Start the daemon first."
         onStarted={overrides.onStarted ?? vi.fn()}
+        openRequest={overrides.openRequest}
       />
     ));
   }

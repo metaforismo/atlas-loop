@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useModalDialog } from "../useModalDialog.js";
 
 export type WorkspaceCommandId =
@@ -54,6 +55,7 @@ function WorkspaceCommandDialog({
   onSelect: (command: WorkspaceCommandId) => void;
 }) {
   const [query, setQuery] = useState("");
+  const [activeIndex, setActiveIndex] = useState(0);
   const { dialogRef } = useModalDialog(onClose);
   const results = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -65,9 +67,42 @@ function WorkspaceCommandDialog({
     });
   }, [query]);
 
+  useEffect(() => {
+    setActiveIndex(0);
+  }, [query]);
+
   const choose = (id: WorkspaceCommandId): void => {
     onClose();
     onSelect(id);
+  };
+
+  const handleSearchKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>): void => {
+    if (results.length === 0) return;
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setActiveIndex((current) => Math.min(results.length - 1, current + 1));
+      return;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setActiveIndex((current) => Math.max(0, current - 1));
+      return;
+    }
+    if (event.key === "Home") {
+      event.preventDefault();
+      setActiveIndex(0);
+      return;
+    }
+    if (event.key === "End") {
+      event.preventDefault();
+      setActiveIndex(results.length - 1);
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      const activeCommand = results[activeIndex];
+      if (activeCommand) choose(activeCommand.id);
+    }
   };
 
   return (
@@ -77,15 +112,29 @@ function WorkspaceCommandDialog({
           <span aria-hidden="true">⌕</span>
           <input
             autoFocus
+            role="combobox"
+            aria-expanded="true"
+            aria-controls="workspace-command-results"
+            aria-activedescendant={results[activeIndex] ? `workspace-command-${results[activeIndex].id}` : undefined}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={handleSearchKeyDown}
             placeholder="Search sessions, actions, or evidence…"
           />
           <kbd>ESC</kbd>
         </label>
-        <div className="command-menu-results">
-          {results.length ? results.map((command) => (
-            <button key={command.id} type="button" onClick={() => choose(command.id)}>
+        <div id="workspace-command-results" className="command-menu-results" role="listbox" aria-label="Workspace commands">
+          {results.length ? results.map((command, index) => (
+            <button
+              id={`workspace-command-${command.id}`}
+              key={command.id}
+              type="button"
+              role="option"
+              aria-selected={index === activeIndex}
+              className={index === activeIndex ? "active" : ""}
+              onMouseEnter={() => setActiveIndex(index)}
+              onClick={() => choose(command.id)}
+            >
               <span><small>{command.group}</small><strong>{command.label}</strong></span>
               <em>{command.hint}</em>
             </button>

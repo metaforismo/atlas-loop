@@ -7,12 +7,14 @@ export function StartSessionPopover({
   daemonUrl,
   disabled,
   disabledReason,
-  onStarted
+  onStarted,
+  openRequest
 }: {
   daemonUrl: string;
   disabled: boolean;
   disabledReason: string;
   onStarted: (session: Session) => void;
+  openRequest?: number;
 }) {
   const [open, setOpen] = useState(false);
   const [simulatorName, setSimulatorName] = useState("");
@@ -55,6 +57,11 @@ export function StartSessionPopover({
       window.removeEventListener("pointerdown", handlePointerDown);
     };
   }, [open]);
+
+  useEffect(() => {
+    if (!openRequest) return;
+    setOpen(true);
+  }, [openRequest]);
 
   useEffect(() => () => requestRef.current?.abort(), []);
 
