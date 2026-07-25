@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
+import { atlasJourneyHighlight, deriveAtlasJourneys } from "@atlas-loop/protocol";
 import type { ViewerParams } from "../types.js";
 import { formatDateTime } from "../viewerPresentation.js";
 import { fetchAtlasMap, screenDisplayName, screenImageUrl, type AtlasMapViewLike, type AtlasScreenLike, type OpenSessionHandler } from "./atlasApi.js";
 import { MapGraph } from "./MapGraph.js";
+import { JourneyPanel } from "./JourneyPanel.js";
 import { ScreenDetail } from "./ScreenDetail.js";
 import { ScreensGrid } from "./ScreensGrid.js";
 
@@ -24,6 +26,8 @@ export function AtlasView({
   const [selectedScreenId, setSelectedScreenId] = useState<string | undefined>();
   const [rebuildNonce, setRebuildNonce] = useState(0);
   const [mode, setMode] = useState<"grid" | "graph">("grid");
+  const [selectedJourneyId, setSelectedJourneyId] = useState<string | undefined>();
+  const [journeyStep, setJourneyStep] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -45,6 +49,18 @@ export function AtlasView({
     [view, selectedScreenId]
   );
   const hasScreens = Boolean(view && view.map.screens.length > 0);
+  const journeys = useMemo(() => deriveAtlasJourneys({ transitions: view?.map.transitions ?? [] } as never), [view]);
+  const selectedJourney = journeys.find((journey) => journey.id === selectedJourneyId);
+  // Only the walked path stays lit; a dense graph is unreadable otherwise.
+  const highlight = useMemo(() => atlasJourneyHighlight(selectedJourney), [selectedJourney]);
+
+  // A rebuilt map can drop the journey that was open.
+  useEffect(() => {
+    if (selectedJourneyId && !selectedJourney) {
+      setSelectedJourneyId(undefined);
+      setJourneyStep(0);
+    }
+  }, [selectedJourneyId, selectedJourney]);
 
   return (
     <main className="atlas-workspace" aria-label="Atlas screen map">
@@ -96,6 +112,19 @@ export function AtlasView({
           <span><i aria-hidden="true" />Human sessions</span>
           <span><i aria-hidden="true" />Builds</span>
         </section>
+        <JourneyPanel
+          journeys={journeys}
+          screens={view?.map.screens ?? []}
+          selectedJourneyId={selectedJourneyId}
+          stepIndex={journeyStep}
+          onSelectJourney={(journeyId) => { setSelectedJourneyId(journeyId); setJourneyStep(0); }}
+          onStepChange={(index) => {
+            setJourneyStep(index);
+            // Walking a journey drives the screen detail alongside the map.
+            const screenId = selectedJourney?.screenIds[index];
+            if (screenId) setSelectedScreenId(screenId);
+          }}
+        />
         <div className="atlas-sidebar-stats" aria-label="Atlas counts">
           <span><small>Screens</small><strong>{view?.map.screens.length ?? 0}</strong></span>
           <span><small>Flows</small><strong>{view?.map.transitions.length ?? 0}</strong></span>
@@ -158,6 +187,7 @@ export function AtlasView({
                 transitions={view.map.transitions}
                 selectedScreenId={selectedScreen?.id}
                 onSelectScreen={setSelectedScreenId}
+                highlight={highlight}
               />
             ) : (
               <ScreensGrid
