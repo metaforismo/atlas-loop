@@ -91,7 +91,7 @@ export function LandingPage() {
       </section>
 
       <section className="landing-manifesto" id="runtime">
-        <p className="landing-section-index">01 / THE PROBLEM</p>
+        <p className="landing-section-index">THE PROBLEM</p>
         <div>
           <h2>Selectors describe the implementation. Evidence describes the product.</h2>
           <p>
@@ -104,7 +104,7 @@ export function LandingPage() {
         <ChapterIndex />
         <article className="landing-chapter" id="live-device">
           <div className="landing-chapter-copy">
-            <p className="landing-section-index">02 / LIVE DEVICE CLI</p>
+            <p className="landing-section-index">LIVE DEVICE CLI</p>
             <h2>One local runtime. Every operator.</h2>
             <p>Start a session from the workspace, CLI, or MCP. Build, install, launch, and drive the same Simulator while Atlas Loop keeps the state synchronized.</p>
             <ul><li>Auto-select a booted Simulator</li><li>XCUITest and Core Graphics input</li><li>Deep links to the exact active run</li></ul>
@@ -114,7 +114,7 @@ export function LandingPage() {
 
         <article className="landing-chapter landing-chapter-reverse" id="apps">
           <div className="landing-chapter-copy">
-            <p className="landing-section-index">03 / OBSERVED APP CATALOG</p>
+            <p className="landing-section-index">OBSERVED APP CATALOG</p>
             <h2>Every run should make the next run faster.</h2>
             <p>Atlas Loop turns app identity already captured in local session evidence into a focused launchpad. Find prior runs, pin the apps that matter, and prefill the next Simulator session without inventing a second registry.</p>
             <ul><li>Derived from bundle, scheme, or app path</li><li>Failed and blocked runs surface automatically</li><li>Browser-local pins with no hosted account</li></ul>
@@ -125,7 +125,7 @@ export function LandingPage() {
 
         <article className="landing-chapter" id="sessions">
           <div className="landing-chapter-copy">
-            <p className="landing-section-index">04 / SESSION CONTROL PLANE</p>
+            <p className="landing-section-index">SESSION CONTROL PLANE</p>
             <h2>A run should never disappear into a log folder.</h2>
             <p>See every local run in one focused surface, or open the global Live Monitor without replacing the workspace underneath. Filter history, inspect evidence health, and repeat a run with the captured app already filled in.</p>
             <ul><li>Live device and workflow activity without account sync</li><li>XCUITest and Core Graphics filters</li><li>Evidence, failures, duration, and Simulator context</li></ul>
@@ -136,7 +136,7 @@ export function LandingPage() {
 
         <article className="landing-chapter landing-chapter-reverse" id="tests">
           <div className="landing-chapter-copy">
-            <p className="landing-section-index">05 / READABLE LOCAL TESTS</p>
+            <p className="landing-section-index">READABLE LOCAL TESTS</p>
             <h2>Readable steps. Exact actions. No hidden planner.</h2>
             <p>Write one command per line and inspect the exact Atlas Loop action it becomes before the Simulator is touched. Invalid lines stay local, point to the source, and block the run.</p>
             <ul><li>Deterministic commands with line-level errors</li><li>Optional app guard prevents wrong-target runs</li><li>Latest results stay beside each browser-local test</li></ul>
@@ -147,7 +147,7 @@ export function LandingPage() {
 
         <article className="landing-chapter" id="library">
           <div className="landing-chapter-copy">
-            <p className="landing-section-index">06 / LOCAL TEST ASSETS</p>
+            <p className="landing-section-index">LOCAL TEST ASSETS</p>
             <h2>Reuse the steps and the startup state.</h2>
             <p>Keep proven command blocks and deterministic launch profiles in one local library. Tests stay readable, while installed apps can open at the exact fixture a run expects.</p>
             <ul><li>Built-in and browser-saved step modules</li><li>Exact launch arguments and non-secret environment values</li><li>Validated again at every storage boundary</li></ul>
@@ -158,7 +158,7 @@ export function LandingPage() {
 
         <article className="landing-chapter landing-chapter-reverse" id="gestures">
           <div className="landing-chapter-copy">
-            <p className="landing-section-index">07 / MULTI-GESTURE FLOWS</p>
+            <p className="landing-section-index">MULTI-GESTURE FLOWS</p>
             <h2>Test motion, not just destinations.</h2>
             <p>Drive the gestures selectors cannot describe: pinch, rotate, two-finger tap, long press, edge navigation, swipes, waits, and evidence checkpoints.</p>
             <ul><li>Native XCUITest multi-touch</li><li>Leading-edge iOS navigation</li><li>Per-step failure and cancellation</li></ul>
@@ -168,7 +168,7 @@ export function LandingPage() {
 
         <article className="landing-chapter" id="workflows">
           <div className="landing-chapter-copy">
-            <p className="landing-section-index">08 / LOCAL WORKFLOW LIBRARY</p>
+            <p className="landing-section-index">LOCAL WORKFLOW LIBRARY</p>
             <h2>Build once. Inspect every action.</h2>
             <p>Compose reusable workflows where they live. Start blank or from a proven template, configure every gesture and accessibility target, then save the validated flow locally.</p>
             <ul><li>Focused builder with live protocol validation</li><li>Editable native multi-touch and element actions</li><li>Draft protection and safe browser-local storage</li></ul>
@@ -179,7 +179,7 @@ export function LandingPage() {
 
         <article className="landing-chapter landing-chapter-reverse" id="evidence">
           <div className="landing-chapter-copy">
-            <p className="landing-section-index">09 / REPLAYABLE EVIDENCE</p>
+            <p className="landing-section-index">REPLAYABLE EVIDENCE</p>
             <h2>A failure should explain itself.</h2>
             <p>Every action can be paired with screenshots, video markers, CPU, memory, trace events, and artifact integrity. The handoff view turns that record into reproducible next commands.</p>
             <ul><li>Action-to-artifact correlation</li><li>Visual diff and replay tools</li><li>Portable artifact health reports</li></ul>
@@ -190,7 +190,7 @@ export function LandingPage() {
 
       <section className="landing-evidence" id="atlas">
         <div className="landing-evidence-copy">
-          <p className="landing-section-index">10 / ATLAS RUNTIME MAP</p>
+          <p className="landing-section-index">ATLAS RUNTIME MAP</p>
           <h2>Every observed flow leaves a map.</h2>
           <p>
             The Atlas view derives screens and transitions from evidence already captured during a run. Deep links reconnect a map edge to the exact session, action, and artifact that produced it.
@@ -283,14 +283,13 @@ function ChapterIndex() {
     <nav className="landing-chapter-index" aria-label="Capability chapters">
       <span>Chapters</span>
       <ol>
-        {CHAPTERS.map((chapter, index) => (
+        {CHAPTERS.map((chapter) => (
           <li key={chapter.id}>
             <a
               href={`#${chapter.id}`}
               className={chapter.id === activeId ? "active" : undefined}
               aria-current={chapter.id === activeId ? "true" : undefined}
             >
-              <b>{String(index + 2).padStart(2, "0")}</b>
               {chapter.label}
             </a>
           </li>
@@ -348,7 +347,7 @@ function QuickstartSection() {
   return (
     <section className="landing-quickstart" id="quickstart" aria-labelledby="landing-quickstart-title">
       <div className="landing-quickstart-copy">
-        <p className="landing-section-index">11 / FROM SOURCE TO SIGNAL</p>
+        <p className="landing-section-index">FROM SOURCE TO SIGNAL</p>
         <h2 id="landing-quickstart-title">A useful first run in three steps.</h2>
         <p>Atlas Loop does not hide the runtime behind a hosted account. Verify the repo, start two local processes, and follow the first Simulator session into an evidence-ready workspace.</p>
         <div className="landing-quickstart-links">
