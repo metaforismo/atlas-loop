@@ -676,6 +676,59 @@ export function sortSessionList<T extends SessionListItem>(sessions: T[]): T[] {
   });
 }
 
+/**
+ * What is worth saying about a session in a narrow rail.
+ *
+ * The full chip set is six items, and at rail width they render as "S…", "A 7",
+ * "E 1…", "W 0", "S…", "A…" — two lines of ellipses per row that answer nothing
+ * while making every row look identical. A clean run needs no annotation: its
+ * status already says it ended. Only the exceptions earn a chip here.
+ */
+export function sessionRailSignals(session: SessionHistoryItem | undefined): SessionEvidenceChip[] {
+  if (!session) return [];
+  const signals: SessionEvidenceChip[] = [];
+
+  const latestAction = session.events?.latestAction;
+  if (latestAction && latestAction.ok === false) {
+    signals.push({
+      id: "action",
+      label: "failed",
+      value: "",
+      tone: "bad",
+      title: "The last recorded action failed",
+      ariaLabel: "The last recorded action failed"
+    });
+  }
+
+  const warningCount = session.storage?.warningCount ?? 0;
+  if (warningCount > 0) {
+    signals.push({
+      id: "warnings",
+      label: warningCount === 1 ? "1 warning" : `${warningCount} warnings`,
+      value: "",
+      tone: "warn",
+      title: `${warningCount} stored-evidence warning${warningCount === 1 ? "" : "s"}`,
+      ariaLabel: `${warningCount} stored evidence warnings`
+    });
+  }
+
+  // Only a run that has finished: one still installing or launching has not
+  // produced artifacts yet, and flagging it would be wrong rather than useful.
+  const settled = session.status === "ended" || session.status === "failed";
+  if (settled && session.artifacts?.total === 0) {
+    signals.push({
+      id: "artifacts",
+      label: "no evidence",
+      value: "",
+      tone: "warn",
+      title: "This run recorded no artifacts",
+      ariaLabel: "This run recorded no artifacts"
+    });
+  }
+
+  return signals;
+}
+
 export function sessionEvidenceChips(session: SessionHistoryItem | undefined): SessionEvidenceChip[] {
   if (!session) return [];
 
