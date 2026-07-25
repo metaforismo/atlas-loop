@@ -1,5 +1,15 @@
 :root {
   color-scheme: dark;
+  /*
+   * The prose scale the app never had.
+   *
+   * With nothing to reference, every panel author picked their own size, and
+   * sentences an operator actually reads ended up at 8 and 9 pixels next to
+   * labels at the same size. Labels, metrics, and commands stay small and
+   * monospace; prose gets these.
+   */
+  --prose: 12px;
+  --prose-sm: 11px;
   --bg: #080a0d;
   --bg-2: #0c0f14;
   --panel: #10141a;
@@ -642,6 +652,7 @@ h2 {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
+  container-type: inline-size;
   border: 1px solid var(--line);
   border-left: 3px solid transparent;
   border-radius: 8px;
@@ -2391,7 +2402,7 @@ h2 {
 
 .gesture-sequence-copy > span {
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--prose-sm);
   line-height: 1.35;
 }
 
@@ -3476,7 +3487,7 @@ h2 {
 .flow-run-verdict span:not(.flow-run-mark) {
   overflow: hidden;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--prose-sm);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -8358,17 +8369,17 @@ body::before {
 .workflow-table > button strong,
 .workflow-table > button small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workflow-table > button strong { font-size: 10px; font-weight: 560; }
-.workflow-table > button small { color: var(--muted); font-size: 8px; }
+.workflow-table > button small { color: var(--muted); font-size: var(--prose-sm); line-height: 1.45; }
 .workflow-row-tags { display: flex; gap: 4px; }
 .workflow-row-tags em { border: 1px solid var(--line-strong); padding: 4px 5px; color: var(--muted); font-family: var(--font-mono); font-size: 6px; font-style: normal; text-transform: uppercase; white-space: nowrap; }
 .workflow-row-tags em:first-child:not(:last-child) { border-color: color-mix(in srgb, var(--accent) 38%, transparent); color: #d6998b; }
 .workflow-table > button > b { display: grid; gap: 1px; font-family: var(--font-mono); font-size: 14px; font-weight: 450; text-align: right; }
 .workflow-table > button > b small { font-size: 6px; font-weight: 400; text-transform: uppercase; }
 
-.workflow-detail-copy { margin: -6px 0 18px; color: var(--muted); font-size: 9px; line-height: 1.55; }
+.workflow-detail-copy { margin: -6px 0 18px; color: var(--muted); font-size: var(--prose); line-height: 1.55; }
 .workflow-backend-note { display: grid; gap: 4px; margin: 0 0 16px; border-left: 2px solid var(--accent); padding: 10px 12px; background: rgba(232, 111, 89, 0.065); }
 .workflow-backend-note strong { color: var(--accent); font-size: 8px; text-transform: uppercase; }
-.workflow-backend-note span { color: var(--muted); font-size: 8px; line-height: 1.45; }
+.workflow-backend-note span { color: var(--muted); font-size: var(--prose-sm); line-height: 1.45; }
 .workflow-step-preview { margin: 0; border-top: 1px solid var(--line); padding: 0; list-style: none; }
 .workflow-step-preview li { display: grid; min-height: 50px; grid-template-columns: 27px minmax(0, 1fr) 10px; align-items: center; gap: 10px; border-bottom: 1px solid var(--line); }
 .workflow-step-preview li > span { color: var(--muted); font-family: var(--font-mono); font-size: 7px; }
@@ -9056,11 +9067,11 @@ body::before {
 }
 
 .overview-next-step p {
-  max-width: 620px;
+  max-width: 70ch;
   margin: 0;
   color: var(--muted);
-  font-size: 9px;
-  line-height: 1.5;
+  font-size: var(--prose);
+  line-height: 1.55;
 }
 
 .overview-next-step button {
@@ -11477,7 +11488,7 @@ body::before {
 .test-detail-copy {
   margin: -6px 0 18px;
   color: var(--muted);
-  font-size: 9px;
+  font-size: var(--prose);
   line-height: 1.55;
 }
 
@@ -11515,7 +11526,7 @@ body::before {
 .test-backend-note strong { color: var(--warn); font-size: 8px; text-transform: uppercase; }
 .test-backend-note strong { color: var(--accent); }
 .test-app-mismatch span,
-.test-backend-note span { color: var(--muted); font-size: 8px; line-height: 1.45; }
+.test-backend-note span { color: var(--muted); font-size: var(--prose-sm); line-height: 1.45; }
 
 .test-app-mismatch button {
   width: fit-content;
@@ -11581,7 +11592,7 @@ body::before {
   border: 1px solid var(--line);
   padding: 9px 11px;
   color: var(--muted);
-  font-size: 8px;
+  font-size: var(--prose-sm);
   line-height: 1.45;
 }
 
@@ -11997,7 +12008,7 @@ body::before {
 .library-principle > div { display: grid; min-width: 0; gap: 3px; }
 .library-principle small { color: var(--accent); font-family: var(--font-mono); font-size: 7px; letter-spacing: 0.08em; text-transform: uppercase; }
 .library-principle strong { font-size: 9px; font-weight: 580; }
-.library-principle span { color: var(--muted); font-size: 8px; line-height: 1.45; }
+.library-principle span { color: var(--muted); font-size: var(--prose-sm); line-height: 1.45; }
 .library-principle > button { display: inline-flex; min-height: 40px; align-items: center; gap: 7px; border: 0; padding: 0 10px; background: transparent; color: var(--accent); font-family: var(--font-mono); font-size: 8px; cursor: pointer; }
 .library-principle > button:hover { background: #202024; color: #f0a08f; }
 .library-principle > button:disabled { opacity: 0.38; cursor: not-allowed; }
@@ -12045,7 +12056,7 @@ body::before {
 .library-catalog [role="option"] strong,
 .library-catalog [role="option"] small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .library-catalog [role="option"] strong { font-size: 10px; font-weight: 560; }
-.library-catalog [role="option"] small { color: var(--muted); font-size: 8px; }
+.library-catalog [role="option"] small { color: var(--muted); font-size: var(--prose-sm); }
 .library-catalog [role="option"] em { overflow: hidden; color: #89858a; font-family: var(--font-mono); font-size: 6px; font-style: normal; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
 .library-step-count { display: grid; gap: 2px; font-family: var(--font-mono); font-size: 12px; text-align: right; }
 .library-step-count small { color: var(--muted); font-size: 6px !important; text-transform: uppercase; }
@@ -12053,12 +12064,12 @@ body::before {
 .library-detail > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; margin-bottom: 18px; }
 .library-detail h2 { margin: 0; font-family: var(--font-display); font-size: 23px; font-weight: 430; letter-spacing: -0.025em; }
 .library-detail > header > span { border: 1px solid var(--line-strong); padding: 5px 7px; color: var(--muted); font-family: var(--font-mono); font-size: 7px; text-transform: uppercase; }
-.library-detail-copy { margin: -4px 0 14px; color: var(--muted); font-size: 9px; line-height: 1.55; }
+.library-detail-copy { margin: -4px 0 14px; color: var(--muted); font-size: var(--prose); line-height: 1.55; }
 .library-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 14px; }
 .library-tags span { border: 1px solid var(--line); padding: 4px 6px; color: #8a8589; font-family: var(--font-mono); font-size: 6px; text-transform: uppercase; }
 .library-backend-note { display: grid; gap: 4px; margin-bottom: 14px; border-left: 2px solid var(--accent); padding: 10px 12px; background: rgba(232, 111, 89, 0.065); }
 .library-backend-note strong { color: var(--accent); font-size: 8px; text-transform: uppercase; }
-.library-backend-note span { color: var(--muted); font-size: 8px; line-height: 1.45; }
+.library-backend-note span { color: var(--muted); font-size: var(--prose-sm); line-height: 1.45; }
 .library-step-preview { max-height: 360px; margin: 0; overflow: auto; border-top: 1px solid var(--line); padding: 0; list-style: none; }
 .library-step-preview li,
 .library-compile-preview ol li { display: grid; min-height: 50px; grid-template-columns: 27px minmax(0, 1fr); align-items: center; gap: 10px; border-bottom: 1px solid var(--line); }
@@ -14292,4 +14303,108 @@ body::before {
 /* The body takes the height the column gives it rather than a fixed cap. */
 .workbench-main .evidence-panels > [role="tabpanel"] {
   max-height: none;
+}
+
+/* A way into the session archive, rather than a scrollbar over all of it. */
+.session-finder {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.session-finder-scopes {
+  display: flex;
+  gap: 4px;
+}
+
+.session-finder-scopes button,
+.session-finder-more {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 3px 8px;
+  background: transparent;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 10.5px;
+  cursor: pointer;
+}
+
+.session-finder-scopes button.selected {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.session-finder-scopes button span {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+
+.session-finder-more {
+  justify-content: center;
+  width: 100%;
+  margin-top: 8px;
+}
+
+.session-finder-more:hover {
+  color: var(--text);
+}
+
+/* Rail signals carry a phrase, not a truncated letter-and-number pair. */
+.session-browser-list .session-evidence-chip {
+  padding: 2px 6px;
+  font-family: var(--font-ui);
+  font-size: 9.5px;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+/*
+ * In the rail the session id is the identifier, and truncating it to
+ * "sess_ms0h5…" makes one row indistinguishable from the next. It gets the full
+ * width of its own line; the subtitle, status, and time share the line below.
+ */
+.session-browser-list .session-row {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+}
+
+.session-browser-list .session-row strong {
+  overflow-wrap: anywhere;
+  white-space: normal;
+  font-size: 11.5px;
+}
+
+/* The rail's meta line carries a status and a timestamp, both short and both
+   worth reading in full; the max-width the wide layout needs would clip them. */
+.session-browser-list .session-row-meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-start;
+  gap: 9px;
+  min-width: 0;
+  max-width: none;
+}
+
+.session-browser-list .session-row-meta small,
+.session-browser-list .session-row-meta time {
+  flex: 0 0 auto;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+/* A signal that reads "F.." is worse than none; it never shrinks. */
+.session-browser-list .session-evidence-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.session-browser-list .session-evidence-chip {
+  flex: 0 0 auto;
+  min-width: 0;
 }

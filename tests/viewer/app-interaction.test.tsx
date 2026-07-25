@@ -280,23 +280,22 @@ describe("viewer app interactions", { timeout: 30_000 }, () => {
     expect(host.querySelector(".viewer-shell")?.classList.contains("rail-collapsed")).toBe(true);
   });
 
-  it("renders compact evidence chips from session history rows", async () => {
+  it("leaves a clean session history row unannotated", async () => {
+    // The rail used to carry six chips per row. At rail width they rendered as
+    // "S…", "A 7", "E 1…", "W 0", "S…", "A…" — two lines of ellipses that made
+    // every row look the same. A run that ended cleanly says so through its
+    // status; only the exceptions earn a chip. The chip rules themselves are
+    // covered in session-finder.test.ts.
     await act(async () => root?.render(<App />));
 
-    const evidence = await waitFor(() => {
-      const group = getByAriaLabel<HTMLElement>(`Evidence for ${SESSION_ID}`);
-      expect(group.textContent).toContain("mem");
-      expect(group.textContent).toContain("2");
-      expect(group.textContent).toContain("pass");
-      return group;
-    }, "session history evidence chips");
+    const row = await waitFor(() => {
+      const list = document.querySelector(".session-browser-list");
+      expect(list?.textContent).toContain(SESSION_ID);
+      return list as HTMLElement;
+    }, "session history row");
 
-    expect(getByAriaLabel<HTMLElement>("Evidence source memory").closest(".session-evidence-chips")).toBe(evidence);
-    expect(getByAriaLabel<HTMLElement>("Artifact count 2").textContent).toContain("2");
-    expect(getByAriaLabel<HTMLElement>("Event count 1").textContent).toContain("1");
-    expect(getByAriaLabel<HTMLElement>("Warning count 0").textContent).toContain("0");
-    expect(getByAriaLabel<HTMLElement>("Latest screenshot available").textContent).toContain("yes");
-    expect(getByAriaLabel<HTMLElement>("Latest action passed").textContent).toContain("pass");
+    expect(row.querySelector(".session-evidence-chips")).toBeNull();
+    expect(row.textContent).toContain("iPhone 16");
   });
 
   it("opens the global live monitor from any workspace without losing the selected run", async () => {
@@ -473,7 +472,7 @@ describe("viewer app interactions", { timeout: 30_000 }, () => {
   it("opens the operational overview and returns to live evidence", async () => {
     await act(async () => root?.render(<App />));
     await waitFor(() => {
-      expect(getByAriaLabel<HTMLElement>(`Evidence for ${SESSION_ID}`)).toBeTruthy();
+      expect(getByAriaLabel<HTMLElement>(`Session ${SESSION_ID}`)).toBeTruthy();
       return true;
     }, "session history before overview");
 
@@ -545,7 +544,7 @@ describe("viewer app interactions", { timeout: 30_000 }, () => {
   it("deep-links the first-class workflow library and returns to evidence", async () => {
     await act(async () => root?.render(<App />));
     await waitFor(() => {
-      expect(getByAriaLabel<HTMLElement>(`Evidence for ${SESSION_ID}`)).toBeTruthy();
+      expect(getByAriaLabel<HTMLElement>(`Session ${SESSION_ID}`)).toBeTruthy();
       return true;
     }, "session history before workflows");
 
@@ -568,7 +567,7 @@ describe("viewer app interactions", { timeout: 30_000 }, () => {
   it("deep-links local tests, opens the compiler, and returns to evidence", async () => {
     await act(async () => root?.render(<App />));
     await waitFor(() => {
-      expect(getByAriaLabel<HTMLElement>(`Evidence for ${SESSION_ID}`)).toBeTruthy();
+      expect(getByAriaLabel<HTMLElement>(`Session ${SESSION_ID}`)).toBeTruthy();
       return true;
     }, "session history before tests");
 
@@ -594,7 +593,7 @@ describe("viewer app interactions", { timeout: 30_000 }, () => {
   it("opens the step-module Library and hands visible source to the Tests composer", async () => {
     await act(async () => root?.render(<App />));
     await waitFor(() => {
-      expect(getByAriaLabel<HTMLElement>(`Evidence for ${SESSION_ID}`)).toBeTruthy();
+      expect(getByAriaLabel<HTMLElement>(`Session ${SESSION_ID}`)).toBeTruthy();
       return true;
     }, "session history before module library");
 
@@ -623,7 +622,7 @@ describe("viewer app interactions", { timeout: 30_000 }, () => {
   it("opens the first-class session history and repeats a captured app", async () => {
     await act(async () => root?.render(<App />));
     await waitFor(() => {
-      expect(getByAriaLabel<HTMLElement>(`Evidence for ${SESSION_ID}`)).toBeTruthy();
+      expect(getByAriaLabel<HTMLElement>(`Session ${SESSION_ID}`)).toBeTruthy();
       return true;
     }, "session history before sessions workspace");
 
@@ -647,7 +646,7 @@ describe("viewer app interactions", { timeout: 30_000 }, () => {
   it("opens the observed app catalog and prefills a new run from history", async () => {
     await act(async () => root?.render(<App />));
     await waitFor(() => {
-      expect(getByAriaLabel<HTMLElement>(`Evidence for ${SESSION_ID}`)).toBeTruthy();
+      expect(getByAriaLabel<HTMLElement>(`Session ${SESSION_ID}`)).toBeTruthy();
       return true;
     }, "session history before apps");
 
