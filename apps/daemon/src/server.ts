@@ -56,6 +56,11 @@ import {
   type SessionHistoryResult,
   type SessionStatus,
   type TraceEvent,
+  NETWORK_CAPTURE_SCHEMA,
+  alignNetworkExchanges,
+  summariseNetworkExchanges,
+  type NetworkExchange,
+  type NetworkWindow,
   CONTAINER_SNAPSHOT_SCHEMA,
   diffContainerSnapshots,
   type ContainerSnapshot
@@ -68,6 +73,7 @@ import { XcuitestRunnerManager } from "@atlas-loop/xcuitest-client";
 import { parseLaunchPid, startMetricsSampler, type MetricsSample, type MetricsSamplerHandle } from "./metricsSampler.ts";
 import { startDeviceLogStream, type DeviceLogStreamHandle, type DeviceLogStreamOptions } from "./deviceLogStream.ts";
 import { captureContainerSnapshot, createContainerRootResolver } from "./containerSnapshot.ts";
+import { startNetworkProxy, trustCertificateArgs, type NetworkProxyHandle } from "./networkProxy.ts";
 import { createCgEventBackend } from "./backends/cgevent.ts";
 import { createXcuitestBackend, type XcuitestManagerLike } from "./backends/xcuitest.ts";
 import type { InputAction, InputBackend } from "./backends/types.ts";
@@ -88,6 +94,8 @@ export interface DaemonOptions {
   deviceLogMaxBytes?: number;
   /** Injected in tests; otherwise asks simctl once per app and caches. */
   containerRootResolver?: (udid: string, bundleId: string) => Promise<string>;
+  /** Where the local capture CA lives; defaults beside the artifact root. */
+  networkCaDir?: string;
   simulator?: SimulatorApi;
   hidClientFactory?: (options: HidClientOptions) => HidClient;
   xcuitestManagerFactory?: () => XcuitestManagerLike;
@@ -109,6 +117,9 @@ interface SessionState {
   recording?: { handle: RecordingHandle; path: string; startedAt: string };
   metrics?: { handle: MetricsSamplerHandle; path: string; startedAt: string };
   deviceLogs?: { handle: DeviceLogStreamHandle; path: string; startedAt: string };
+  network?: { handle: NetworkProxyHandle; startedAt: string };
+  /** The step currently executing, so network exchanges land on it. */
+  runningActionId?: string;
 }
 
 interface DaemonState {
@@ -126,6 +137,7 @@ interface DaemonState {
   deviceLogSpawn?: DeviceLogStreamOptions["spawnProcess"];
   deviceLogMaxBytes: number;
   containerRootResolver: (udid: string, bundleId: string) => Promise<string>;
+  networkCaDir: string;
   sessions: Map<string, SessionState>;
 }
 
@@ -207,6 +219,9 @@ export async function startDaemonServer(options: DaemonOptions = {}): Promise<St
     // One resolver per daemon: the simctl lookup is slow and its answer holds
     // for as long as the app stays installed.
     containerRootResolver: options.containerRootResolver ?? createContainerRootResolver(),
+    // One CA per machine: minting a new one per run would leave every simulator
+    // trusting a certificate the daemon no longer holds.
+    networkCaDir: options.networkCaDir ?? resolve(options.artifactRoot ?? ".", ".atlas-loop-ca"),
     sessions: new Map()
   };
 
@@ -407,6 +422,19 @@ async function handleRequest(state: DaemonState, request: IncomingMessage, respo
     if (request.method === "GET" && parts.length === 3 && parts[2] === "metrics") {
       const sessionState = await resolveReadableSessionState(state, sessionId);
       sendJson(response, 200, { ok: true, data: await readSessionMetrics(sessionState) });
+      return;
+    }
+
+    if (request.method === "POST" && parts.length === 3 && parts[2] === "network") {
+      const sessionState = resolveActiveSessionState(state, sessionId);
+      const body = await readJsonBody<{ action?: "start" | "stop"; port?: number; trustSimulator?: boolean }>(request);
+      sendJson(response, 200, { ok: true, data: await controlNetworkCapture(state, sessionState, body) });
+      return;
+    }
+
+    if (request.method === "GET" && parts.length === 3 && parts[2] === "network") {
+      const sessionState = await resolveReadableSessionState(state, sessionId);
+      sendJson(response, 200, { ok: true, data: await readSessionNetwork(sessionState) });
       return;
     }
 
@@ -793,6 +821,7 @@ async function stopSessionMetrics(sessionState: SessionState): Promise<void> {
  */
 async function startSessionDeviceLogs(state: DaemonState, sessionState: SessionState, processName?: string): Promise<void> {
   if (sessionState.deviceLogs) await stopSessionDeviceLogs(sessionState);
+  if (sessionState.network) await finalizeSessionNetwork(sessionState);
 
   const udid = sessionState.session.simulator?.udid;
   // Without a resolved device there is no log to spawn against; the run
@@ -937,6 +966,157 @@ async function readSessionMetrics(sessionState: SessionState): Promise<SessionMe
  * Alignment itself lives in the protocol package so every consumer buckets a
  * line into the same step.
  */
+/**
+ * Starts or stops the capture proxy for a session.
+ *
+ * Routing the simulator's traffic into it is a separate, explicit step: the iOS
+ * Simulator reads its proxy configuration from the host's network settings, and
+ * neither per-app environment variables nor a per-device configuration file
+ * change that. The response therefore carries the proxy URL and what to do with
+ * it, and the read side reports whether anything has actually arrived.
+ */
+async function controlNetworkCapture(
+  state: DaemonState,
+  sessionState: SessionState,
+  options: { action?: "start" | "stop"; port?: number; trustSimulator?: boolean }
+): Promise<Record<string, unknown>> {
+  if (options.action === "stop") {
+    const running = sessionState.network;
+    if (!running) return { schemaVersion: NETWORK_CAPTURE_SCHEMA, active: false, stopped: false };
+    await finalizeSessionNetwork(sessionState);
+    return { schemaVersion: NETWORK_CAPTURE_SCHEMA, active: false, stopped: true };
+  }
+
+  if (sessionState.network) {
+    return describeNetworkCapture(sessionState, { alreadyRunning: true });
+  }
+
+  const handle = await startNetworkProxy({
+    port: options.port,
+    caDir: state.networkCaDir,
+    currentActionId: () => sessionState.runningActionId,
+    onError: (error) => {
+      void recordTrace(sessionState.layout, {
+        type: "error",
+        at: nowIso(),
+        sessionId: sessionState.session.id,
+        error: normalizeError(error, "COMMAND_FAILED")
+      }).catch(() => undefined);
+    }
+  });
+  sessionState.network = { handle, startedAt: nowIso() };
+
+  // Trusting the CA is the one part of routing that can be automated: it only
+  // touches the simulator's own trust store, never the host's.
+  let trusted: boolean | undefined;
+  const udid = sessionState.session.simulator?.udid;
+  if (options.trustSimulator !== false && udid) {
+    const result = await state.simulator.runCommand("xcrun", trustCertificateArgs(udid, handle.caPath), { timeoutMs: 20_000 });
+    trusted = result.exitCode === 0;
+  }
+
+  return describeNetworkCapture(sessionState, { trusted });
+}
+
+function describeNetworkCapture(
+  sessionState: SessionState,
+  extra: Record<string, unknown> = {}
+): Record<string, unknown> {
+  const running = sessionState.network;
+  // The shape stays the same whether or not a capture is running, so a reader
+  // never has to tell "no proxy" apart from "field missing".
+  if (!running) return { schemaVersion: NETWORK_CAPTURE_SCHEMA, active: false, receiving: false, ...extra };
+
+  return {
+    schemaVersion: NETWORK_CAPTURE_SCHEMA,
+    active: true,
+    startedAt: running.startedAt,
+    proxyUrl: running.handle.url,
+    port: running.handle.port,
+    caPath: running.handle.caPath,
+    // False here almost always means the simulator's traffic is not routed
+    // here yet, which is a very different thing from an app that stayed quiet.
+    receiving: running.handle.receiving(),
+    ...extra
+  };
+}
+
+/** Writes the capture out as an artifact and releases the port. */
+async function finalizeSessionNetwork(sessionState: SessionState): Promise<void> {
+  const running = sessionState.network;
+  if (!running) return;
+  sessionState.network = undefined;
+
+  const exchanges = running.handle.exchanges();
+  await running.handle.close();
+  if (exchanges.length === 0) return;
+
+  try {
+    await mkdir(sessionState.layout.logsDir, { recursive: true });
+    const stamp = running.startedAt.replace(/[:.]/g, "-");
+    const path = join(sessionState.layout.logsDir, `network-${stamp}.json`);
+    await writeFile(path, `${JSON.stringify({ schemaVersion: NETWORK_CAPTURE_SCHEMA, exchanges }, null, 2)}\n`, "utf8");
+    const artifact = await artifactFromPath(sessionState.layout, "log", path, {
+      kind: "network-capture",
+      exchangeCount: exchanges.length,
+      truncated: running.handle.truncated(),
+      capturedFrom: running.startedAt
+    });
+    await addArtifact(sessionState, artifact);
+  } catch (error) {
+    await recordTrace(sessionState.layout, {
+      type: "error",
+      at: nowIso(),
+      sessionId: sessionState.session.id,
+      error: normalizeError(error, "ARTIFACT_WRITE_FAILED")
+    }).catch(() => undefined);
+  }
+}
+
+/**
+ * The session's network activity, live and recorded, aligned to the steps that
+ * issued each request.
+ */
+async function readSessionNetwork(sessionState: SessionState): Promise<Record<string, unknown>> {
+  const exchanges: NetworkExchange[] = [];
+  for (const artifact of sessionState.artifacts) {
+    if (artifact.type !== "log" || artifact.metadata?.kind !== "network-capture") continue;
+    try {
+      const parsed = JSON.parse(await readFile(artifact.path, "utf8")) as { exchanges?: NetworkExchange[] };
+      if (Array.isArray(parsed.exchanges)) exchanges.push(...parsed.exchanges);
+    } catch {
+      // A capture that cannot be read is left out; the rest still counts.
+    }
+  }
+  if (sessionState.network) exchanges.push(...sessionState.network.handle.exchanges());
+
+  const windows = await readActionWindows(sessionState);
+  return {
+    schemaVersion: NETWORK_CAPTURE_SCHEMA,
+    sessionId: sessionState.session.id,
+    ...describeNetworkCapture(sessionState),
+    truncated: sessionState.network?.handle.truncated() ?? false,
+    summary: summariseNetworkExchanges(exchanges),
+    alignment: alignNetworkExchanges(exchanges, windows),
+    exchanges
+  };
+}
+
+/** Each step's start and end, from the recorded action log. */
+async function readActionWindows(sessionState: SessionState): Promise<NetworkWindow[]> {
+  const windows: NetworkWindow[] = [];
+  for (const event of await readEvents(sessionState)) {
+    if (event.type === "action.started") {
+      windows.push({ actionId: event.action.id, startedAt: event.at });
+      continue;
+    }
+    if (event.type !== "action.completed") continue;
+    const open = windows.find((window) => window.actionId === event.result.actionId && window.endedAt === undefined);
+    if (open) open.endedAt = event.at;
+  }
+  return windows;
+}
+
 /**
  * Snapshots the app's data container and diffs it against the previous capture.
  *
@@ -1181,6 +1361,7 @@ async function executeAction(
   run: () => Promise<ArtifactRef[]>
 ): Promise<ActionResult> {
   const startedAt = nowIso();
+  sessionState.runningActionId = action.id;
   await recordTrace(sessionState.layout, { type: "action.started", at: startedAt, action });
   try {
     const artifacts = await run();
@@ -1191,10 +1372,12 @@ async function executeAction(
       endedAt: nowIso(),
       artifacts
     };
+    sessionState.runningActionId = undefined;
     await appendActionRecord(sessionState.layout, action, result);
     await recordTrace(sessionState.layout, { type: "action.completed", at: result.endedAt, result });
     return result;
   } catch (error) {
+    sessionState.runningActionId = undefined;
     const atlasLoopError = normalizeError(error);
     const artifacts = artifactRefsFromError(error);
     const endedAt = nowIso();

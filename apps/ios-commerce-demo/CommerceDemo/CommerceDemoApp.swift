@@ -26,12 +26,15 @@ private struct CheckoutRootView: View {
             CatalogView(
                 products: Product.catalog,
                 onSelect: { product in path.append(.productDetail(product.id)) },
-                onGestureLab: { path.append(.gestureLab) }
+                onGestureLab: { path.append(.gestureLab) },
+                onSyncLab: { path.append(.syncLab) }
             )
             .navigationDestination(for: CheckoutRoute.self) { route in
                 switch route {
                 case .gestureLab:
                     GestureLabView()
+                case .syncLab:
+                    SyncLabView()
                 case .productDetail(let productID):
                     ProductDetailView(product: product(withID: productID)) { product in
                         cartLine = CartLine(product: product, quantity: 1)
@@ -70,6 +73,7 @@ private struct CheckoutRootView: View {
 
 private enum CheckoutRoute: Hashable {
     case gestureLab
+    case syncLab
     case productDetail(String)
     case cart
     case shipping
@@ -85,6 +89,7 @@ private enum DemoLaunchRoute {
     case paymentReview
     case confirmation
     case gestureLab
+    case syncLab
 
     static let argumentName = "--atlas-demo-route"
     static let environmentName = "ATLAS_LOOP_DEMO_ROUTE"
@@ -112,6 +117,8 @@ private enum DemoLaunchRoute {
             self = .confirmation
         case "gesture", "gesture-lab", "gestures":
             self = .gestureLab
+        case "sync", "sync-lab", "network":
+            self = .syncLab
         default:
             return nil
         }
@@ -211,6 +218,9 @@ private struct CheckoutLaunchState {
         case .gestureLab?:
             path = [.gestureLab]
             cartLine = nil
+        case .syncLab?:
+            path = [.syncLab]
+            cartLine = nil
         }
     }
 }
@@ -253,6 +263,7 @@ private struct CatalogView: View {
     let products: [Product]
     let onSelect: (Product) -> Void
     let onGestureLab: () -> Void
+    let onSyncLab: () -> Void
 
     var body: some View {
         List {
@@ -263,6 +274,13 @@ private struct CatalogView: View {
                         .padding(.vertical, 8)
                 }
                 .accessibilityIdentifier("catalog.gesture-lab")
+
+                Button(action: onSyncLab) {
+                    Label("Sync Lab", systemImage: "arrow.triangle.2.circlepath")
+                        .font(.headline)
+                        .padding(.vertical, 8)
+                }
+                .accessibilityIdentifier("catalog.sync-lab")
             }
 
             Section("Products") {
@@ -280,6 +298,102 @@ private struct CatalogView: View {
         .navigationTitle("Catalog")
         .accessibilityIdentifier("catalog")
     }
+}
+
+/// A surface that makes real `URLSession` requests, so network capture has
+/// something to capture. The base URL comes from the launch environment, which
+/// lets a run point the demo at a local stub instead of the public internet.
+private struct SyncLabView: View {
+    @State private var results: [SyncResult] = []
+    @State private var busy = false
+
+    private var baseURL: String {
+        ProcessInfo.processInfo.environment["ATLAS_LOOP_DEMO_API"] ?? "https://example.com"
+    }
+
+    var body: some View {
+        VStack(spacing: 20) {
+            VStack(spacing: 6) {
+                Text("Sync Lab")
+                    .font(.title2.bold())
+                Text("Each button makes a real request. Atlas Loop records the method, host, status, and timing against the step that ran it.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+
+            Text(baseURL)
+                .font(.footnote.monospaced())
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier("sync-lab.base-url")
+
+            HStack(spacing: 12) {
+                Button("Fetch catalog") { Task { await send(path: "/catalog", method: "GET") } }
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityIdentifier("sync-lab.fetch")
+
+                Button("Place order") { Task { await send(path: "/orders", method: "POST") } }
+                    .buttonStyle(.bordered)
+                    .accessibilityIdentifier("sync-lab.place-order")
+            }
+            .disabled(busy)
+
+            List(results) { result in
+                HStack {
+                    Text(result.label)
+                        .font(.footnote.monospaced())
+                    Spacer()
+                    Text(result.detail)
+                        .font(.footnote.monospaced())
+                        .foregroundStyle(result.ok ? .green : .red)
+                }
+            }
+            .accessibilityIdentifier("sync-lab.results")
+
+            Spacer(minLength: 0)
+        }
+        .padding(24)
+        .navigationTitle("Sync Lab")
+        .accessibilityIdentifier("sync-lab")
+        .task {
+            // A sync screen that syncs when it opens: a scripted run gets
+            // traffic to capture without depending on a tap landing.
+            await send(path: "/catalog", method: "GET")
+        }
+    }
+
+    private func send(path: String, method: String) async {
+        guard let url = URL(string: baseURL + path) else { return }
+        busy = true
+        defer { busy = false }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        if method == "POST" {
+            request.httpBody = Data("{\"sku\":\"atlas-pack\",\"qty\":1}".utf8)
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            results.insert(
+                SyncResult(label: "\(method) \(path)", detail: "\(status) · \(data.count)B", ok: (200..<400).contains(status)),
+                at: 0
+            )
+        } catch {
+            // A failed request is still evidence; surfacing it beats a silent
+            // no-op that looks like the request was never made.
+            results.insert(SyncResult(label: "\(method) \(path)", detail: "failed", ok: false), at: 0)
+        }
+    }
+}
+
+private struct SyncResult: Identifiable {
+    let id = UUID()
+    let label: String
+    let detail: String
+    let ok: Bool
 }
 
 private struct GestureLabView: View {

@@ -23,7 +23,7 @@ import type {
   ViewerNumericInput,
   ViewerParams
 } from "./types.js";
-import type { ContainerArea, ContainerStateDiff, DeviceLogAlignment, DeviceLogEntry } from "@atlas-loop/protocol";
+import type { ContainerArea, ContainerStateDiff, DeviceLogAlignment, DeviceLogEntry, NetworkExchange } from "@atlas-loop/protocol";
 import { buildSessionHistoryUrl, buildSessionsUrl, buildSessionUrl, normalizeDaemonUrl } from "./viewerParams.js";
 
 export class ApiError extends Error {
@@ -269,6 +269,43 @@ export interface DeviceLogsView {
  * empty view rather than throwing when a daemon predates the route, so the
  * panel simply does not render.
  */
+export interface SessionNetworkView {
+  active: boolean;
+  receiving: boolean;
+  truncated: boolean;
+  proxyUrl?: string;
+  exchanges: NetworkExchange[];
+  alignment: { steps: Array<{ actionId: string; exchanges: NetworkExchange[] }>; unattributed: NetworkExchange[] };
+}
+
+/**
+ * The session's captured traffic. A daemon without the route reads as inactive
+ * rather than as an error.
+ */
+export async function fetchSessionNetwork(params: ViewerParams, signal?: AbortSignal): Promise<SessionNetworkView> {
+  const empty: SessionNetworkView = {
+    active: false,
+    receiving: false,
+    truncated: false,
+    exchanges: [],
+    alignment: { steps: [], unattributed: [] }
+  };
+  const value = await fetchJson<Partial<SessionNetworkView>>(buildSessionUrl(params, "network"), signal);
+  if (!value || typeof value !== "object") return empty;
+
+  return {
+    active: value.active === true,
+    receiving: value.receiving === true,
+    truncated: value.truncated === true,
+    proxyUrl: typeof value.proxyUrl === "string" ? value.proxyUrl : undefined,
+    exchanges: Array.isArray(value.exchanges) ? value.exchanges : [],
+    alignment: {
+      steps: Array.isArray(value.alignment?.steps) ? value.alignment.steps : [],
+      unattributed: Array.isArray(value.alignment?.unattributed) ? value.alignment.unattributed : []
+    }
+  };
+}
+
 export interface SessionStateCapture {
   artifactId: string;
   label?: string;
