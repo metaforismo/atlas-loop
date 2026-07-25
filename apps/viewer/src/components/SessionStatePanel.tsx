@@ -23,10 +23,15 @@ const VISIBLE_LIMIT = 120;
  */
 export function SessionStatePanel({
   params,
-  sessionStatus
+  sessionStatus,
+  embedded,
+  onHeadline
 }: {
   params: ViewerParams;
   sessionStatus: Session["status"] | undefined;
+  /** Rendered inside the evidence tabs, which supply the frame and the title. */
+  embedded?: boolean;
+  onHeadline?: (headline: { count?: string; attention?: number }) => void;
 }) {
   const [captures, setCaptures] = useState<SessionStateCapture[]>([]);
   const [selectedId, setSelectedId] = useState<string>();
@@ -79,16 +84,30 @@ export function SessionStatePanel({
     [selected]
   );
 
+  useEffect(() => {
+    if (captures.length === 0) {
+      onHeadline?.({});
+      return;
+    }
+    const changed = selected?.diff ? summariseContainerDiff(selected.diff) : undefined;
+    onHeadline?.({
+      count: String(captures.length),
+      attention: changed && !changed.clean ? changed.added + changed.modified + changed.removed : undefined
+    });
+  }, [captures.length, selected, onHeadline]);
+
   if (captures.length === 0) return null;
 
-  return (
-    <section className="session-state" aria-labelledby="session-state-title">
-      <div className="panel-title-row">
-        <h2 id="session-state-title">Stored data</h2>
-        <span>
-          {captures.length} capture{captures.length === 1 ? "" : "s"}
-        </span>
-      </div>
+  const body = (
+    <>
+      {!embedded ? (
+        <div className="panel-title-row">
+          <h2 id="session-state-title">Stored data</h2>
+          <span>
+            {captures.length} capture{captures.length === 1 ? "" : "s"}
+          </span>
+        </div>
+      ) : null}
 
       {captures.length > 1 ? (
         <div className="session-state-captures" role="group" aria-label="Container captures">
@@ -182,6 +201,14 @@ export function SessionStatePanel({
           First capture &mdash; nothing to compare against yet. Capture again after the next action.
         </p>
       )}
+    </>
+  );
+
+  return embedded ? (
+    <div className="session-state embedded">{body}</div>
+  ) : (
+    <section className="session-state" aria-labelledby="session-state-title">
+      {body}
     </section>
   );
 }

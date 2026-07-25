@@ -13,13 +13,18 @@ export function MetricsPanel({
   params,
   sessionStatus,
   events,
-  cursorAt
+  cursorAt,
+  embedded,
+  onHeadline
 }: {
   params: ViewerParams;
   sessionStatus: Session["status"] | undefined;
   events: TraceEvent[];
   /** ISO moment the run scrubber is parked on, if any. */
   cursorAt?: string;
+  /** Rendered inside the evidence tabs, which supply the frame and the title. */
+  embedded?: boolean;
+  onHeadline?: (headline: { count?: string; attention?: number }) => void;
 }) {
   const [samples, setSamples] = useState<MetricsSampleLike[]>([]);
   const [active, setActive] = useState(false);
@@ -59,16 +64,22 @@ export function MetricsPanel({
   const summary = useMemo(() => summariseMetrics(samples as MetricsSample[]), [samples]);
   const markers = useMemo(() => metricsMarkerFractions(samples, events), [samples, events]);
 
+  useEffect(() => {
+    onHeadline?.(samples.length === 0 ? {} : { count: String(samples.length) });
+  }, [samples.length, onHeadline]);
+
   if (samples.length === 0) return null;
 
-  return (
-    <section className="metrics-panel" aria-label="App performance metrics">
-      <div className="panel-title-row">
-        <h2>App metrics</h2>
-        <span>
-          {samples.length} sample{samples.length === 1 ? "" : "s"} · {active ? "sampling" : "final"}
-        </span>
-      </div>
+  const body = (
+    <>
+      {!embedded ? (
+        <div className="panel-title-row">
+          <h2>App metrics</h2>
+          <span>
+            {samples.length} sample{samples.length === 1 ? "" : "s"} · {active ? "sampling" : "final"}
+          </span>
+        </div>
+      ) : null}
 
       <Sparkline
         label="CPU"
@@ -88,6 +99,19 @@ export function MetricsPanel({
         peak={summary.rssBytes?.max}
         cursorAt={cursorAt}
       />
+      {embedded ? (
+        <p className="evidence-footnote">
+          {samples.length} sample{samples.length === 1 ? "" : "s"} &middot; {active ? "sampling" : "final"}
+        </p>
+      ) : null}
+    </>
+  );
+
+  return embedded ? (
+    <div className="metrics-panel embedded">{body}</div>
+  ) : (
+    <section className="metrics-panel" aria-label="App performance metrics">
+      {body}
     </section>
   );
 }

@@ -51,8 +51,8 @@ export function LandingPage() {
             <span /> Local iOS runtime · Simulator
           </p>
           <h1>
-            <span>THE LOCAL</span>
-            <span><em>RUNTIME</em> SOURCE</span>
+            <span>THE LOCAL</span>{" "}
+            <span><em>RUNTIME</em> SOURCE</span>{" "}
             <span>OF TRUTH.</span>
           </h1>
           <p className="landing-lede">
