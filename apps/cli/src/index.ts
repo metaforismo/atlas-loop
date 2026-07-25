@@ -15,7 +15,7 @@ import {
   type SessionHandoffBundleResult
 } from "@atlas-loop/artifacts";
 import { createSimulator } from "@atlas-loop/simulator";
-import { parseDeviceLocation, LOCATION_PRESETS, summariseMetrics, formatBytes, type MetricsSample } from "@atlas-loop/protocol";
+import { parseDeviceLocation, LOCATION_PRESETS, summariseMetrics, formatBytes, filterDeviceLogs, summariseDeviceLogs, type MetricsSample, type DeviceLogEntry } from "@atlas-loop/protocol";
 import { loadConfig } from "@atlas-loop/config";
 import {
   buildEvidenceHtmlReport,
@@ -292,6 +292,10 @@ export async function main(args: Args): Promise<number> {
 
   if (command === "metrics") {
     return metricsCommand(client, flags);
+  }
+
+  if (command === "logs") {
+    return deviceLogsCommand(client, flags);
   }
 
   if (command === "tap") {
@@ -1139,6 +1143,41 @@ async function action(client: DaemonClient, flags: Map<string, string | boolean>
 }
 
 /**
+ * Device logs for a run. Defaults to the summary and the per-step breakdown,
+ * because the useful question is "what did the app log during the step that
+ * failed", not "give me every line".
+ */
+async function deviceLogsCommand(client: DaemonClient, flags: Map<string, string | boolean>): Promise<number> {
+  const view = await client.getSessionDeviceLogs(requireFlag(flags, "session")) as {
+    active?: boolean;
+    truncated?: boolean;
+    summary?: unknown;
+    alignment?: { steps?: Array<{ actionId: string; entries: DeviceLogEntry[] }>; unattributed?: DeviceLogEntry[] };
+    entries?: DeviceLogEntry[];
+  };
+
+  const all = Array.isArray(view.entries) ? view.entries : [];
+  const query = stringFlag(flags, "search");
+  const matched = query ? filterDeviceLogs(all, query) : all;
+  const level = stringFlag(flags, "level");
+  const entries = level ? matched.filter((entry) => entry.level === level) : matched;
+
+  printJson({
+    active: view.active ?? false,
+    truncated: view.truncated ?? false,
+    summary: summariseDeviceLogs(entries),
+    ...(query || level ? { matched: entries.length, of: all.length } : {}),
+    steps: (view.alignment?.steps ?? []).map((step) => ({
+      actionId: step.actionId,
+      entries: step.entries.length
+    })),
+    unattributed: view.alignment?.unattributed?.length ?? 0,
+    ...(booleanFlag(flags, "entries") ? { entries } : {})
+  });
+  return 0;
+}
+
+/**
  * Reports what CPU and memory did during a run. The summary is the answer to
  * "did this spike?"; `--samples` emits the raw series behind it for anything
  * that wants to plot or diff it.
@@ -1577,6 +1616,7 @@ Usage:
   atlas-loop location set --session <id|latest> --preset tokyo
   atlas-loop location clear --session <id|latest>
   atlas-loop location presets
+  atlas-loop logs --session <id|latest> [--search text] [--level error] [--entries]
   atlas-loop metrics --session <id|latest> [--samples]
   atlas-loop tap --session <id|latest> --x 0.5 --y 0.5
   atlas-loop tap-element --session <id|latest> --id cart.continue [--timeout-ms 5000]

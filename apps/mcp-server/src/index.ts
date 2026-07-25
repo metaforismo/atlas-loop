@@ -20,7 +20,7 @@ import {
 } from "@atlas-loop/daemon-client";
 import { validateActionInput, type ActionInput, type ArtifactRef, type AtlasLoopError, type BuildRequest, type Edge, type LaunchRequest, type TraceEvent } from "@atlas-loop/protocol";
 import { DEFAULT_DIFF_THRESHOLD, diffPngs } from "@atlas-loop/atlas-map";
-import { LOCATION_PRESETS, parseDeviceLocation, summariseMetrics, formatBytes, type MetricsSample } from "@atlas-loop/protocol";
+import { LOCATION_PRESETS, parseDeviceLocation, summariseMetrics, formatBytes, filterDeviceLogs, summariseDeviceLogs, type MetricsSample, type DeviceLogEntry } from "@atlas-loop/protocol";
 import { createSimulator } from "@atlas-loop/simulator";
 
 import { validateArtifactTarget, type ValidationReport } from "../../../scripts/verify-artifacts.ts";
@@ -57,6 +57,7 @@ interface McpDaemonClient {
   install(sessionId: string, request: unknown): Promise<unknown>;
   launch(sessionId: string, request: unknown): Promise<unknown>;
   setLocation(sessionId: string, request: unknown): Promise<unknown>;
+  getSessionDeviceLogs?(sessionId: string): Promise<unknown>;
   request?<T>(method: string, path: string, body?: unknown): Promise<T>;
 }
 
@@ -164,6 +165,17 @@ export const tools = [
     description:
       "Check the host toolchain before starting work: Xcode, simctl, the input helper, the driver runner, and any booted Simulator. Run this first when a session or action fails for an unclear reason.",
     inputSchema: objectSchema([])
+  },
+  {
+    name: "atlas.getDeviceLogs",
+    description:
+      "OS log lines the app emitted during a run, attributed to the step that was running. Filter by level or text; pass entries:true for the lines themselves rather than the per-step counts.",
+    inputSchema: objectSchema(["sessionId"], {
+      ...sessionIdProperty(),
+      level: { type: "string", enum: ["default", "info", "debug", "error", "fault"], description: "Keep only this level." },
+      search: { type: "string", description: "Case-insensitive match over message, subsystem, category, and process." },
+      entries: { type: "boolean", description: "Include the matching log lines, not just the per-step counts." }
+    })
   },
   {
     name: "atlas.getSessionMetrics",
@@ -366,6 +378,8 @@ async function callTool(name: string, args: Record<string, unknown>, runtime: To
       return client.health();
     case "atlas.doctor":
       return (runtime.doctor ?? defaultDoctor)();
+    case "atlas.getDeviceLogs":
+      return deviceLogs(client, args);
     case "atlas.getSessionMetrics":
       return sessionMetrics(client, requireString(args, "sessionId"), args.samples === true);
     case "atlas.listSessions":
@@ -1115,6 +1129,46 @@ function launchRequest(args: Record<string, unknown>): LaunchRequest {
     arguments: optionalStringArray(args, "arguments"),
     environment: optionalStringRecord(args, "environment")
   });
+}
+
+/**
+ * The per-step breakdown is the default answer: an agent triaging a failure
+ * wants "what did the app log during the step that failed", not every line.
+ */
+async function deviceLogs(client: McpDaemonClient, args: Record<string, unknown>): Promise<unknown> {
+  if (!client.getSessionDeviceLogs) {
+    throw new Error("This daemon build does not expose device logs.");
+  }
+
+  const sessionId = requireString(args, "sessionId");
+  const view = await client.getSessionDeviceLogs(sessionId) as {
+    active?: boolean;
+    truncated?: boolean;
+    alignment?: { steps?: Array<{ actionId: string; entries: DeviceLogEntry[] }>; unattributed?: DeviceLogEntry[] };
+    entries?: DeviceLogEntry[];
+  };
+
+  const all = Array.isArray(view.entries) ? view.entries : [];
+  const search = optionalString(args, "search");
+  const level = optionalString(args, "level");
+  const matched = search ? filterDeviceLogs(all, search) : all;
+  const entries = level ? matched.filter((entry) => entry.level === level) : matched;
+  const keep = new Set(entries);
+
+  return {
+    sessionId,
+    active: view.active ?? false,
+    // A capped capture is partial evidence; say so rather than implying completeness.
+    truncated: view.truncated ?? false,
+    summary: summariseDeviceLogs(entries),
+    matched: entries.length,
+    of: all.length,
+    steps: (view.alignment?.steps ?? [])
+      .map((step) => ({ actionId: step.actionId, entries: step.entries.filter((entry) => keep.has(entry)).length }))
+      .filter((step) => step.entries > 0),
+    unattributed: (view.alignment?.unattributed ?? []).filter((entry) => keep.has(entry)).length,
+    ...(args.entries === true ? { entries } : {})
+  };
 }
 
 function defaultDoctor(): Promise<unknown> {

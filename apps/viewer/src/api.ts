@@ -23,6 +23,7 @@ import type {
   ViewerNumericInput,
   ViewerParams
 } from "./types.js";
+import type { DeviceLogAlignment, DeviceLogEntry } from "@atlas-loop/protocol";
 import { buildSessionHistoryUrl, buildSessionsUrl, buildSessionUrl, normalizeDaemonUrl } from "./viewerParams.js";
 
 export class ApiError extends Error {
@@ -254,6 +255,34 @@ export async function performViewerAction(params: ViewerParams, draft: ViewerAct
     if (error instanceof ApiError) throw new ApiError(error.message, response.status);
     throw error;
   }
+}
+
+export interface DeviceLogsView {
+  active: boolean;
+  truncated: boolean;
+  entries: DeviceLogEntry[];
+  alignment: DeviceLogAlignment;
+}
+
+/**
+ * Device logs plus the per-step attribution the daemon computed. Returns an
+ * empty view rather than throwing when a daemon predates the route, so the
+ * panel simply does not render.
+ */
+export async function fetchSessionDeviceLogs(params: ViewerParams, signal?: AbortSignal): Promise<DeviceLogsView> {
+  const empty: DeviceLogsView = { active: false, truncated: false, entries: [], alignment: { steps: [], unattributed: [] } };
+  const value = await fetchJson<Partial<DeviceLogsView>>(buildSessionUrl(params, "logs"), signal);
+  if (!value || typeof value !== "object") return empty;
+
+  return {
+    active: value.active === true,
+    truncated: value.truncated === true,
+    entries: Array.isArray(value.entries) ? value.entries : [],
+    alignment: {
+      steps: Array.isArray(value.alignment?.steps) ? value.alignment.steps : [],
+      unattributed: Array.isArray(value.alignment?.unattributed) ? value.alignment.unattributed : []
+    }
+  };
 }
 
 /**

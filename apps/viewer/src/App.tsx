@@ -38,6 +38,7 @@ import {
 import { AtlasView } from "./atlas/AtlasView.js";
 import { ActionDetailPanel } from "./components/ActionDetailPanel.js";
 import { DeviceLocationPanel } from "./components/DeviceLocationPanel.js";
+import { DeviceLogsPanel } from "./components/DeviceLogsPanel.js";
 import { EmptyState, ErrorNotice, MetricTile, StatusRow } from "./components/common.js";
 import { ImageLightbox } from "./components/ImageLightbox.js";
 import { IOSDeviceFrame } from "./components/IOSDeviceFrame.js";
@@ -830,6 +831,7 @@ export function App() {
 
           {replayModel ? <ReplayPanel replay={replayModel} /> : null}
           <MetricsPanel params={params} sessionStatus={session?.status} events={events} />
+          <DeviceLogsPanel params={params} sessionStatus={session?.status} selectedActionId={selectedActionId} />
         </div>
       </section>
 

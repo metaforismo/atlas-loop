@@ -528,3 +528,5 @@ export function materializeAction(sessionId: string, sequence: number, input: Ac
 export * from "./location.js";
 
 export * from "./metricsSummary.js";
+
+export * from "./deviceLogs.js";

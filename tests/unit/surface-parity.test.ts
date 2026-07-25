@@ -20,6 +20,7 @@ const SESSION_ROUTES: Array<{ route: string; cli: string; mcpTool: string }> = [
   { route: "artifacts", cli: '"artifacts"', mcpTool: "atlas.listArtifacts" },
   { route: "events", cli: '"events"', mcpTool: "atlas.listEvents" },
   { route: "metrics", cli: '"metrics"', mcpTool: "atlas.getSessionMetrics" },
+  { route: "logs", cli: '"logs"', mcpTool: "atlas.getDeviceLogs" },
   { route: "build", cli: '"build"', mcpTool: "atlas.build" },
   { route: "install", cli: '"install"', mcpTool: "atlas.install" },
   { route: "launch", cli: '"launch"', mcpTool: "atlas.launch" },
