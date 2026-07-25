@@ -311,7 +311,14 @@ export interface ViewerParams {
   actionId?: string;
   /** Deep link: preselect this artifact in the session view. */
   artifactId?: string;
+  /** Deep link: open this inspector section. */
+  inspector?: InspectorTab;
+  /** Deep link: open this evidence stream. */
+  evidence?: EvidenceTab;
 }
+
+export type InspectorTab = "session" | "actions" | "artifacts" | "handoff";
+export type EvidenceTab = "metrics" | "network" | "state";
 
 export type HealthState = "checking" | "online" | "offline";
 

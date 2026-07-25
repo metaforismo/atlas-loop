@@ -117,7 +117,15 @@ export function DeviceLogsPanel({
         </div>
         <label className="search-field compact">
           <span className="sr-only">Search device logs</span>
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search logs" />
+          <input
+            type="search"
+            value={query}
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck={false}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search logs…"
+          />
         </label>
       </div>
 

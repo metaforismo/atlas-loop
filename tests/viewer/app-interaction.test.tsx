@@ -199,7 +199,7 @@ describe("viewer app interactions", { timeout: 30_000 }, () => {
     expect(container?.querySelector("[role='group'][aria-label='iPhone 16 live viewport']")).not.toBeNull();
 
     await click(getFilterButton("Artifact type filters", "log"));
-    await setInputValue(getInputByPlaceholder("Search artifacts"), "debug");
+    await setInputValue(getInputByPlaceholder("Search artifacts…"), "debug");
 
     await waitFor(() => {
       const selected = getSelectedArtifactOption();
@@ -220,7 +220,7 @@ describe("viewer app interactions", { timeout: 30_000 }, () => {
     }, "selected screenshot artifact details");
 
     expect(getFilterButton("Artifact type filters", "All").getAttribute("aria-pressed")).toBe("true");
-    expect(getInputByPlaceholder("Search artifacts").value).toBe("");
+    expect(getInputByPlaceholder("Search artifacts…").value).toBe("");
     expect(getButtonByText(details, "Copy path")).toBeTruthy();
     expect(getButtonByText(details, "Copy ID")).toBeTruthy();
 

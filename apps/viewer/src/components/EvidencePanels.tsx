@@ -1,4 +1,5 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
+import { useTabListKeys } from "../useTabListKeys.js";
 import { MetricsPanel } from "./MetricsPanel.js";
 import { NetworkPanel } from "./NetworkPanel.js";
 import { SessionStatePanel } from "./SessionStatePanel.js";
@@ -37,24 +38,33 @@ export function EvidencePanels({
   session,
   events,
   selectedActionId,
-  cursorAt
+  cursorAt,
+  selected,
+  onSelect,
+  headlines,
+  onHeadlines
 }: {
   params: ViewerParams;
   session: Session | undefined;
   events: TraceEvent[];
   selectedActionId?: string;
   cursorAt?: string;
+  selected: EvidenceTabId;
+  onSelect: (id: EvidenceTabId) => void;
+  headlines: Partial<Record<EvidenceTabId, EvidenceHeadline>>;
+  onHeadlines: (next: (current: Partial<Record<EvidenceTabId, EvidenceHeadline>>) => Partial<Record<EvidenceTabId, EvidenceHeadline>>) => void;
 }) {
-  const [selected, setSelected] = useState<EvidenceTabId>("metrics");
-  const [headlines, setHeadlines] = useState<Partial<Record<EvidenceTabId, EvidenceHeadline>>>({});
 
-  const report = useCallback((id: EvidenceTabId, headline: EvidenceHeadline) => {
-    setHeadlines((current) => {
-      const previous = current[id];
-      if (previous?.count === headline.count && previous?.attention === headline.attention) return current;
-      return { ...current, [id]: headline };
-    });
-  }, []);
+  const report = useCallback(
+    (id: EvidenceTabId, headline: EvidenceHeadline) => {
+      onHeadlines((current) => {
+        const previous = current[id];
+        if (previous?.count === headline.count && previous?.attention === headline.attention) return current;
+        return { ...current, [id]: headline };
+      });
+    },
+    [onHeadlines]
+  );
 
   const onMetrics = useCallback((headline: EvidenceHeadline) => report("metrics", headline), [report]);
   const onNetwork = useCallback((headline: EvidenceHeadline) => report("network", headline), [report]);
@@ -64,11 +74,22 @@ export function EvidencePanels({
   // have used it.
   const available = useMemo(() => TABS.filter((tab) => headlines[tab.id]?.count !== undefined), [headlines]);
   const active = available.some((tab) => tab.id === selected) ? selected : available[0]?.id;
+  const keys = useTabListKeys(
+    available.map((tab) => tab.id),
+    (active ?? "metrics") as EvidenceTabId,
+    onSelect
+  );
 
   return (
     <section className={`evidence-panels${available.length === 0 ? " empty" : ""}`} aria-label="Run evidence">
       {available.length > 0 ? (
-        <div className="evidence-tabs" role="tablist" aria-label="Evidence stream">
+        <div
+          className="panel-tabs-strip"
+          role="tablist"
+          aria-label="Evidence stream"
+          ref={keys.ref}
+          onKeyDown={keys.onKeyDown}
+        >
           {available.map((tab) => {
             const headline = headlines[tab.id];
             return (
@@ -79,13 +100,14 @@ export function EvidencePanels({
                 id={`evidence-tab-${tab.id}`}
                 aria-selected={active === tab.id}
                 aria-controls={`evidence-body-${tab.id}`}
+                tabIndex={keys.tabIndex(tab.id)}
                 className={active === tab.id ? "selected" : ""}
-                onClick={() => setSelected(tab.id)}
+                onClick={() => onSelect(tab.id)}
               >
                 {tab.label}
-                {headline?.count ? <span className="evidence-count">{headline.count}</span> : null}
+                {headline?.count ? <span className="panel-tab-badge">{headline.count}</span> : null}
                 {headline?.attention ? (
-                  <span className="evidence-attention" title={`${headline.attention} need attention`}>
+                  <span className="panel-tab-attention" title={`${headline.attention} need attention`}>
                     {headline.attention}
                   </span>
                 ) : null}
@@ -95,7 +117,14 @@ export function EvidencePanels({
         </div>
       ) : null}
 
-      {/* Hidden rather than unmounted: these poll and hold filter state. */}
+      {/*
+        Hidden rather than unmounted, and always in this same position.
+        These poll and hold filter state, and moving a panel between two
+        different places in the tree remounts it: an earlier version rendered
+        them elsewhere while no tab existed yet, and the remount reset the state
+        that decided whether a tab existed, which flipped back and forth
+        forever.
+      */}
       <div id="evidence-body-metrics" role="tabpanel" aria-labelledby="evidence-tab-metrics" hidden={active !== "metrics"}>
         <MetricsPanel
           params={params}

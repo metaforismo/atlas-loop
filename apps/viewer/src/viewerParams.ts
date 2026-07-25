@@ -45,6 +45,23 @@ export function normalizeViewerWorkspace(value: string | null | undefined): "ove
   return "evidence";
 }
 
+/**
+ * Which inspector section and evidence stream a link opens.
+ *
+ * The workspace, the view, the selected action, and the selected artifact are
+ * all already in the URL. A link that lands on the wrong tab is the same class
+ * of problem: this is a tool whose whole point is sharing a pointer at evidence.
+ */
+export function normalizeInspectorTab(value: string | null | undefined): "session" | "actions" | "artifacts" | "handoff" {
+  if (value === "actions" || value === "artifacts" || value === "handoff") return value;
+  return "session";
+}
+
+export function normalizeEvidenceTab(value: string | null | undefined): "metrics" | "network" | "state" {
+  if (value === "network" || value === "state") return value;
+  return "metrics";
+}
+
 export function readViewerParams(search: string, viewerBaseUrl?: string): ViewerParams {
   const params = new URLSearchParams(search);
   const normalizedViewerBaseUrl = normalizeViewerBaseUrl(viewerBaseUrl);
@@ -61,6 +78,10 @@ export function readViewerParams(search: string, viewerBaseUrl?: string): Viewer
   if (actionId) result.actionId = actionId;
   const artifactId = params.get("artifactId")?.trim();
   if (artifactId) result.artifactId = artifactId;
+  const inspector = normalizeInspectorTab(params.get("inspector"));
+  if (inspector !== "session") result.inspector = inspector;
+  const evidence = normalizeEvidenceTab(params.get("evidence"));
+  if (evidence !== "metrics") result.evidence = evidence;
   return result;
 }
 
@@ -73,6 +94,10 @@ export function writeViewerSearch(params: ViewerParams): string {
   if (workspace !== "evidence") search.set("workspace", workspace);
   const actionId = params.actionId?.trim();
   if (actionId) search.set("actionId", actionId);
+  const inspector = normalizeInspectorTab(params.inspector);
+  if (inspector !== "session") search.set("inspector", inspector);
+  const evidence = normalizeEvidenceTab(params.evidence);
+  if (evidence !== "metrics") search.set("evidence", evidence);
   const artifactId = params.artifactId?.trim();
   if (artifactId) search.set("artifactId", artifactId);
   return `?${search.toString()}`;
