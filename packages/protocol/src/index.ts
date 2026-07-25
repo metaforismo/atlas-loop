@@ -246,6 +246,8 @@ export type AtlasLoopErrorCode =
   | "ARTIFACT_WRITE_FAILED"
   | "INVALID_REQUEST"
   | "COMMAND_FAILED"
+  /** The session exists but has ended or failed, so it accepts no more actions. */
+  | "SESSION_NOT_ACTIVE"
   | "NOT_FOUND";
 
 export interface AtlasLoopError {

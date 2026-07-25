@@ -452,14 +452,14 @@ describe("daemon session summary", () => {
         message: "no active sessions are available for latest alias"
       }
     });
-    expect(explicitMutation.status).toBe(404);
+    // A session that plainly exists but has ended is a different failure from
+    // one that was never there, and only the second is a "not found".
+    expect(explicitMutation.status).toBe(409);
     expect(explicitEnvelope).toMatchObject({
       ok: false,
-      error: {
-        code: "NOT_FOUND",
-        message: `active session not found: ${created.id}`
-      }
+      error: { code: "SESSION_NOT_ACTIVE" }
     });
+    expect(explicitEnvelope.error?.message).toContain("cannot accept more actions");
   });
 
   it("does not duplicate active sessions that are also present on disk", async () => {

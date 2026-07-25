@@ -608,11 +608,24 @@ async function resolveReadableSessionState(state: DaemonState, sessionId: string
   throw atlasError("NOT_FOUND", `session not found: ${sessionId}`);
 }
 
+/**
+ * The session an action is allowed to run against.
+ *
+ * A session that exists but has ended or failed is a different situation from
+ * one that was never there, and saying "not found" for both sends an operator
+ * looking for a typo when their run actually died. The status is what they need.
+ */
 function resolveActiveSessionState(state: DaemonState, sessionId: string): SessionState {
   if (sessionId === "latest") return latestActiveSessionState(state);
   const sessionState = state.sessions.get(sessionId);
-  if (!sessionState || isTerminalSessionStatus(sessionState.session.status)) {
-    throw atlasError("NOT_FOUND", `active session not found: ${sessionId}`);
+  if (!sessionState) throw atlasError("NOT_FOUND", `no session with id ${sessionId}`);
+  if (isTerminalSessionStatus(sessionState.session.status)) {
+    const status = sessionState.session.status;
+    throw atlasError(
+      "SESSION_NOT_ACTIVE",
+      `session ${sessionId} ${status === "failed" ? "failed" : `is ${status}`} and cannot accept more actions; ` +
+        `its evidence is still readable, and a new run needs a new session`
+    );
   }
   return sessionState;
 }
@@ -2181,6 +2194,8 @@ function artifactRefsFromError(error: unknown): ArtifactRef[] {
 function statusForError(error: AtlasLoopError): number {
   if (error.code === "NOT_FOUND") return 404;
   if (error.code === "INVALID_REQUEST") return 400;
+  // A well-formed request against a session whose state does not accept it.
+  if (error.code === "SESSION_NOT_ACTIVE") return 409;
   if (error.code === "ELEMENT_NOT_FOUND") return 400;
   if (error.code === "DRIVER_UNAVAILABLE") return 503;
   if (error.code === "ACTION_TIMEOUT") return 504;

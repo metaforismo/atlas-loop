@@ -243,3 +243,33 @@ describe("reading session state", () => {
     });
   });
 });
+
+describe("naming what went wrong with a session", () => {
+  it("says a session does not exist when it does not", async () => {
+    const { daemon } = await scenario();
+
+    const error = await requestError(daemon.url, "/sessions/sess_nope/screenshot", {
+      method: "POST",
+      body: JSON.stringify({})
+    });
+
+    expect(error?.code).toBe("NOT_FOUND");
+    expect(error?.message).toContain("no session with id sess_nope");
+  });
+
+  it("says a finished session is finished rather than missing", async () => {
+    // "not found" for a session that plainly exists sends an operator hunting
+    // for a typo when what actually happened is that their run ended.
+    const { daemon, session } = await scenario();
+    await request(daemon.url, `/sessions/${session.id}/end`, { method: "POST" });
+
+    const error = await requestError(daemon.url, `/sessions/${session.id}/screenshot`, {
+      method: "POST",
+      body: JSON.stringify({})
+    });
+
+    expect(error?.code).toBe("SESSION_NOT_ACTIVE");
+    expect(error?.message).toContain("cannot accept more actions");
+    expect(error?.message).toContain("evidence is still readable");
+  });
+});
