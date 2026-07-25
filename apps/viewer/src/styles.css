@@ -14499,3 +14499,20 @@ body::before {
 .evidence-offstage {
   display: none;
 }
+
+/* Reveals the next page of a list that is held back. */
+.list-more {
+  justify-self: start;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 5px 10px;
+  background: transparent;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.list-more:hover {
+  color: var(--text);
+}

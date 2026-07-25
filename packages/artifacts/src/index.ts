@@ -356,10 +356,40 @@ export async function readJson<T>(path: string): Promise<T> {
   return JSON.parse(await readFile(path, "utf8")) as T;
 }
 
+/**
+ * Remembers resolved real paths for the length of one read.
+ *
+ * The containment check resolves the session directory and the type's root for
+ * every artifact it validates. Those two are constant across a session, so a
+ * six hundred artifact listing resolved the same two paths six hundred times
+ * each — measured at five to fifteen seconds to serve one request, against
+ * under a second for a small session.
+ *
+ * Only the resolution is cached, never the decision: every artifact is still
+ * checked against the real roots, and a cache lives no longer than the read
+ * that created it.
+ */
+export type RealpathCache = Map<string, Promise<string>>;
+
+export function createRealpathCache(): RealpathCache {
+  return new Map();
+}
+
+function cachedRealpath(cache: RealpathCache | undefined, path: string): Promise<string> {
+  if (!cache) return realpath(path);
+  let pending = cache.get(path);
+  if (!pending) {
+    pending = realpath(path);
+    cache.set(path, pending);
+  }
+  return pending;
+}
+
 export async function resolveContainedArtifactPath(
   layout: SessionArtifacts,
   type: ArtifactRef["type"],
-  path: string
+  path: string,
+  cache?: RealpathCache
 ): Promise<string | undefined> {
   const sessionDir = resolve(layout.sessionPath);
   const requiredRoot = expectedArtifactRoot(layout, type);
@@ -380,9 +410,11 @@ export async function resolveContainedArtifactPath(
   let realTarget: string;
   try {
     [realSessionDir, realRequiredRoot, realTarget] = await Promise.all([
-      realpath(sessionDir),
-      realpath(requiredRoot),
-      realpath(absolutePath)
+      cachedRealpath(cache, sessionDir),
+      cachedRealpath(cache, requiredRoot),
+      // The target differs per artifact, so this one is a cache miss by design;
+      // it is here so a repeated path in one manifest costs a single resolve.
+      cachedRealpath(cache, absolutePath)
     ]);
   } catch {
     return undefined;
@@ -1163,6 +1195,9 @@ async function readPersistedArtifacts(
   candidates.push(...actionArtifacts);
 
   const artifacts = new Map<string, ArtifactRef>();
+  // One cache for the whole read: the session directory and each type root are
+  // the same for every artifact in it.
+  const realpaths = createRealpathCache();
   for (const candidate of candidates) {
     const artifact = await normalizeArtifactRef(
       layout,
@@ -1170,7 +1205,8 @@ async function readPersistedArtifacts(
       candidate.artifact,
       candidate.sourcePath,
       warnings,
-      candidate.metadata
+      candidate.metadata,
+      realpaths
     );
     if (!artifact) continue;
 
@@ -1221,7 +1257,8 @@ async function normalizeArtifactRef(
   artifact: unknown,
   sourcePath: string,
   warnings: PersistedSessionWarning[],
-  metadata?: Record<string, unknown>
+  metadata?: Record<string, unknown>,
+  realpaths?: RealpathCache
 ): Promise<ArtifactRef | undefined> {
   if (!isRecord(artifact)) {
     warnings.push({ path: sourcePath, message: "artifact entry must be an object" });
@@ -1253,7 +1290,7 @@ async function normalizeArtifactRef(
     return undefined;
   }
 
-  const containedPath = await resolveContainedArtifactPath(layout, artifact.type, artifact.path);
+  const containedPath = await resolveContainedArtifactPath(layout, artifact.type, artifact.path, realpaths);
   if (!containedPath) {
     warnings.push({ path: sourcePath, message: `artifact ${artifact.id} path is missing or escapes the session directory` });
     return undefined;

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { startPolling } from "../polling.js";
 import {
   fetchArtifactHealth,
   fetchArtifacts,
@@ -138,11 +139,10 @@ export function useAtlasLoopData(params: ViewerParams) {
       }
     };
 
-    void load();
-    const timer = window.setInterval(() => void load(), 2500);
+    const stop = startPolling(load, { everyMs: 2500 });
     return () => {
       controller.abort();
-      window.clearInterval(timer);
+      stop();
     };
   }, [params.daemonUrl]);
 
@@ -167,11 +167,10 @@ export function useAtlasLoopData(params: ViewerParams) {
       }
     };
 
-    void load();
-    const timer = window.setInterval(() => void load(), 2500);
+    const stop = startPolling(load, { everyMs: 2500 });
     return () => {
       controller.abort();
-      window.clearInterval(timer);
+      stop();
     };
   }, [params.daemonUrl, params.sessionId]);
 
@@ -213,11 +212,10 @@ export function useAtlasLoopData(params: ViewerParams) {
       }
     };
 
-    void load();
-    const timer = window.setInterval(() => void load(), 30000);
+    const stop = startPolling(load, { everyMs: 30000 });
     return () => {
       controller.abort();
-      window.clearInterval(timer);
+      stop();
     };
   }, [health, params.daemonUrl, params.sessionId, artifactHealthRefreshKey]);
 
@@ -266,13 +264,10 @@ export function useAtlasLoopData(params: ViewerParams) {
       }
     };
 
-    void load();
-    const timer = hasStableArtifactKey
+    const stop = hasStableArtifactKey
       ? undefined
-      : window.setInterval(() => {
-          if (document.visibilityState === "hidden") return;
-          void load();
-        }, 1200);
+      : startPolling(load, { everyMs: 1200, shouldRun: () => document.visibilityState !== "hidden" });
+    if (hasStableArtifactKey) void load();
     const handleVisibilityChange = (): void => {
       if (document.visibilityState === "visible") void load();
     };
@@ -280,14 +275,14 @@ export function useAtlasLoopData(params: ViewerParams) {
     return () => {
       controller.abort();
       document.removeEventListener("visibilitychange", handleVisibilityChange);
-      if (timer !== undefined) window.clearInterval(timer);
+      stop?.();
       if (retryTimer !== undefined) window.clearTimeout(retryTimer);
     };
   }, [params, latestScreenshotKey, screenshotRetryNonce]);
 
   useEffect(() => {
     let closed = false;
-    let pollTimer: number | undefined;
+    let stopPoll: (() => void) | undefined;
     let source: EventSource | undefined;
 
     const mergeIncoming = (incoming: TraceEvent[]): void => {
@@ -303,11 +298,10 @@ export function useAtlasLoopData(params: ViewerParams) {
       }
     };
 
-    const startPolling = (): void => {
-      if (pollTimer !== undefined) return;
+    const beginPolling = (): void => {
+      if (stopPoll !== undefined) return;
       setEventMode("polling");
-      void poll();
-      pollTimer = window.setInterval(() => void poll(), 2000);
+      stopPoll = startPolling(poll, { everyMs: 2000 });
     };
 
     if ("EventSource" in window) {
@@ -328,19 +322,19 @@ export function useAtlasLoopData(params: ViewerParams) {
         }
         source.onerror = () => {
           source?.close();
-          startPolling();
+          beginPolling();
         };
       } catch {
-        startPolling();
+        beginPolling();
       }
     } else {
-      startPolling();
+      beginPolling();
     }
 
     return () => {
       closed = true;
       source?.close();
-      if (pollTimer !== undefined) window.clearInterval(pollTimer);
+      stopPoll?.();
     };
   }, [params.daemonUrl, params.sessionId]);
 
