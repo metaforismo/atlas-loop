@@ -1,5 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import type { PointerEvent as ReactPointerEvent } from "react";
+import { formatBytes, summariseMetrics, type MetricsSample } from "@atlas-loop/protocol";
 import { fetchSessionMetrics } from "../api.js";
+import { elapsedLabel, peakReading, readingAtFraction } from "../metricsInspection.js";
 import type { Session, TraceEvent, ViewerParams } from "../types.js";
 import { buildSparklinePoints, metricsMarkerFractions, type MetricsSampleLike } from "../viewerPresentation.js";
 
@@ -48,11 +51,12 @@ export function MetricsPanel({
     };
   }, [params.daemonUrl, params.sessionId, sessionStatus]);
 
-  if (samples.length === 0) return null;
+  // The same summariser the CLI and the MCP server use, so all three report
+  // one number rather than three near-identical implementations of a peak.
+  const summary = useMemo(() => summariseMetrics(samples as MetricsSample[]), [samples]);
+  const markers = useMemo(() => metricsMarkerFractions(samples, events), [samples, events]);
 
-  const cpuValues = samples.map((sample) => sample.cpuPercent);
-  const rssValuesMb = samples.map((sample) => sample.rssBytes / (1024 * 1024));
-  const markers = metricsMarkerFractions(samples, events);
+  if (samples.length === 0) return null;
 
   return (
     <section className="metrics-panel" aria-label="App performance metrics">
@@ -65,19 +69,19 @@ export function MetricsPanel({
 
       <Sparkline
         label="CPU"
-        unit="%"
-        values={cpuValues}
+        samples={samples}
         markers={markers}
-        current={cpuValues.at(-1)}
-        peak={Math.max(...cpuValues)}
+        read={readCpu}
+        format={formatPercent}
+        peak={summary.cpuPercent?.max}
       />
       <Sparkline
         label="Memory"
-        unit="MB"
-        values={rssValuesMb}
+        samples={samples}
         markers={markers}
-        current={rssValuesMb.at(-1)}
-        peak={Math.max(...rssValuesMb)}
+        read={readRss}
+        format={formatBytes}
+        peak={summary.rssBytes?.max}
       />
     </section>
   );
@@ -85,32 +89,65 @@ export function MetricsPanel({
 
 function Sparkline({
   label,
-  unit,
-  values,
+  samples,
   markers,
-  current,
+  read,
+  format,
   peak
 }: {
   label: string;
-  unit: string;
-  values: number[];
+  samples: MetricsSampleLike[];
   markers: number[];
-  current?: number;
+  read: (sample: MetricsSampleLike) => number;
+  format: (value: number) => string;
   peak?: number;
 }) {
+  const [hoverIndex, setHoverIndex] = useState<number>();
+  const values = useMemo(() => samples.map(read), [samples, read]);
   const points = buildSparklinePoints(values, SPARK_WIDTH, SPARK_HEIGHT);
+  const peakPoint = useMemo(() => peakReading(samples, read), [samples, read]);
+
+  useEffect(() => {
+    setHoverIndex(undefined);
+  }, [samples]);
+
   if (!points) return null;
+
+  const hovered = hoverIndex === undefined ? undefined : samples[hoverIndex];
+  const shown = hovered ?? samples.at(-1);
+  const denominator = Math.max(1, samples.length - 1);
+
+  const trackPointer = (event: ReactPointerEvent<SVGSVGElement>): void => {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    if (bounds.width === 0) return;
+    setHoverIndex(readingAtFraction(samples, (event.clientX - bounds.left) / bounds.width)?.index);
+  };
 
   return (
     <div className="metrics-sparkline">
       <div className="metrics-sparkline-head">
         <span>{label}</span>
         <span>
-          {current !== undefined ? `${formatMetric(current)}${unit}` : "--"}
-          {peak !== undefined ? ` · peak ${formatMetric(peak)}${unit}` : ""}
+          {shown ? format(read(shown)) : "--"}
+          {/* Hovering answers "what was it here?"; otherwise the peak stands. */}
+          {hovered ? <em> at {elapsedLabel(samples, hovered)}</em> : null}
+          {!hovered && peak !== undefined && peakPoint ? (
+            <em> · peak {format(peak)} at {elapsedLabel(samples, peakPoint.sample)}</em>
+          ) : null}
         </span>
       </div>
-      <svg viewBox={`0 0 ${SPARK_WIDTH} ${SPARK_HEIGHT}`} preserveAspectRatio="none" role="img" aria-label={`${label} over time`}>
+      <svg
+        viewBox={`0 0 ${SPARK_WIDTH} ${SPARK_HEIGHT}`}
+        preserveAspectRatio="none"
+        role="img"
+        aria-label={
+          peak !== undefined && peakPoint
+            ? `${label} over time, peaking at ${format(peak)} ${elapsedLabel(samples, peakPoint.sample)} into the run`
+            : `${label} over time`
+        }
+        onPointerMove={trackPointer}
+        onPointerLeave={() => setHoverIndex(undefined)}
+      >
         {markers.map((fraction, index) => (
           <line
             key={`${fraction}:${index}`}
@@ -122,11 +159,37 @@ function Sparkline({
           />
         ))}
         <polyline className="metrics-line" points={points} fill="none" />
+        {peakPoint ? (
+          <line
+            className="metrics-peak"
+            x1={peakPoint.fraction * SPARK_WIDTH}
+            x2={peakPoint.fraction * SPARK_WIDTH}
+            y1={0}
+            y2={SPARK_HEIGHT}
+          />
+        ) : null}
+        {hoverIndex !== undefined ? (
+          <line
+            className="metrics-cursor"
+            x1={(hoverIndex / denominator) * SPARK_WIDTH}
+            x2={(hoverIndex / denominator) * SPARK_WIDTH}
+            y1={0}
+            y2={SPARK_HEIGHT}
+          />
+        ) : null}
       </svg>
     </div>
   );
 }
 
-function formatMetric(value: number): string {
-  return value >= 100 ? String(Math.round(value)) : value.toFixed(1);
+function readCpu(sample: MetricsSampleLike): number {
+  return sample.cpuPercent;
+}
+
+function readRss(sample: MetricsSampleLike): number {
+  return sample.rssBytes;
+}
+
+function formatPercent(value: number): string {
+  return `${value >= 100 ? Math.round(value) : value.toFixed(1)}%`;
 }

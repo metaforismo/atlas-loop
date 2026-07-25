@@ -105,7 +105,18 @@ describe("MetricsPanel", () => {
     expect(container.querySelectorAll("polyline.metrics-line")).toHaveLength(2);
     expect(container.querySelectorAll("line.metrics-marker").length).toBeGreaterThan(0);
     expect(container.textContent).toContain("3 samples");
+
+    // Byte units now come from the shared formatter, so the viewer, the CLI,
+    // and the MCP server all render a peak the same way.
     expect(container.textContent).toContain("peak 42.5%");
-    expect(container.textContent).toContain("peak 120MB");
+    expect(container.textContent).toContain("peak 120 MB");
+
+    // A peak is only actionable with the moment it happened.
+    expect(container.textContent).toContain("peak 42.5% at 1s");
+    expect(container.querySelectorAll("line.metrics-peak")).toHaveLength(2);
+
+    // The peak marker sits on the sample that produced it.
+    const [cpuPeak] = container.querySelectorAll<SVGLineElement>("line.metrics-peak");
+    expect(cpuPeak?.getAttribute("x1")).toBe(cpuPeak?.getAttribute("x2"));
   });
 });
