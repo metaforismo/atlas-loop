@@ -13367,3 +13367,79 @@ body::before {
 
 .device-location-status.failed { color: var(--bad); }
 .device-location-status.applied { color: var(--good); }
+
+/* Peak and hover markers on the metrics sparklines. */
+.metrics-peak {
+  stroke: var(--warn);
+  stroke-width: 1;
+  stroke-dasharray: 2 2;
+  opacity: 0.65;
+}
+
+.metrics-cursor {
+  stroke: var(--text);
+  stroke-width: 1;
+  opacity: 0.5;
+}
+
+.metrics-sparkline svg {
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.metrics-sparkline-head em {
+  color: var(--muted);
+  font-style: normal;
+}
+
+/* Detail kept one disclosure away rather than filling the column. */
+.meta-grid-missing,
+.handoff-reference {
+  margin-top: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px 10px;
+}
+
+.meta-grid-missing > summary,
+.handoff-reference > summary {
+  color: var(--muted);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.05em;
+  list-style: none;
+}
+
+.meta-grid-missing > summary::-webkit-details-marker,
+.handoff-reference > summary::-webkit-details-marker {
+  display: none;
+}
+
+.meta-grid-missing > summary::before,
+.handoff-reference > summary::before {
+  display: inline-block;
+  width: 10px;
+  content: "+";
+}
+
+.meta-grid-missing[open] > summary::before,
+.handoff-reference[open] > summary::before {
+  content: "−";
+}
+
+.meta-grid-missing > summary:hover,
+.handoff-reference > summary:hover {
+  color: var(--text);
+}
+
+.meta-grid-missing > summary:focus-visible,
+.handoff-reference > summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.meta-grid-missing .meta-grid,
+.handoff-reference > * + * {
+  margin-top: 8px;
+}

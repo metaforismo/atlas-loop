@@ -60,8 +60,18 @@ export function AgentHandoffPanel({ brief }: { brief: AgentHandoffBrief }) {
         {copyStatus}
       </p>
 
-      {brief.bundleSummary ? <HandoffBundleOutput summary={brief.bundleSummary} /> : null}
-      {brief.commandPreview ? <HandoffCommandPreview preview={brief.commandPreview} /> : null}
+      {/*
+        Paths and command snippets are reference material you reach for when
+        handing off, not something you read on every glance at a run. They stay
+        one disclosure away instead of occupying the column continuously.
+      */}
+      {brief.bundleSummary || brief.commandPreview ? (
+        <details className="handoff-reference">
+          <summary>Bundle paths and commands</summary>
+          {brief.bundleSummary ? <HandoffBundleOutput summary={brief.bundleSummary} /> : null}
+          {brief.commandPreview ? <HandoffCommandPreview preview={brief.commandPreview} /> : null}
+        </details>
+      ) : null}
 
       <div className="handoff-signal-grid">
         <HandoffSignal
