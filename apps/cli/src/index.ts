@@ -280,27 +280,24 @@ export async function main(args: Args): Promise<number> {
   }
 
   if (command === "build") {
-    printJson(await client.build(requireFlag(flags, "session"), {
+    return reportAction(await client.build(requireFlag(flags, "session"), {
       workspacePath: stringFlag(flags, "workspace"),
       projectPath: stringFlag(flags, "project"),
       scheme: requireFlag(flags, "scheme"),
       configuration: configurationFlag(flags),
       derivedDataPath: stringFlag(flags, "derived-data")
     }));
-    return 0;
   }
 
   if (command === "install") {
-    printJson(await client.install(requireFlag(flags, "session"), { appPath: requireFlag(flags, "app") }));
-    return 0;
+    return reportAction(await client.install(requireFlag(flags, "session"), { appPath: requireFlag(flags, "app") }));
   }
 
   if (command === "launch") {
-    printJson(await client.launch(requireFlag(flags, "session"), {
+    return reportAction(await client.launch(requireFlag(flags, "session"), {
       bundleId: requireFlag(flags, "bundle-id"),
       arguments: csvFlag(flags, "args")
     }));
-    return 0;
   }
 
   if (command === "location") {
@@ -408,8 +405,7 @@ export async function main(args: Args): Promise<number> {
   }
 
   if (command === "screenshot") {
-    printJson(await client.screenshot(requireFlag(flags, "session"), stringFlag(flags, "reason")));
-    return 0;
+    return reportAction(await client.screenshot(requireFlag(flags, "session"), stringFlag(flags, "reason")));
   }
 
   if (command === "baseline") {
@@ -1162,9 +1158,34 @@ function isNotFoundError(error: unknown): boolean {
   );
 }
 
+/**
+ * Prints an action result and exits with what it says.
+ *
+ * These routes answer 200 with `ok: false` inside the result, because the
+ * request was handled and the action is what failed. Passing that through as
+ * exit 0 tells every script built on this CLI that a failed build, install,
+ * launch, or screenshot succeeded.
+ */
+function reportAction(result: unknown): number {
+  printJson(result);
+  const ok = (result as { ok?: unknown } | null)?.ok;
+  // Only an explicit `false` is a failure: a route that reports no `ok` at all
+  // has not claimed to have failed.
+  return ok === false ? 1 : 0;
+}
+
+/**
+ * An action that failed has to exit non-zero.
+ *
+ * The daemon answers 200 with `ok: false` inside the result, because the
+ * request was handled and the action is what failed. Passing that straight
+ * through as exit 0 means every script built on this CLI — every `&&`, every CI
+ * step — treats a failed tap as a success.
+ */
 async function action(client: DaemonClient, flags: Map<string, string | boolean>, actionInput: ActionInput): Promise<number> {
-  printJson(await client.performAction(requireFlag(flags, "session"), actionInput));
-  return 0;
+  const result = await client.performAction(requireFlag(flags, "session"), actionInput);
+  printJson(result);
+  return result.ok ? 0 : 1;
 }
 
 /**

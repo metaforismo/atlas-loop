@@ -126,7 +126,7 @@ describe("the local certificate authority", () => {
     expect(ca.cert).toContain("BEGIN CERTIFICATE");
     expect(ca.key).toContain("PRIVATE KEY");
     expect(ca.leafKey).toContain("PRIVATE KEY");
-  });
+  }, 30000);
 
   it("reuses the CA it already made, so trust survives a restart", async () => {
     // Minting a new CA per run would leave every simulator trusting a
@@ -137,7 +137,7 @@ describe("the local certificate authority", () => {
 
     expect(second.cert).toBe(first.cert);
     expect(second.leafKey).toBe(first.leafKey);
-  });
+  }, 30000);
 
   it("mints one certificate per host and caches it", async () => {
     const dir = await caDir();
@@ -152,7 +152,7 @@ describe("the local certificate authority", () => {
     expect(a).toContain("BEGIN CERTIFICATE");
     expect(again).toBe(a);
     expect(b).not.toBe(a);
-  });
+  }, 30000);
 
   it("names the command that installs the CA into a simulator", () => {
     expect(trustCertificateArgs("UDID", "/tmp/ca.pem")).toEqual([

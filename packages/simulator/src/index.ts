@@ -254,6 +254,26 @@ export function buildXcodebuildArgs(request: BuildOptions): string[] {
   return args;
 }
 
+/**
+ * `Invalid device: iPhone 16` is what simctl says when a session names a
+ * Simulator this Mac does not have. It is true and useless: it names the thing
+ * that is missing and nothing you could do about it. Naming the device instead
+ * of the command line puts the mistake where the operator made it.
+ */
+function describeSimulatorFailure(result: SimulatorCommandResult): string | undefined {
+  const invalid = /Invalid device:\s*(.+)/i.exec(result.stderr);
+  if (invalid) {
+    return (
+      `no Simulator named "${invalid[1]!.trim()}" on this Mac; ` +
+      `list what is available with: xcrun simctl list devices available`
+    );
+  }
+  if (/Unable to boot device|Failed to boot/i.test(result.stderr)) {
+    return "the Simulator would not boot; try booting it once from Simulator.app to see what it reports";
+  }
+  return undefined;
+}
+
 export function simulatorErrorFromCommand(
   code: AtlasLoopErrorCode,
   result: SimulatorCommandResult,
@@ -261,9 +281,10 @@ export function simulatorErrorFromCommand(
 ): AtlasLoopError {
   const commandLine = [result.command, ...result.args].join(" ");
   const exit = result.signal ? `signal ${result.signal}` : `exit code ${result.exitCode}`;
+  const explained = describeSimulatorFailure(result);
   return {
     code,
-    message: `${commandLine} failed with ${exit}`,
+    message: explained ?? `${commandLine} failed with ${exit}`,
     retryable,
     details: {
       command: result.command,
