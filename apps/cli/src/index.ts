@@ -15,7 +15,21 @@ import {
   type SessionHandoffBundleResult
 } from "@atlas-loop/artifacts";
 import { createSimulator } from "@atlas-loop/simulator";
-import { parseDeviceLocation, LOCATION_PRESETS, summariseMetrics, formatBytes, filterDeviceLogs, summariseDeviceLogs, type MetricsSample, type DeviceLogEntry } from "@atlas-loop/protocol";
+import {
+  parseDeviceLocation,
+  LOCATION_PRESETS,
+  summariseMetrics,
+  formatBytes,
+  filterDeviceLogs,
+  summariseDeviceLogs,
+  filterContainerChanges,
+  formatSizeDelta,
+  summariseContainerDiff,
+  type ContainerArea,
+  type ContainerStateDiff,
+  type MetricsSample,
+  type DeviceLogEntry
+} from "@atlas-loop/protocol";
 import { loadConfig } from "@atlas-loop/config";
 import {
   buildEvidenceHtmlReport,
@@ -296,6 +310,10 @@ export async function main(args: Args): Promise<number> {
 
   if (command === "logs") {
     return deviceLogsCommand(client, flags);
+  }
+
+  if (command === "state") {
+    return stateCommand(client, flags);
   }
 
   if (command === "tap") {
@@ -1178,6 +1196,66 @@ async function deviceLogsCommand(client: DaemonClient, flags: Map<string, string
 }
 
 /**
+ * What the app wrote to disk.
+ *
+ * `--capture` takes a snapshot of the app's data container and reports the
+ * difference from the previous one; without it the command lists the captures
+ * already recorded in the session. The point is to answer "did that tap
+ * actually persist anything", which a screenshot cannot.
+ */
+async function stateCommand(client: DaemonClient, flags: Map<string, string | boolean>): Promise<number> {
+  const sessionId = requireFlag(flags, "session");
+  const areas = stringFlag(flags, "area")?.split(",").map((area) => area.trim()).filter(Boolean) as
+    | ContainerArea[]
+    | undefined;
+  const showChanges = booleanFlag(flags, "changes");
+
+  const render = (diff: ContainerStateDiff | null): Record<string, unknown> | null => {
+    if (!diff) return null;
+    const changes = filterContainerChanges(diff.changes, { areas, search: stringFlag(flags, "search") });
+    return {
+      ...summariseContainerDiff({ ...diff, changes }),
+      sizeDelta: formatSizeDelta(summariseContainerDiff({ ...diff, changes }).sizeDelta),
+      // A skipped area or a truncated walk means absence of change is not
+      // evidence of no change, so both travel with the summary.
+      ...(diff.skippedAreas.length ? { notWalked: diff.skippedAreas } : {}),
+      ...(diff.truncated ? { truncated: true } : {}),
+      ...(showChanges ? { changes } : {})
+    };
+  };
+
+  if (booleanFlag(flags, "capture")) {
+    const captured = await client.captureSessionState(sessionId, {
+      label: stringFlag(flags, "label"),
+      includeVolatile: booleanFlag(flags, "include-volatile")
+    }) as { artifactId?: string; snapshot?: unknown; diff?: ContainerStateDiff | null };
+
+    printJson({
+      artifactId: captured.artifactId,
+      snapshot: captured.snapshot,
+      diff: render(captured.diff ?? null)
+    });
+    return 0;
+  }
+
+  const view = await client.getSessionState(sessionId) as {
+    bundleId?: string;
+    captures?: Array<{ artifactId: string; label?: string; snapshot: unknown; diff: ContainerStateDiff | null }>;
+  };
+
+  printJson({
+    bundleId: view.bundleId,
+    captures: (view.captures ?? []).map((capture) => ({
+      artifactId: capture.artifactId,
+      label: capture.label,
+      snapshot: capture.snapshot,
+      diff: render(capture.diff)
+    }))
+  });
+  return 0;
+}
+
+/**
  * Reports what CPU and memory did during a run. The summary is the answer to
  * "did this spike?"; `--samples` emits the raw series behind it for anything
  * that wants to plot or diff it.
@@ -1618,6 +1696,8 @@ Usage:
   atlas-loop location presets
   atlas-loop logs --session <id|latest> [--search text] [--level error] [--entries]
   atlas-loop metrics --session <id|latest> [--samples]
+  atlas-loop state --session <id|latest> [--changes] [--area documents,database] [--search name]
+  atlas-loop state --session <id|latest> --capture [--label "after checkout"] [--include-volatile]
   atlas-loop tap --session <id|latest> --x 0.5 --y 0.5
   atlas-loop tap-element --session <id|latest> --id cart.continue [--timeout-ms 5000]
   atlas-loop assert-visible --session <id|latest> --id confirmation [--timeout-ms 5000] [--screen]

@@ -529,6 +529,7 @@ export * from "./location.js";
 
 export * from "./metricsSummary.js";
 
+export * from "./containerState.js";
 export * from "./deviceLogs.js";
 
 export * from "./atlasJourneys.js";

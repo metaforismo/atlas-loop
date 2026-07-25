@@ -20,7 +20,21 @@ import {
 } from "@atlas-loop/daemon-client";
 import { validateActionInput, type ActionInput, type ArtifactRef, type AtlasLoopError, type BuildRequest, type Edge, type LaunchRequest, type TraceEvent } from "@atlas-loop/protocol";
 import { DEFAULT_DIFF_THRESHOLD, diffPngs } from "@atlas-loop/atlas-map";
-import { LOCATION_PRESETS, parseDeviceLocation, summariseMetrics, formatBytes, filterDeviceLogs, summariseDeviceLogs, type MetricsSample, type DeviceLogEntry } from "@atlas-loop/protocol";
+import {
+  LOCATION_PRESETS,
+  parseDeviceLocation,
+  summariseMetrics,
+  formatBytes,
+  filterDeviceLogs,
+  summariseDeviceLogs,
+  filterContainerChanges,
+  formatSizeDelta,
+  summariseContainerDiff,
+  type ContainerArea,
+  type ContainerStateDiff,
+  type MetricsSample,
+  type DeviceLogEntry
+} from "@atlas-loop/protocol";
 import { createSimulator } from "@atlas-loop/simulator";
 
 import { validateArtifactTarget, type ValidationReport } from "../../../scripts/verify-artifacts.ts";
@@ -58,6 +72,8 @@ interface McpDaemonClient {
   launch(sessionId: string, request: unknown): Promise<unknown>;
   setLocation(sessionId: string, request: unknown): Promise<unknown>;
   getSessionDeviceLogs?(sessionId: string): Promise<unknown>;
+  captureSessionState?(sessionId: string, request: { label?: string; includeVolatile?: boolean }): Promise<unknown>;
+  getSessionState?(sessionId: string): Promise<unknown>;
   request?<T>(method: string, path: string, body?: unknown): Promise<T>;
 }
 
@@ -175,6 +191,28 @@ export const tools = [
       level: { type: "string", enum: ["default", "info", "debug", "error", "fault"], description: "Keep only this level." },
       search: { type: "string", description: "Case-insensitive match over message, subsystem, category, and process." },
       entries: { type: "boolean", description: "Include the matching log lines, not just the per-step counts." }
+    })
+  },
+  {
+    name: "atlas.captureSessionState",
+    description:
+      "Snapshot the app's data container and report what changed since the previous capture in this session. Use it to confirm an action actually persisted something — a screenshot shows what was drawn, not what was written. Capture once before the actions in question and once after.",
+    inputSchema: objectSchema(["sessionId"], {
+      ...sessionIdProperty(),
+      label: { type: "string", description: "Name for this capture, e.g. \"after checkout\"." },
+      includeVolatile: { type: "boolean", description: "Also walk Caches and tmp, which churn on their own and are skipped by default." },
+      changes: { type: "boolean", description: "Include every changed path, not just the counts." }
+    })
+  },
+  {
+    name: "atlas.getSessionState",
+    description:
+      "Every data-container capture recorded in a session, each with the difference from the one before it. Filter by area (documents, database, preferences, caches, temporary, other) or by path.",
+    inputSchema: objectSchema(["sessionId"], {
+      ...sessionIdProperty(),
+      area: { type: "string", description: "Comma-separated areas to keep, e.g. \"documents,database\"." },
+      search: { type: "string", description: "Case-insensitive match over the changed paths." },
+      changes: { type: "boolean", description: "Include every changed path, not just the counts." }
     })
   },
   {
@@ -380,6 +418,10 @@ async function callTool(name: string, args: Record<string, unknown>, runtime: To
       return (runtime.doctor ?? defaultDoctor)();
     case "atlas.getDeviceLogs":
       return deviceLogs(client, args);
+    case "atlas.captureSessionState":
+      return captureSessionState(client, args);
+    case "atlas.getSessionState":
+      return sessionState(client, args);
     case "atlas.getSessionMetrics":
       return sessionMetrics(client, requireString(args, "sessionId"), args.samples === true);
     case "atlas.listSessions":
@@ -1168,6 +1210,73 @@ async function deviceLogs(client: McpDaemonClient, args: Record<string, unknown>
       .filter((step) => step.entries > 0),
     unattributed: (view.alignment?.unattributed ?? []).filter((entry) => keep.has(entry)).length,
     ...(args.entries === true ? { entries } : {})
+  };
+}
+
+/**
+ * Reduces a container diff to what an agent needs to decide, keeping the
+ * caveats: a skipped area or a truncated walk means an empty change list is
+ * not proof that nothing happened.
+ */
+function renderContainerDiff(
+  diff: ContainerStateDiff | null | undefined,
+  args: Record<string, unknown>
+): Record<string, unknown> | null {
+  if (!diff) return null;
+  const areas = optionalString(args, "area")?.split(",").map((area) => area.trim()).filter(Boolean) as
+    | ContainerArea[]
+    | undefined;
+  const changes = filterContainerChanges(diff.changes, { areas, search: optionalString(args, "search") });
+  const summary = summariseContainerDiff({ ...diff, changes });
+
+  return {
+    ...summary,
+    sizeDelta: formatSizeDelta(summary.sizeDelta),
+    ...(diff.skippedAreas.length ? { notWalked: diff.skippedAreas } : {}),
+    ...(diff.truncated ? { truncated: true } : {}),
+    ...(args.changes === true ? { changes } : {})
+  };
+}
+
+async function captureSessionState(client: McpDaemonClient, args: Record<string, unknown>): Promise<unknown> {
+  if (!client.captureSessionState) {
+    throw new Error("This daemon build does not expose data-container state capture.");
+  }
+  const sessionId = requireString(args, "sessionId");
+  const captured = await client.captureSessionState(sessionId, {
+    label: optionalString(args, "label"),
+    includeVolatile: args.includeVolatile === true
+  }) as { artifactId?: string; snapshot?: unknown; diff?: ContainerStateDiff | null };
+
+  return {
+    sessionId,
+    artifactId: captured.artifactId,
+    snapshot: captured.snapshot,
+    // Null rather than an empty diff: the first capture has nothing to compare
+    // against, which is not the same as nothing having changed.
+    diff: renderContainerDiff(captured.diff, args)
+  };
+}
+
+async function sessionState(client: McpDaemonClient, args: Record<string, unknown>): Promise<unknown> {
+  if (!client.getSessionState) {
+    throw new Error("This daemon build does not expose data-container state.");
+  }
+  const sessionId = requireString(args, "sessionId");
+  const view = await client.getSessionState(sessionId) as {
+    bundleId?: string;
+    captures?: Array<{ artifactId: string; label?: string; snapshot: unknown; diff: ContainerStateDiff | null }>;
+  };
+
+  return {
+    sessionId,
+    bundleId: view.bundleId,
+    captures: (view.captures ?? []).map((capture) => ({
+      artifactId: capture.artifactId,
+      label: capture.label,
+      snapshot: capture.snapshot,
+      diff: renderContainerDiff(capture.diff, args)
+    }))
   };
 }
 

@@ -55,7 +55,10 @@ import {
   type SessionHistoryItem,
   type SessionHistoryResult,
   type SessionStatus,
-  type TraceEvent
+  type TraceEvent,
+  CONTAINER_SNAPSHOT_SCHEMA,
+  diffContainerSnapshots,
+  type ContainerSnapshot
 } from "@atlas-loop/protocol";
 import { parseTraceLine } from "@atlas-loop/traces";
 import { createSimulator, type RecordingHandle } from "@atlas-loop/simulator";
@@ -64,6 +67,7 @@ import { deriveAtlasMap, loadHashCache, saveHashCache } from "@atlas-loop/atlas-
 import { XcuitestRunnerManager } from "@atlas-loop/xcuitest-client";
 import { parseLaunchPid, startMetricsSampler, type MetricsSample, type MetricsSamplerHandle } from "./metricsSampler.ts";
 import { startDeviceLogStream, type DeviceLogStreamHandle, type DeviceLogStreamOptions } from "./deviceLogStream.ts";
+import { captureContainerSnapshot, createContainerRootResolver } from "./containerSnapshot.ts";
 import { createCgEventBackend } from "./backends/cgevent.ts";
 import { createXcuitestBackend, type XcuitestManagerLike } from "./backends/xcuitest.ts";
 import type { InputAction, InputBackend } from "./backends/types.ts";
@@ -82,6 +86,8 @@ export interface DaemonOptions {
   /** Injected in tests so a fake log stream can be driven end to end. */
   deviceLogSpawn?: DeviceLogStreamOptions["spawnProcess"];
   deviceLogMaxBytes?: number;
+  /** Injected in tests; otherwise asks simctl once per app and caches. */
+  containerRootResolver?: (udid: string, bundleId: string) => Promise<string>;
   simulator?: SimulatorApi;
   hidClientFactory?: (options: HidClientOptions) => HidClient;
   xcuitestManagerFactory?: () => XcuitestManagerLike;
@@ -119,6 +125,7 @@ interface DaemonState {
   deviceLogMaxEntries: number;
   deviceLogSpawn?: DeviceLogStreamOptions["spawnProcess"];
   deviceLogMaxBytes: number;
+  containerRootResolver: (udid: string, bundleId: string) => Promise<string>;
   sessions: Map<string, SessionState>;
 }
 
@@ -197,6 +204,9 @@ export async function startDaemonServer(options: DaemonOptions = {}): Promise<St
     deviceLogMaxEntries: options.deviceLogMaxEntries ?? 20_000,
     deviceLogSpawn: options.deviceLogSpawn,
     deviceLogMaxBytes: options.deviceLogMaxBytes ?? 8 * 1024 * 1024,
+    // One resolver per daemon: the simctl lookup is slow and its answer holds
+    // for as long as the app stays installed.
+    containerRootResolver: options.containerRootResolver ?? createContainerRootResolver(),
     sessions: new Map()
   };
 
@@ -397,6 +407,19 @@ async function handleRequest(state: DaemonState, request: IncomingMessage, respo
     if (request.method === "GET" && parts.length === 3 && parts[2] === "metrics") {
       const sessionState = await resolveReadableSessionState(state, sessionId);
       sendJson(response, 200, { ok: true, data: await readSessionMetrics(sessionState) });
+      return;
+    }
+
+    if (request.method === "POST" && parts.length === 3 && parts[2] === "state") {
+      const sessionState = resolveActiveSessionState(state, sessionId);
+      const body = await readJsonBody<{ label?: string; includeVolatile?: boolean }>(request);
+      sendJson(response, 200, { ok: true, data: await captureSessionState(state, sessionState, body) });
+      return;
+    }
+
+    if (request.method === "GET" && parts.length === 3 && parts[2] === "state") {
+      const sessionState = await resolveReadableSessionState(state, sessionId);
+      sendJson(response, 200, { ok: true, data: await readSessionState(sessionState) });
       return;
     }
 
@@ -914,6 +937,119 @@ async function readSessionMetrics(sessionState: SessionState): Promise<SessionMe
  * Alignment itself lives in the protocol package so every consumer buckets a
  * line into the same step.
  */
+/**
+ * Snapshots the app's data container and diffs it against the previous capture.
+ *
+ * A screenshot shows what the app drew. It does not show that the tap actually
+ * persisted the order, or that signing out actually cleared the token. Capture
+ * on either side of the actions in question and the difference is the evidence.
+ */
+async function captureSessionState(
+  state: DaemonState,
+  sessionState: SessionState,
+  options: { label?: string; includeVolatile?: boolean }
+): Promise<Record<string, unknown>> {
+  const udid = sessionState.session.simulator?.udid;
+  const bundleId = sessionState.session.app?.bundleId;
+  if (!udid) throw atlasError("SIMULATOR_NOT_FOUND", "session has no resolved simulator to snapshot state from");
+  if (!bundleId) {
+    throw atlasError("INVALID_REQUEST", "session has no installed app; install or launch one before capturing state");
+  }
+
+  let snapshot;
+  try {
+    snapshot = await captureContainerSnapshot({
+      udid,
+      bundleId,
+      resolveRoot: state.containerRootResolver,
+      skipAreas: options.includeVolatile ? [] : undefined
+    });
+  } catch (error) {
+    throw atlasError("COMMAND_FAILED", `could not read the data container for ${bundleId}: ${(error as Error).message}`);
+  }
+
+  await mkdir(sessionState.layout.metadataDir, { recursive: true });
+  const stamp = snapshot.capturedAt.replace(/[:.]/g, "-");
+  const snapshotPath = join(sessionState.layout.metadataDir, `container-state-${stamp}.json`);
+  await writeFile(snapshotPath, `${JSON.stringify(snapshot, null, 2)}\n`, "utf8");
+
+  const previous = await latestContainerSnapshot(sessionState);
+  const artifact = await artifactFromPath(sessionState.layout, "metadata", snapshotPath, {
+    kind: "container-state",
+    label: options.label,
+    capturedAt: snapshot.capturedAt,
+    entryCount: snapshot.entries.length,
+    truncated: snapshot.truncated
+  });
+  await addArtifact(sessionState, artifact);
+
+  return {
+    schemaVersion: "atlas-loop.container-state.v1",
+    sessionId: sessionState.session.id,
+    artifactId: artifact.id,
+    label: options.label,
+    snapshot: describeSnapshot(snapshot),
+    // The first capture in a session has nothing to compare against; saying so
+    // is clearer than reporting an empty diff that reads as "nothing changed".
+    diff: previous ? diffContainerSnapshots(previous, snapshot) : null
+  };
+}
+
+/** The newest recorded snapshot in the session, if any. */
+async function latestContainerSnapshot(sessionState: SessionState): Promise<ContainerSnapshot | undefined> {
+  const snapshots = await readContainerSnapshots(sessionState);
+  return snapshots[snapshots.length - 1]?.snapshot;
+}
+
+async function readContainerSnapshots(
+  sessionState: SessionState
+): Promise<Array<{ artifactId: string; label?: string; snapshot: ContainerSnapshot }>> {
+  const recorded: Array<{ artifactId: string; label?: string; snapshot: ContainerSnapshot }> = [];
+  for (const artifact of sessionState.artifacts) {
+    if (artifact.type !== "metadata" || artifact.metadata?.kind !== "container-state") continue;
+    try {
+      const parsed = JSON.parse(await readFile(artifact.path, "utf8")) as ContainerSnapshot;
+      if (parsed?.schemaVersion !== CONTAINER_SNAPSHOT_SCHEMA) continue;
+      const label = typeof artifact.metadata?.label === "string" ? artifact.metadata.label : undefined;
+      recorded.push({ artifactId: artifact.id, label, snapshot: parsed });
+    } catch {
+      // A snapshot that cannot be read is left out; the rest of the session's
+      // state history is still worth reporting.
+    }
+  }
+  return recorded.sort((left, right) => left.snapshot.capturedAt.localeCompare(right.snapshot.capturedAt));
+}
+
+/** Snapshots are large; a listing carries their shape rather than every entry. */
+function describeSnapshot(snapshot: ContainerSnapshot): Record<string, unknown> {
+  return {
+    capturedAt: snapshot.capturedAt,
+    bundleId: snapshot.bundleId,
+    entryCount: snapshot.entries.length,
+    skippedAreas: snapshot.skippedAreas,
+    truncated: snapshot.truncated
+  };
+}
+
+/**
+ * Every state capture in the session, with the diff from the one before it, so
+ * the viewer can place "the app wrote this" on the run's timeline.
+ */
+async function readSessionState(sessionState: SessionState): Promise<Record<string, unknown>> {
+  const recorded = await readContainerSnapshots(sessionState);
+  return {
+    schemaVersion: "atlas-loop.container-state.v1",
+    sessionId: sessionState.session.id,
+    bundleId: sessionState.session.app?.bundleId,
+    captures: recorded.map((entry, index) => ({
+      artifactId: entry.artifactId,
+      label: entry.label,
+      snapshot: describeSnapshot(entry.snapshot),
+      diff: index === 0 ? null : diffContainerSnapshots(recorded[index - 1]!.snapshot, entry.snapshot)
+    }))
+  };
+}
+
 async function readSessionDeviceLogs(sessionState: SessionState): Promise<Record<string, unknown>> {
   const paths: string[] = [];
   for (const artifact of sessionState.artifacts) {

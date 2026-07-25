@@ -52,6 +52,7 @@ import { MetricsPanel } from "./components/MetricsPanel.js";
 import { ReplayPanel } from "./components/ReplayPanel.js";
 import { ScreenshotView } from "./components/ScreenshotView.js";
 import { RunScrubber } from "./components/RunScrubber.js";
+import { SessionStatePanel } from "./components/SessionStatePanel.js";
 import { SessionBrowserContent } from "./components/SessionBrowser.js";
 import { SessionWorkspace } from "./components/SessionWorkspace.js";
 import { StartSessionPopover } from "./components/StartSessionPopover.js";
@@ -881,6 +882,7 @@ export function App() {
           ) : null}
           {replayModel ? <ReplayPanel replay={replayModel} /> : null}
           <MetricsPanel params={params} sessionStatus={session?.status} events={events} cursorAt={scrubMoment?.at} />
+          <SessionStatePanel params={params} sessionStatus={session?.status} />
           <DeviceLogsPanel params={params} sessionStatus={session?.status} selectedActionId={selectedActionId} />
         </div>
       </section>
