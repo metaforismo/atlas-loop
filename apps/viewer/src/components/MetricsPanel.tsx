@@ -12,11 +12,14 @@ const SPARK_HEIGHT = 48;
 export function MetricsPanel({
   params,
   sessionStatus,
-  events
+  events,
+  cursorAt
 }: {
   params: ViewerParams;
   sessionStatus: Session["status"] | undefined;
   events: TraceEvent[];
+  /** ISO moment the run scrubber is parked on, if any. */
+  cursorAt?: string;
 }) {
   const [samples, setSamples] = useState<MetricsSampleLike[]>([]);
   const [active, setActive] = useState(false);
@@ -74,6 +77,7 @@ export function MetricsPanel({
         read={readCpu}
         format={formatPercent}
         peak={summary.cpuPercent?.max}
+        cursorAt={cursorAt}
       />
       <Sparkline
         label="Memory"
@@ -82,6 +86,7 @@ export function MetricsPanel({
         read={readRss}
         format={formatBytes}
         peak={summary.rssBytes?.max}
+        cursorAt={cursorAt}
       />
     </section>
   );
@@ -93,7 +98,8 @@ function Sparkline({
   markers,
   read,
   format,
-  peak
+  peak,
+  cursorAt
 }: {
   label: string;
   samples: MetricsSampleLike[];
@@ -101,8 +107,11 @@ function Sparkline({
   read: (sample: MetricsSampleLike) => number;
   format: (value: number) => string;
   peak?: number;
+  cursorAt?: string;
 }) {
   const [hoverIndex, setHoverIndex] = useState<number>();
+  // The scrubber parks the cursor; hovering still overrides it locally.
+  const scrubIndex = useMemo(() => indexAtTime(samples, cursorAt), [samples, cursorAt]);
   const values = useMemo(() => samples.map(read), [samples, read]);
   const points = buildSparklinePoints(values, SPARK_WIDTH, SPARK_HEIGHT);
   const peakPoint = useMemo(() => peakReading(samples, read), [samples, read]);
@@ -113,7 +122,8 @@ function Sparkline({
 
   if (!points) return null;
 
-  const hovered = hoverIndex === undefined ? undefined : samples[hoverIndex];
+  const activeIndex = hoverIndex ?? scrubIndex;
+  const hovered = activeIndex === undefined ? undefined : samples[activeIndex];
   const shown = hovered ?? samples.at(-1);
   const denominator = Math.max(1, samples.length - 1);
 
@@ -168,11 +178,13 @@ function Sparkline({
             y2={SPARK_HEIGHT}
           />
         ) : null}
-        {hoverIndex !== undefined ? (
+        {activeIndex !== undefined ? (
           <line
-            className="metrics-cursor"
-            x1={(hoverIndex / denominator) * SPARK_WIDTH}
-            x2={(hoverIndex / denominator) * SPARK_WIDTH}
+            // The playhead reads as the playhead: same accent as the scrubber
+            // head, so it is not mistaken for one of the action markers.
+            className={`metrics-cursor${hoverIndex === undefined ? " playhead" : ""}`}
+            x1={(activeIndex / denominator) * SPARK_WIDTH}
+            x2={(activeIndex / denominator) * SPARK_WIDTH}
             y1={0}
             y2={SPARK_HEIGHT}
           />
@@ -180,6 +192,21 @@ function Sparkline({
       </svg>
     </div>
   );
+}
+
+/** Newest sample at or before the moment; undefined before the first one. */
+function indexAtTime(samples: MetricsSampleLike[], at: string | undefined): number | undefined {
+  if (!at) return undefined;
+  const target = Date.parse(at);
+  if (!Number.isFinite(target)) return undefined;
+
+  let found: number | undefined;
+  for (let index = 0; index < samples.length; index += 1) {
+    const sampleAt = Date.parse(samples[index]!.at);
+    if (!Number.isFinite(sampleAt) || sampleAt > target) break;
+    found = index;
+  }
+  return found;
 }
 
 function readCpu(sample: MetricsSampleLike): number {

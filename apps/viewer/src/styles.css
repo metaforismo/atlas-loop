@@ -13304,6 +13304,12 @@ body::before {
   opacity: 0.5;
 }
 
+.metrics-cursor.playhead {
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  opacity: 1;
+}
+
 .metrics-sparkline svg {
   cursor: crosshair;
   touch-action: none;
@@ -13728,3 +13734,119 @@ body::before {
 /* Everything off the selected walk recedes rather than disappearing. */
 .atlas-graph-node.dimmed { opacity: 0.22; }
 .atlas-graph-edge.dimmed { opacity: 0.12; }
+
+/* One playhead over the run: screenshot, step, and metrics move together. */
+.run-scrubber {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.run-scrubber-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.run-scrubber-play,
+.run-scrubber-exit,
+.run-scrubber-speeds button {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 4px 9px;
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.run-scrubber-play[aria-pressed="true"] {
+  border-color: var(--accent);
+}
+
+.run-scrubber-speeds {
+  display: flex;
+  gap: 3px;
+}
+
+.run-scrubber-speeds button {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+
+.run-scrubber-speeds button.selected {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.run-scrubber-time {
+  margin-left: auto;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.run-scrubber-exit {
+  color: var(--muted);
+}
+
+.run-scrubber-track {
+  position: relative;
+  height: 26px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+  touch-action: none;
+}
+
+.run-scrubber-track:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.run-scrubber-elapsed {
+  position: absolute;
+  inset: 0;
+  border-radius: 6px;
+  background: rgba(232, 111, 89, 0.09);
+  transform-origin: left center;
+  pointer-events: none;
+}
+
+/* Every recorded moment is a mark, so the track shows where evidence exists. */
+.run-scrubber-mark {
+  position: absolute;
+  top: 9px;
+  bottom: 9px;
+  width: 1px;
+  background: var(--line-strong);
+  pointer-events: none;
+}
+
+/* Screenshots are the frames replay can actually land on, so they read taller. */
+.run-scrubber-mark.screenshot {
+  top: 5px;
+  bottom: 5px;
+  background: var(--soft);
+}
+
+
+.run-scrubber-mark.tone-good { background: var(--good); }
+.run-scrubber-mark.tone-warn { background: var(--warn); }
+.run-scrubber-mark.tone-bad { background: var(--bad); }
+
+.run-scrubber-head {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  background: var(--accent);
+  box-shadow: 0 0 0 1px rgba(11, 11, 12, 0.7);
+  pointer-events: none;
+  transform: translateX(-1px);
+}
