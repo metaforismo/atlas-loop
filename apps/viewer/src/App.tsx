@@ -16,7 +16,7 @@ import {
   TimelineListIcon,
   WorkflowSquare03Icon
 } from "@hugeicons/core-free-icons";
-import { isDisplayableScreenshot } from "./api.js";
+import { isDisplayableScreenshot, toResourceUrl } from "./api.js";
 import {
   ARTIFACT_KIND_LABELS,
   ArtifactDetails,
@@ -51,6 +51,7 @@ import { MetadataGrid, MetadataSkeleton, SummaryEvidence } from "./components/Me
 import { MetricsPanel } from "./components/MetricsPanel.js";
 import { ReplayPanel } from "./components/ReplayPanel.js";
 import { ScreenshotView } from "./components/ScreenshotView.js";
+import { RunScrubber } from "./components/RunScrubber.js";
 import { SessionBrowserContent } from "./components/SessionBrowser.js";
 import { SessionWorkspace } from "./components/SessionWorkspace.js";
 import { StartSessionPopover } from "./components/StartSessionPopover.js";
@@ -85,6 +86,7 @@ import {
 } from "./viewerPresentation.js";
 import { DEFAULT_SESSION_ID, writeViewerSearch } from "./viewerParams.js";
 import { loadRailCollapsed, saveRailCollapsed } from "./railPreference.js";
+import { buildRunScrubberModel, fractionOfItem, fractionOfTime, resolveRunMoment, timeOfFraction } from "./runScrubber.js";
 import { IssueExportDialog } from "./components/IssueExportDialog.js";
 import { loadIssueRepository, saveIssueRepository } from "./issueRepositoryStorage.js";
 import type { LocalTestModuleSeed } from "./localTestModules.js";
@@ -171,6 +173,12 @@ export function App() {
   const [railCollapsed, setRailCollapsed] = useState(false);
   const [issueExportOpen, setIssueExportOpen] = useState(false);
   const [issueRepository, setIssueRepository] = useState("");
+  /**
+   * Undefined means "follow the live run"; a number replays that instant.
+   * Stored as a moment, not a fraction, so a parked playhead stays on the same
+   * moment while a live run keeps extending the track underneath it.
+   */
+  const [scrubAtMs, setScrubAtMs] = useState<number | undefined>();
   const autoOpenedOverview = useRef(false);
 
   useEffect(() => {
@@ -241,6 +249,33 @@ export function App() {
     [health, sessionSummary?.storage.source, session?.status]
   );
   const replayModel = useMemo(() => buildVideoReplayModel(artifacts, events), [artifacts, events]);
+  const scrubberModel = useMemo(() => buildRunScrubberModel(timeline), [timeline]);
+  const scrubbing = scrubAtMs !== undefined && scrubberModel !== undefined;
+  const scrubFraction = scrubbing ? fractionOfTime(scrubberModel, scrubAtMs) : undefined;
+  const scrubMoment = scrubbing ? resolveRunMoment(scrubberModel, scrubFraction!) : undefined;
+  // Replaying shows what the device was displaying then, not what it shows now.
+  const replayScreenshot = useMemo(() => {
+    if (!scrubMoment) return undefined;
+    const artifact = artifacts.find((candidate) => candidate.id === scrubMoment.screenshotArtifactId);
+    if (!artifact) return undefined;
+    const source = artifact.url ?? artifact.path;
+    // An artifact with no recorded capture time falls back to the position
+    // being replayed, which is the closest thing the evidence supports.
+    return {
+      status: "ready",
+      src: toResourceUrl(source, params.daemonUrl),
+      source: "url",
+      updatedAt: artifact.createdAt ?? scrubMoment.at
+    } as const;
+  }, [scrubMoment, artifacts, params.daemonUrl]);
+  const stageScreenshot = replayScreenshot ?? screenshot;
+  // The whole stage — tiles, footer, lightbox — describes whatever frame it is
+  // showing, so a replayed frame is never labelled as the live one.
+  const stageIsDisplayable = isDisplayableScreenshot(stageScreenshot);
+  const stageTone: UiTone =
+    stageScreenshot.status === "error" ? "bad" : stageScreenshot.status === "stale" ? "warn" : stageScreenshot.status === "ready" ? "good" : "neutral";
+  const stageArtifactId = (scrubbing ? scrubMoment?.screenshotArtifactId : latestScreenshotArtifact?.id) ?? undefined;
+  const stageArtifactPath = artifacts.find((entry) => entry.id === stageArtifactId)?.path;
   const actionEvidencePairs = useMemo(() => buildActionEvidencePairs(events, artifacts), [events, artifacts]);
   const flowRunSummary = useMemo(() => buildFlowRunSummary(events, session?.status), [events, session?.status]);
   const handoffBrief = useMemo(
@@ -767,21 +802,23 @@ export function App() {
       <section id="viewer-stage" className="stage panel" aria-label="Latest iPhone screenshot" tabIndex={-1}>
         <div className="stage-topbar">
           <div>
-            <p className="kicker">Live device viewport</p>
+            <p className="kicker">{scrubbing ? "Replaying run" : "Live device viewport"}</p>
             <h2>{selectedSessionId}</h2>
             <span className="stage-subtitle">{session?.app?.bundleId ?? session?.app?.scheme ?? "No app metadata yet"}</span>
           </div>
           <div className="stage-actions">
-            <span className={`live-badge tone-${healthTone(health)}`}>{health === "online" ? "live" : health}</span>
+            <span className={`live-badge tone-${scrubbing ? "warn" : healthTone(health)}`}>
+              {scrubbing ? "replay" : health === "online" ? "live" : health}
+            </span>
             <span className={`session-chip status-${session?.status ?? "pending"}`}>{session?.status ?? "pending"}</span>
           </div>
         </div>
 
         <div className="device-workbench">
           <div className="viewport-meta" aria-label="Screenshot metadata">
-            <MetricTile label="Screenshot" value={screenshot.status} tone={screenshotTone} />
-            <MetricTile label="Updated" value={screenshotIsDisplayable ? formatTime(screenshot.updatedAt) : "--"} />
-            <MetricTile label="Source" value={screenshotIsDisplayable ? screenshot.source : "--"} />
+            <MetricTile label="Screenshot" value={stageScreenshot.status} tone={stageTone} />
+            <MetricTile label={scrubbing ? "Captured" : "Updated"} value={stageIsDisplayable ? formatTime(stageScreenshot.updatedAt) : "--"} />
+            <MetricTile label="Source" value={scrubbing ? "replay" : stageIsDisplayable ? stageScreenshot.source : "--"} />
           </div>
 
           <div className="phone-stand">
@@ -792,7 +829,7 @@ export function App() {
               variant="viewer"
             >
               <ScreenshotView
-                screenshot={screenshot}
+                screenshot={stageScreenshot}
                 emptyMessage={isLatestFirstRun ? firstRunState.detail : undefined}
                 emptyAction={health === "offline" ? {
                   label: "Connection settings",
@@ -808,29 +845,42 @@ export function App() {
           </div>
 
           <div className="viewport-footer">
-            <span>{latestScreenshotArtifact ? `Artifact ${latestScreenshotArtifact.id}` : "No screenshot artifact reported"}</span>
-            {screenshotIsDisplayable ? (
+            <span>{stageArtifactId ? `Artifact ${stageArtifactId}` : "No screenshot artifact reported"}</span>
+            {stageIsDisplayable ? (
               <span className="viewport-footer-actions">
                 <button type="button" onClick={() => setStageZoomed(true)}>
                   Zoom
                 </button>
-                <a href={screenshot.src} target="_blank" rel="noreferrer">
+                <a href={stageScreenshot.src} target="_blank" rel="noreferrer">
                   Open image
                 </a>
               </span>
             ) : null}
           </div>
-          {stageZoomed && screenshotIsDisplayable ? (
+          {stageZoomed && stageIsDisplayable ? (
             <ImageLightbox
-              src={screenshot.src}
+              src={stageScreenshot.src}
               alt="Latest simulator screenshot"
-              caption={latestScreenshotArtifact?.path}
+              caption={stageArtifactPath}
               onClose={() => setStageZoomed(false)}
             />
           ) : null}
 
+          {scrubberModel ? (
+            <RunScrubber
+              model={scrubberModel}
+              fraction={scrubFraction ?? 0}
+              onScrub={(next) => {
+                setScrubAtMs(timeOfFraction(scrubberModel, next));
+                // One playhead: the step follows the position too.
+                const moment = resolveRunMoment(scrubberModel, next);
+                if (moment.actionId) setSelectedActionId(moment.actionId);
+              }}
+              onExit={() => setScrubAtMs(undefined)}
+            />
+          ) : null}
           {replayModel ? <ReplayPanel replay={replayModel} /> : null}
-          <MetricsPanel params={params} sessionStatus={session?.status} events={events} />
+          <MetricsPanel params={params} sessionStatus={session?.status} events={events} cursorAt={scrubMoment?.at} />
           <DeviceLogsPanel params={params} sessionStatus={session?.status} selectedActionId={selectedActionId} />
         </div>
       </section>
@@ -1010,6 +1060,10 @@ export function App() {
                   onClick={() => {
                     if (timelineActionId) setSelectedActionId(timelineActionId);
                     if (artifactId) selectArtifactFromTimeline(artifactId);
+                    // While replaying, picking a moment on the timeline moves the
+                    // playhead to it. Live, it must not yank the view off live.
+                    const at = scrubbing && scrubberModel ? fractionOfItem(scrubberModel, item.id) : undefined;
+                    if (at !== undefined) setScrubAtMs(timeOfFraction(scrubberModel!, at));
                   }}
                   aria-label={
                     artifactId
