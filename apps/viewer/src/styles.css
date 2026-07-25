@@ -13561,3 +13561,170 @@ body::before {
 .device-logs-list li.tone-fault .device-logs-level,
 .device-logs-list li.tone-fault p { color: var(--bad); }
 .device-logs-list li.tone-debug p { color: var(--muted); }
+
+/* User journeys: the walks a run actually took through the app. */
+.atlas-journeys {
+  display: grid;
+  gap: 8px;
+  border-top: 1px solid var(--line);
+  padding: 12px 0 0;
+}
+
+.atlas-journeys-empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.atlas-journey-list {
+  display: grid;
+  gap: 4px;
+  max-height: 260px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.atlas-journey-list button {
+  display: grid;
+  width: 100%;
+  gap: 3px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 9px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.atlas-journey-list button:hover {
+  border-color: var(--accent);
+}
+
+.atlas-journey-list strong {
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.atlas-journey-list small,
+.atlas-journey-steps small {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+
+.atlas-journey-tag {
+  justify-self: start;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 1px 7px;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.atlas-journey-tag.tone-input { color: var(--accent); }
+.atlas-journey-tag.tone-gesture { color: var(--warn); }
+.atlas-journey-tag.tone-verified { color: var(--good); }
+.atlas-journey-tag.tone-navigate { color: var(--muted); }
+
+.atlas-journey-back {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  cursor: pointer;
+}
+
+.atlas-journey-back:hover { color: var(--text); }
+
+.atlas-journey-walker h2 {
+  margin: 0;
+  font-size: 13px;
+}
+
+.atlas-journey-controls {
+  display: flex;
+  gap: 6px;
+}
+
+.atlas-journey-controls button {
+  flex: 1;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 6px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.atlas-journey-controls button:disabled {
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+.atlas-journey-steps {
+  display: grid;
+  gap: 2px;
+  max-height: 260px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.atlas-journey-steps button {
+  display: grid;
+  width: 100%;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 8px;
+  align-items: baseline;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 6px 7px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.atlas-journey-steps li.current button {
+  border-color: var(--accent);
+  background: rgba(232, 111, 89, 0.06);
+}
+
+.atlas-journey-steps b {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 400;
+}
+
+.atlas-journey-steps span {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.atlas-journey-steps strong {
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Everything off the selected walk recedes rather than disappearing. */
+.atlas-graph-node.dimmed { opacity: 0.22; }
+.atlas-graph-edge.dimmed { opacity: 0.12; }

@@ -12,14 +12,18 @@ export function MapGraph({
   screens,
   transitions,
   selectedScreenId,
-  onSelectScreen
+  onSelectScreen,
+  highlight
 }: {
   daemonUrl: string;
   screens: AtlasScreenLike[];
   transitions: AtlasTransitionLike[];
   selectedScreenId?: string;
   onSelectScreen: (screenId: string) => void;
+  /** When a journey is selected, everything off its path is dimmed. */
+  highlight?: { screenIds: Set<string>; transitionIds: Set<string> };
 }) {
+  const dimming = Boolean(highlight && highlight.screenIds.size > 0);
   const layout = useMemo(
     () =>
       layoutAtlasGraph(
@@ -92,7 +96,7 @@ export function MapGraph({
             const toNode = nodesById.get(edge.to);
             if (!fromNode || !toNode) return null;
             return (
-              <g key={edge.id} className="atlas-graph-edge">
+              <g key={edge.id} className={`atlas-graph-edge ${dimming && !highlight!.transitionIds.has(edge.id) ? "dimmed" : ""}`}>
                 <path d={edgePath(fromNode, toNode, edge.selfLoop)} fill="none" markerEnd="url(#atlas-arrow)" />
                 <text {...edgeLabelPosition(fromNode, toNode, edge.selfLoop)}>{`${edge.label} ×${edge.count}`}</text>
               </g>
@@ -105,7 +109,7 @@ export function MapGraph({
             return (
               <g
                 key={node.id}
-                className={`atlas-graph-node ${node.id === selectedScreenId ? "selected" : ""} ${isLaunch ? "launch" : ""}`}
+                className={`atlas-graph-node ${node.id === selectedScreenId ? "selected" : ""} ${isLaunch ? "launch" : ""} ${dimming && !highlight!.screenIds.has(node.id) ? "dimmed" : ""}`}
                 transform={`translate(${node.x} ${node.y})`}
                 onClick={() => {
                   if (!isLaunch) onSelectScreen(node.id);
