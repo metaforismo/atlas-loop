@@ -5,7 +5,7 @@ import { connect as tlsConnect } from "node:tls";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   createCertificateMinter,
   firstMediaType,
@@ -19,6 +19,26 @@ import {
 
 const dirs: string[] = [];
 const closers: Array<() => Promise<void> | void> = [];
+
+/**
+ * One CA for every test that just needs a working proxy.
+ *
+ * Creating a CA shells out to openssl for two RSA-2048 keygens. Doing that per
+ * test meant regenerating them eighteen times a run, which is slow enough that
+ * a loaded machine pushed a test past its timeout — the suite was flaky for a
+ * reason that had nothing to do with what it was testing. The tests that are
+ * *about* CA creation still get their own fresh directory.
+ */
+let sharedCaDir: string;
+
+beforeAll(async () => {
+  sharedCaDir = await mkdtemp(join(tmpdir(), "atlas-proxy-shared-ca-"));
+  await loadLocalCertificateAuthority(sharedCaDir);
+}, 60000);
+
+afterAll(async () => {
+  if (sharedCaDir) await rm(sharedCaDir, { recursive: true, force: true });
+});
 
 afterEach(async () => {
   for (const close of closers.splice(0)) await close();
@@ -61,6 +81,11 @@ async function proxy(dir: string, overrides: Record<string, unknown> = {}): Prom
   const handle = await startNetworkProxy({ caDir: dir, currentActionId: () => "act_1", ...overrides });
   closers.push(() => handle.close());
   return handle;
+}
+
+/** The shared CA, for tests that only need the proxy to work. */
+function sharedCa(): string {
+  return sharedCaDir;
 }
 
 describe("parsing what a proxied client sends", () => {
@@ -146,7 +171,7 @@ describe("capturing plain HTTP", () => {
       response.writeHead(request.url === "/missing" ? 404 : 200, { "content-type": "application/json" });
       response.end("{}");
     });
-    const handle = await proxy(await caDir());
+    const handle = await proxy(sharedCa());
 
     expect(await proxied(handle, `http://127.0.0.1:${port}/v1/catalog`)).toBe(200);
     expect(await proxied(handle, `http://127.0.0.1:${port}/missing`)).toBe(404);
@@ -161,7 +186,7 @@ describe("capturing plain HTTP", () => {
 
   it("attributes an exchange to the step that was running", async () => {
     const port = await origin((_request: IncomingMessage, response: ServerResponse) => response.end("{}"));
-    const handle = await proxy(await caDir(), { currentActionId: () => "act_checkout" });
+    const handle = await proxy(sharedCa(), { currentActionId: () => "act_checkout" });
 
     await proxied(handle, `http://127.0.0.1:${port}/v1/orders`, "POST", {}, "{}");
     await new Promise((resolve) => setTimeout(resolve, 200));
@@ -176,7 +201,7 @@ describe("capturing plain HTTP", () => {
       response.writeHead(200, { "set-cookie": "session=SECRET-COOKIE" });
       response.end("{}");
     });
-    const handle = await proxy(await caDir());
+    const handle = await proxy(sharedCa());
 
     await proxied(handle, `http://127.0.0.1:${port}/v1/me`, "GET", { Authorization: "Bearer sk-live-SECRET" });
     await new Promise((resolve) => setTimeout(resolve, 200));
@@ -192,7 +217,7 @@ describe("capturing plain HTTP", () => {
   it("records a request that never reached a server", async () => {
     // Dropping it would make a broken endpoint look like a request the app
     // never made.
-    const handle = await proxy(await caDir());
+    const handle = await proxy(sharedCa());
 
     await proxied(handle, "http://127.0.0.1:1/v1/orders").catch(() => undefined);
     await new Promise((resolve) => setTimeout(resolve, 300));
@@ -204,7 +229,7 @@ describe("capturing plain HTTP", () => {
   });
 
   it("rejects a request that was not addressed to a proxy", async () => {
-    const handle = await proxy(await caDir());
+    const handle = await proxy(sharedCa());
 
     expect(await proxied(handle, "/v1/orders")).toBe(400);
     expect(handle.exchanges()).toEqual([]);
@@ -212,7 +237,7 @@ describe("capturing plain HTTP", () => {
 
   it("stops growing at its limit and says it was cut short", async () => {
     const port = await origin((_request: IncomingMessage, response: ServerResponse) => response.end("{}"));
-    const handle = await proxy(await caDir(), { maxExchanges: 2 });
+    const handle = await proxy(sharedCa(), { maxExchanges: 2 });
 
     for (const index of [1, 2, 3, 4]) await proxied(handle, `http://127.0.0.1:${port}/r${index}`);
     await new Promise((resolve) => setTimeout(resolve, 250));
@@ -226,7 +251,7 @@ describe("knowing whether traffic is arriving", () => {
   it("reports nothing received before anything connects", async () => {
     // An empty capture must be explainable: routing the simulator's traffic
     // here is a separate step, and silence usually means it was not done.
-    const handle = await proxy(await caDir());
+    const handle = await proxy(sharedCa());
 
     expect(handle.receiving()).toBe(false);
     expect(handle.truncated()).toBe(false);
@@ -234,7 +259,7 @@ describe("knowing whether traffic is arriving", () => {
 
   it("reports traffic once anything reaches the proxy", async () => {
     const port = await origin((_request: IncomingMessage, response: ServerResponse) => response.end("{}"));
-    const handle = await proxy(await caDir());
+    const handle = await proxy(sharedCa());
 
     await proxied(handle, `http://127.0.0.1:${port}/ping`);
 
@@ -244,7 +269,7 @@ describe("knowing whether traffic is arriving", () => {
 
 describe("capturing HTTPS", () => {
   it("reads a request inside the tunnel and stays transparent to the client", async () => {
-    const dir = await caDir();
+    const dir = sharedCa();
     const ca = await loadLocalCertificateAuthority(dir);
     const mint = createCertificateMinter(ca, dir);
 
@@ -297,7 +322,7 @@ describe("capturing HTTPS", () => {
   it("refuses an upstream server it cannot verify", async () => {
     // Reading the app's traffic must not mean accepting any certificate on the
     // app's behalf; a bad upstream certificate stays a failure.
-    const dir = await caDir();
+    const dir = sharedCa();
     const ca = await loadLocalCertificateAuthority(dir);
     const server = createHttpsServer(
       { key: ca.leafKey, cert: await createCertificateMinter(ca, dir)("not-localhost") },

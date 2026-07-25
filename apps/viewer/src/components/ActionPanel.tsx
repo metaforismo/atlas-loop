@@ -250,21 +250,6 @@ export function ActionPanel({
 
       <ActionShortcutPanel form={form} onFieldChange={onFieldChange} />
 
-      <GestureSequencePanel
-        activeSequenceId={activeSequenceId}
-        disabled={submitDisabled}
-        disabledReason={mutationState.title}
-        onRun={(preset) => void runGestureSequence(preset)}
-        onCancel={cancelGestureSequence}
-      />
-
-      <GestureSequenceComposer
-        disabled={submitDisabled}
-        disabledReason={mutationState.title}
-        running={Boolean(activeSequenceId)}
-        onRun={(sequence) => void runGestureSequence(sequence)}
-      />
-
       <div className="action-panel-grid">
         <form className="action-row" onSubmit={onSubmit({ kind: "screenshot", reason: form.screenshotReason }, VIEWER_ACTION_LABELS.screenshot)}>
           <ActionTextInput
@@ -556,6 +541,21 @@ export function ActionPanel({
         <strong>{actionStatusTitle(submitState)}</strong>
         <span>{actionStatusMessage(submitState)}</span>
       </div>
+
+      <GestureSequencePanel
+        activeSequenceId={activeSequenceId}
+        disabled={submitDisabled}
+        disabledReason={mutationState.title}
+        onRun={(preset) => void runGestureSequence(preset)}
+        onCancel={cancelGestureSequence}
+      />
+
+      <GestureSequenceComposer
+        disabled={submitDisabled}
+        disabledReason={mutationState.title}
+        running={Boolean(activeSequenceId)}
+        onRun={(sequence) => void runGestureSequence(sequence)}
+      />
     </section>
   );
 }

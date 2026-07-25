@@ -14408,3 +14408,75 @@ body::before {
   flex: 0 0 auto;
   min-width: 0;
 }
+
+/* A column of panels shown one at a time, so each gets the whole column. */
+.panel-tabs {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 10px;
+  min-height: 0;
+}
+
+.panel-tabs-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 8px;
+}
+
+.panel-tabs-strip button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 5px 10px;
+  background: transparent;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.panel-tabs-strip button:hover {
+  color: var(--text);
+}
+
+.panel-tabs-strip button.selected {
+  border-color: var(--line);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+}
+
+.panel-tab-badge {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+/* Something in this section wants looking at, without opening it. */
+.panel-tab-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--bad);
+}
+
+.panel-tabs-body {
+  min-height: 0;
+  overflow: auto;
+}
+
+.panel-tabs-body[hidden] {
+  display: none;
+}
+
+/* The inspector's own frame moves to the tab body, so a panel inside it does
+   not draw a second border around the first. */
+.inspector .panel-tabs-body > .inspector-section,
+.inspector .panel-tabs-body > div > .inspector-section {
+  border: 0;
+  padding: 0;
+}
