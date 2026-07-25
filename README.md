@@ -125,6 +125,16 @@ npm run cli -- location set --session latest --lat 35.689487 --lon 139.691711
 npm run cli -- location clear --session latest
 ```
 
+A screenshot shows what the app drew, not what it wrote. Snapshotting the app's data container on either side of an action turns "the confirmation screen appeared" into "the order is on disk":
+
+```bash
+npm run cli -- state --session latest --capture --label "before checkout"
+npm run cli -- state --session latest --capture --label "after checkout" --changes
+npm run cli -- state --session latest --changes --area documents
+```
+
+Caches and `tmp` churn on their own and are skipped by default; the diff records that they were not walked, so an empty result is never read as "nothing changed". Files small enough to hash are compared by content, so saving without editing is not reported as a change. Larger ones fall back to size and modification time, and say that the change was inferred rather than proven.
+
 Every daemon capability is reachable from both the CLI and the MCP server, so an operator and an agent can do the same things. What CPU and memory did during a run is summarised rather than dumped:
 
 ```bash
@@ -143,7 +153,7 @@ Coordinates are validated before they reach `simctl`: both axes are range-checke
 | Local daemon | Session lifecycle, app operations, input, screenshots, recordings, metrics, and evidence routes |
 | CLI | Operator-friendly access to every runtime and export command |
 | MCP server | Structured tools for coding agents using the same local controls |
-| React viewer | Operational overview with selected-device cockpit, global Live Monitor for mutable devices and workflow progress, deterministic local test compiler, visible step modules, validated launch profiles, first-class session triage with input-backend filters, searchable observed-app history, URL-backed test, library, session, app, and workflow workspaces, prefilled session launcher, keyboard command search, hardware-accurate iPhone frame, reusable multi-gesture workflows, observed-flow summary, timeline, synchronised run scrubber, evidence inspection, Atlas map, visual diffs, and handoff UI |
+| React viewer | Operational overview with selected-device cockpit, global Live Monitor for mutable devices and workflow progress, deterministic local test compiler, visible step modules, validated launch profiles, first-class session triage with input-backend filters, searchable observed-app history, URL-backed test, library, session, app, and workflow workspaces, prefilled session launcher, keyboard command search, hardware-accurate iPhone frame, reusable multi-gesture workflows, observed-flow summary, timeline, synchronised run scrubber, stored-data diffs, evidence inspection, Atlas map, visual diffs, and handoff UI |
 | Native helper | Repo-owned NDJSON action protocol with `xcuitest` and visible-window `cgevent` backends |
 | Commerce demo | Deterministic SwiftUI checkout plus an instrumented Gesture Lab for end-to-end Simulator verification |
 

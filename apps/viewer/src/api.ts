@@ -23,7 +23,7 @@ import type {
   ViewerNumericInput,
   ViewerParams
 } from "./types.js";
-import type { DeviceLogAlignment, DeviceLogEntry } from "@atlas-loop/protocol";
+import type { ContainerArea, ContainerStateDiff, DeviceLogAlignment, DeviceLogEntry } from "@atlas-loop/protocol";
 import { buildSessionHistoryUrl, buildSessionsUrl, buildSessionUrl, normalizeDaemonUrl } from "./viewerParams.js";
 
 export class ApiError extends Error {
@@ -269,6 +269,35 @@ export interface DeviceLogsView {
  * empty view rather than throwing when a daemon predates the route, so the
  * panel simply does not render.
  */
+export interface SessionStateCapture {
+  artifactId: string;
+  label?: string;
+  snapshot: { capturedAt: string; entryCount: number; skippedAreas: ContainerArea[]; truncated: boolean };
+  diff: ContainerStateDiff | null;
+}
+
+export interface SessionStateView {
+  bundleId?: string;
+  captures: SessionStateCapture[];
+}
+
+/**
+ * Data-container captures recorded in the session. A daemon build without the
+ * route, or a session that never captured, both read as no captures rather
+ * than as an error.
+ */
+export async function fetchSessionState(params: ViewerParams, signal?: AbortSignal): Promise<SessionStateView> {
+  const value = await fetchJson<Partial<SessionStateView>>(buildSessionUrl(params, "state"), signal);
+  if (!value || typeof value !== "object" || !Array.isArray(value.captures)) return { captures: [] };
+
+  return {
+    bundleId: typeof value.bundleId === "string" ? value.bundleId : undefined,
+    captures: value.captures.filter((capture): capture is SessionStateCapture =>
+      Boolean(capture) && typeof capture.artifactId === "string" && Boolean(capture.snapshot)
+    )
+  };
+}
+
 export async function fetchSessionDeviceLogs(params: ViewerParams, signal?: AbortSignal): Promise<DeviceLogsView> {
   const empty: DeviceLogsView = { active: false, truncated: false, entries: [], alignment: { steps: [], unattributed: [] } };
   const value = await fetchJson<Partial<DeviceLogsView>>(buildSessionUrl(params, "logs"), signal);

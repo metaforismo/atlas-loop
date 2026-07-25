@@ -465,6 +465,22 @@ export class DaemonClient {
     return this.requestData("GET", `/sessions/${encodeURIComponent(sessionId)}/logs`, "device logs");
   }
 
+  /**
+   * Snapshots the app's data container and diffs it against the previous
+   * capture in this session, so an action's effect on disk is visible.
+   */
+  captureSessionState(
+    sessionId: string,
+    request: { label?: string; includeVolatile?: boolean } = {}
+  ): Promise<unknown> {
+    return this.requestData("POST", `/sessions/${encodeURIComponent(sessionId)}/state`, "state capture", request);
+  }
+
+  /** Every state capture in the session, each with the diff from the one before. */
+  getSessionState(sessionId: string): Promise<unknown> {
+    return this.requestData("GET", `/sessions/${encodeURIComponent(sessionId)}/state`, "session state");
+  }
+
   /** Omit `location` to clear the override and restore the device's own location. */
   setLocation(sessionId: string, request: SetLocationRequest): Promise<unknown> {
     return this.requestData("POST", `/sessions/${encodeURIComponent(sessionId)}/location`, "location result", request);
