@@ -51,7 +51,7 @@ import { MetadataGrid, MetadataSkeleton, SummaryEvidence } from "./components/Me
 import { ReplayPanel } from "./components/ReplayPanel.js";
 import { ScreenshotView } from "./components/ScreenshotView.js";
 import { RunScrubber } from "./components/RunScrubber.js";
-import { EvidencePanels } from "./components/EvidencePanels.js";
+import { EvidencePanels, type EvidenceHeadline } from "./components/EvidencePanels.js";
 import { PanelTabs } from "./components/PanelTabs.js";
 import { SessionBrowserContent } from "./components/SessionBrowser.js";
 import { SessionWorkspace } from "./components/SessionWorkspace.js";
@@ -64,7 +64,7 @@ import { TestWorkspace } from "./components/TestWorkspace.js";
 import { WorkflowWorkspace, type WorkflowMonitorActivity } from "./components/WorkflowWorkspace.js";
 import { useAtlasLoopData, useViewerParams } from "./hooks/useAtlasLoopData.js";
 import { formatTapCoordinate, type ScreenshotTapTarget } from "./screenshotGeometry.js";
-import type { ViewerParams, ViewerWorkspace } from "./types.js";
+import type { ViewerParams, ViewerWorkspace, EvidenceTab, InspectorTab } from "./types.js";
 import {
   artifactTypeOptions,
   buildActionEvidencePairs,
@@ -85,7 +85,7 @@ import {
   type TimelineFilter,
   type UiTone
 } from "./viewerPresentation.js";
-import { DEFAULT_SESSION_ID, writeViewerSearch } from "./viewerParams.js";
+import { DEFAULT_SESSION_ID, writeViewerSearch, normalizeEvidenceTab, normalizeInspectorTab } from "./viewerParams.js";
 import { loadRailCollapsed, saveRailCollapsed } from "./railPreference.js";
 import { buildRunScrubberModel, fractionOfItem, fractionOfTime, resolveRunMoment, timeOfFraction } from "./runScrubber.js";
 import { IssueExportDialog } from "./components/IssueExportDialog.js";
@@ -134,8 +134,6 @@ function RailNavLink({ label, icon, href }: { label: string; icon: RailIcon; hre
   );
 }
 
-type InspectorTabId = "session" | "actions" | "artifacts" | "handoff";
-
 /**
  * Which inspector tab owns each deep-link anchor.
  *
@@ -143,7 +141,7 @@ type InspectorTabId = "session" | "actions" | "artifacts" | "handoff";
  * ids. Now that the sections are tabs, the tab has to open first — a hidden
  * panel has no layout to scroll to.
  */
-const INSPECTOR_TAB_FOR_ANCHOR: Record<string, InspectorTabId> = {
+const INSPECTOR_TAB_FOR_ANCHOR: Record<string, InspectorTab> = {
   "viewer-actions": "actions",
   "viewer-artifacts": "artifacts",
   "viewer-handoff": "handoff",
@@ -178,7 +176,11 @@ export function App() {
   const [actionForm, setActionForm] = useState<ViewerActionFormState>(DEFAULT_ACTION_FORM);
   const [tapTarget, setTapTarget] = useState<ScreenshotTapTarget | undefined>();
   const [selectedActionId, setSelectedActionId] = useState<string | undefined>();
-  const [inspectorTab, setInspectorTab] = useState<InspectorTabId>("session");
+  const inspectorTab = normalizeInspectorTab(params.inspector);
+  const evidenceTab = normalizeEvidenceTab(params.evidence);
+  const [evidenceHeadlines, setEvidenceHeadlines] = useState<Partial<Record<EvidenceTab, EvidenceHeadline>>>({});
+  const setInspectorTab = (inspector: InspectorTab): void => applyViewerParams({ ...params, inspector });
+  const setEvidenceTab = (evidence: EvidenceTab): void => applyViewerParams({ ...params, evidence });
   const [stageZoomed, setStageZoomed] = useState(false);
   const [flowFocus, setFlowFocus] = useState(false);
   const [runtimeSettingsOpen, setRuntimeSettingsOpen] = useState(false);
@@ -599,7 +601,15 @@ export function App() {
                   </div>
                   <label className="search-field">
                     <span className="sr-only">Search artifacts</span>
-                    <input value={artifactQuery} onChange={(event) => setArtifactQuery(event.target.value)} placeholder="Search artifacts" />
+                    <input
+                      type="search"
+                      value={artifactQuery}
+                      autoComplete="off"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      onChange={(event) => setArtifactQuery(event.target.value)}
+                      placeholder="Search artifacts…"
+                    />
                   </label>
                 </div>
               ) : null}
@@ -973,6 +983,10 @@ export function App() {
             events={events}
             selectedActionId={selectedActionId}
             cursorAt={scrubMoment?.at}
+            selected={evidenceTab}
+            onSelect={setEvidenceTab}
+            headlines={evidenceHeadlines}
+            onHeadlines={setEvidenceHeadlines}
           />
           </div>
 
@@ -1101,7 +1115,15 @@ export function App() {
             </div>
             <label className="search-field compact">
               <span className="sr-only">Search timeline</span>
-              <input value={timelineQuery} onChange={(event) => setTimelineQuery(event.target.value)} placeholder="Search actions" />
+              <input
+                type="search"
+                value={timelineQuery}
+                autoComplete="off"
+                autoCorrect="off"
+                spellCheck={false}
+                onChange={(event) => setTimelineQuery(event.target.value)}
+                placeholder="Search actions…"
+              />
             </label>
           </div>
         ) : null}

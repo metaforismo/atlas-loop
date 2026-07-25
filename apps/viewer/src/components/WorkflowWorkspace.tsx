@@ -243,7 +243,7 @@ export function WorkflowWorkspace({
             <span>{visibleEntries.length} of {entries.length}</span>
           </div>
           <div className="workflow-controls" role="search" aria-label="Filter workflows">
-            <label className="workflow-search"><ProductIcon icon={Search01Icon} size={14} /><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search name, step, or action" aria-label="Search workflows" /></label>
+            <label className="workflow-search"><ProductIcon icon={Search01Icon} size={14} /><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} autoComplete="off" autoCorrect="off" spellCheck={false} placeholder="Search name, step, or action…" aria-label="Search workflows" /></label>
             <div className="workflow-scopes" aria-label="Workflow source filter">
               {WORKFLOW_SCOPES.map((option) => <button type="button" key={option.id} aria-pressed={scope === option.id} onClick={() => setScope(option.id)}>{option.label}</button>)}
             </div>

@@ -14480,3 +14480,22 @@ body::before {
   border: 0;
   padding: 0;
 }
+
+/* The evidence tabs use the shared tab shell, so its strip carries their look. */
+.evidence-panels .panel-tabs {
+  gap: 10px;
+}
+
+.panel-tab-attention {
+  border-radius: 999px;
+  padding: 1px 6px;
+  background: rgba(212, 97, 78, 0.18);
+  color: var(--bad);
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+
+/* Streams that have not earned a tab still run, so they can report a headline. */
+.evidence-offstage {
+  display: none;
+}

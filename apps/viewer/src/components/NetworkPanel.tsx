@@ -152,7 +152,16 @@ export function NetworkPanel({
         </div>
         <label className="search-field compact">
           <span className="sr-only">Search requests</span>
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search requests" />
+          {/* Hosts and paths are not words either. */}
+          <input
+            type="search"
+            value={query}
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck={false}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search requests…"
+          />
         </label>
       </div>
 

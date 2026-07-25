@@ -2,8 +2,26 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { EvidencePanels } from "../../apps/viewer/src/components/EvidencePanels.js";
+import { useState } from "react";
+import { EvidencePanels, type EvidenceHeadline, type EvidenceTabId } from "../../apps/viewer/src/components/EvidencePanels.js";
 import type { ViewerParams } from "../../apps/viewer/src/types.js";
+
+/** Owns the state the component no longer holds, so the tests drive it as the app does. */
+function Harness() {
+  const [selected, setSelected] = useState<EvidenceTabId>("metrics");
+  const [headlines, setHeadlines] = useState<Partial<Record<EvidenceTabId, EvidenceHeadline>>>({});
+  return (
+    <EvidencePanels
+      params={params}
+      session={undefined}
+      events={[]}
+      selected={selected}
+      onSelect={setSelected}
+      headlines={headlines}
+      onHeadlines={setHeadlines}
+    />
+  );
+}
 
 const params: ViewerParams = { daemonUrl: "http://127.0.0.1:4317", sessionId: "sess_1" };
 
@@ -44,7 +62,7 @@ async function render(): Promise<void> {
   act(() => root.unmount());
   root = createRoot(container);
   await act(async () => {
-    root.render(<EvidencePanels params={params} session={undefined} events={[]} />);
+    root.render(<Harness />);
   });
   await act(async () => {
     await Promise.resolve();
@@ -55,7 +73,7 @@ async function render(): Promise<void> {
 }
 
 function tabs(): HTMLButtonElement[] {
-  return [...container.querySelectorAll<HTMLButtonElement>(".evidence-tabs button")];
+  return [...container.querySelectorAll<HTMLButtonElement>('.evidence-panels [role="tablist"] button')];
 }
 
 beforeEach(() => {
@@ -103,9 +121,9 @@ describe("the evidence tabs", () => {
     await render();
 
     const network = tabs().find((tab) => tab.textContent?.startsWith("Network"))!;
-    expect(network.querySelector(".evidence-count")?.textContent).toBe("2");
+    expect(network.querySelector(".panel-tab-badge")?.textContent).toBe("2");
     // One of the two was refused, and that is worth seeing without opening it.
-    expect(network.querySelector(".evidence-attention")?.textContent).toBe("1");
+    expect(network.querySelector(".panel-tab-attention")?.textContent).toBe("1");
   });
 
   it("does not mark a stream that has nothing wrong", async () => {
@@ -119,7 +137,7 @@ describe("the evidence tabs", () => {
     });
     await render();
 
-    expect(container.querySelector(".evidence-attention")).toBeNull();
+    expect(container.querySelector(".panel-tab-attention")).toBeNull();
   });
 
   it("shows one stream at a time and switches on click", async () => {

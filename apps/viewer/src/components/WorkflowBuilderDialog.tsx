@@ -187,7 +187,7 @@ export function WorkflowBuilderDialog({
 
           <aside className="workflow-builder-catalog" aria-labelledby="workflow-builder-catalog-title">
             <div className="workflow-builder-section-title"><span>03</span><div><h3 id="workflow-builder-catalog-title">Action library</h3><p>Add real protocol actions to the end of this flow.</p></div></div>
-            <label className="workflow-builder-search"><ProductIcon icon={Search01Icon} size={14} /><input type="search" value={catalogQuery} onChange={(event) => setCatalogQuery(event.target.value)} placeholder="Search actions" aria-label="Search workflow actions" /></label>
+            <label className="workflow-builder-search"><ProductIcon icon={Search01Icon} size={14} /><input type="search" value={catalogQuery} onChange={(event) => setCatalogQuery(event.target.value)} autoComplete="off" autoCorrect="off" spellCheck={false} placeholder="Search actions…" aria-label="Search workflow actions" /></label>
             <div className="workflow-builder-action-list">
               {visibleCatalog.map(({ step, index }) => (
                 <button type="button" key={`${step.label}-${index}`} onClick={() => addStep(index)} disabled={steps.length >= MAX_WORKFLOW_STEPS}>

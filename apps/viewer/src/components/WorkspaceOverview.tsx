@@ -213,7 +213,10 @@ export function WorkspaceOverview({
                     type="search"
                     value={sessionQuery}
                     onChange={(event) => { setSessionQuery(event.target.value); setVisibleSessionCount(SESSION_PAGE_SIZE); }}
-                    placeholder="Search session, app, simulator, or error"
+                    autoComplete="off"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    placeholder="Search session, app, simulator, or error…"
                     aria-label="Search session history"
                   />
                 </label>

@@ -62,10 +62,16 @@ export function SessionBrowserContent({
         <div className="session-finder">
           <label className="search-field compact">
             <span className="sr-only">Search sessions</span>
+            {/* Session ids and bundle ids are not words: autocorrect and the
+                spellchecker only get in the way of typing one. */}
             <input
+              type="search"
               value={query}
+              autoComplete="off"
+              autoCorrect="off"
+              spellCheck={false}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder={`Search ${sessions.length} sessions`}
+              placeholder={`Search ${sessions.length} sessions…`}
             />
           </label>
           <div className="session-finder-scopes" role="group" aria-label="Filter sessions">
