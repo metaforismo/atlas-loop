@@ -135,6 +135,18 @@ npm run cli -- state --session latest --changes --area documents
 
 Caches and `tmp` churn on their own and are skipped by default; the diff records that they were not walked, so an empty result is never read as "nothing changed". Files small enough to hash are compared by content, so saving without editing is not reported as a change. Larger ones fall back to size and modification time, and say that the change was inferred rather than proven.
 
+A screenshot shows a spinner, not which endpoint the app called. A local intercepting proxy records each request against the step that issued it:
+
+```bash
+npm run cli -- network --session latest --start
+npm run cli -- network --session latest --problems --exchanges
+npm run cli -- network --session latest --stop
+```
+
+Starting the capture installs Atlas Loop's local CA into the simulator's trust store, so HTTPS requests are readable as method, path, status, and timing rather than opaque tunnels. Credential-bearing headers — `Authorization`, `Cookie`, `Set-Cookie`, `X-Api-Key` and friends — lose their values inside the proxy, before anything reaches disk; the header *name* survives, because knowing a request carried a credential is often the answer.
+
+**Routing is a manual step.** The iOS Simulator takes its proxy configuration from this Mac's network settings: per-app environment variables (`SIMCTL_CHILD_HTTPS_PROXY`) and per-device configuration files are both ignored by `URLSession`, as measured. Until the host's proxy settings point at `proxyUrl`, nothing reaches the capture — so the capture reports `receiving`, and an empty result is never presented as an app that made no requests.
+
 Every daemon capability is reachable from both the CLI and the MCP server, so an operator and an agent can do the same things. What CPU and memory did during a run is summarised rather than dumped:
 
 ```bash
@@ -153,7 +165,7 @@ Coordinates are validated before they reach `simctl`: both axes are range-checke
 | Local daemon | Session lifecycle, app operations, input, screenshots, recordings, metrics, and evidence routes |
 | CLI | Operator-friendly access to every runtime and export command |
 | MCP server | Structured tools for coding agents using the same local controls |
-| React viewer | Operational overview with selected-device cockpit, global Live Monitor for mutable devices and workflow progress, deterministic local test compiler, visible step modules, validated launch profiles, first-class session triage with input-backend filters, searchable observed-app history, URL-backed test, library, session, app, and workflow workspaces, prefilled session launcher, keyboard command search, hardware-accurate iPhone frame, reusable multi-gesture workflows, observed-flow summary, timeline, synchronised run scrubber, stored-data diffs, evidence inspection, Atlas map, visual diffs, and handoff UI |
+| React viewer | Operational overview with selected-device cockpit, global Live Monitor for mutable devices and workflow progress, deterministic local test compiler, visible step modules, validated launch profiles, first-class session triage with input-backend filters, searchable observed-app history, URL-backed test, library, session, app, and workflow workspaces, prefilled session launcher, keyboard command search, hardware-accurate iPhone frame, reusable multi-gesture workflows, observed-flow summary, timeline, synchronised run scrubber, stored-data diffs, network capture, evidence inspection, Atlas map, visual diffs, and handoff UI |
 | Native helper | Repo-owned NDJSON action protocol with `xcuitest` and visible-window `cgevent` backends |
 | Commerce demo | Deterministic SwiftUI checkout plus an instrumented Gesture Lab for end-to-end Simulator verification |
 

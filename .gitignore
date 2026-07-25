@@ -14,3 +14,4 @@ native/**/.build/
 .env
 .env.*
 !.env.example
+.atlas-loop-ca/

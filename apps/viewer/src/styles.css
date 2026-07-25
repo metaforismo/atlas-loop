@@ -13974,3 +13974,147 @@ body::before {
   border-radius: 4px;
   padding: 1px 4px;
 }
+
+/* What the app asked the network for, during the run. */
+.network-panel {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+
+.network-caveat {
+  margin: 0;
+  border-left: 2px solid var(--warn);
+  padding-left: 10px;
+  color: var(--warn);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.network-caveat code {
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.network-scope {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.network-scope small {
+  display: block;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+
+.network-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.network-kinds {
+  display: flex;
+  gap: 4px;
+}
+
+.network-kinds button,
+.network-more {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 4px 9px;
+  background: transparent;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.network-kinds button.selected {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.network-rows {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  max-height: 300px;
+  overflow: auto;
+  list-style: none;
+}
+
+.network-rows li {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) 46px 56px 62px auto;
+  align-items: center;
+  gap: 8px;
+  border-radius: 5px;
+  padding: 5px 8px;
+  background: rgba(255, 255, 255, 0.02);
+  font-size: 11px;
+}
+
+.network-method {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+/* The row carries a tone class; the path stays neutral so the status is what
+   the eye lands on rather than every line shouting its outcome. */
+.network-target {
+  overflow: hidden;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.network-status,
+.network-timing,
+.network-bytes,
+.network-redacted {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.network-rows li.tone-good .network-status { color: var(--good); }
+.network-rows li.tone-warn .network-status { color: var(--warn); }
+.network-rows li.tone-bad .network-status { color: var(--bad); }
+
+.network-redacted {
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 1px 4px;
+  text-align: center;
+}
+
+.network-empty,
+.network-footnote {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.network-footnote strong {
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+}

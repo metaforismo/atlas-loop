@@ -531,5 +531,6 @@ export * from "./metricsSummary.js";
 
 export * from "./containerState.js";
 export * from "./deviceLogs.js";
+export * from "./networkCapture.js";
 
 export * from "./atlasJourneys.js";

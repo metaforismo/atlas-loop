@@ -466,6 +466,23 @@ export class DaemonClient {
   }
 
   /**
+   * Starts or stops the local capture proxy. Routing the simulator's traffic
+   * into it is a separate step; the result names the proxy and reports whether
+   * anything has reached it.
+   */
+  controlNetworkCapture(
+    sessionId: string,
+    request: { action?: "start" | "stop"; port?: number; trustSimulator?: boolean } = {}
+  ): Promise<unknown> {
+    return this.requestData("POST", `/sessions/${encodeURIComponent(sessionId)}/network`, "network capture", request);
+  }
+
+  /** Requests the app made during the run, aligned to the step that issued each. */
+  getSessionNetwork(sessionId: string): Promise<unknown> {
+    return this.requestData("GET", `/sessions/${encodeURIComponent(sessionId)}/network`, "network activity");
+  }
+
+  /**
    * Snapshots the app's data container and diffs it against the previous
    * capture in this session, so an action's effect on disk is visible.
    */

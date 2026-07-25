@@ -25,6 +25,9 @@ import {
   filterContainerChanges,
   formatSizeDelta,
   summariseContainerDiff,
+  filterNetworkExchanges,
+  summariseNetworkExchanges,
+  type NetworkExchange,
   type ContainerArea,
   type ContainerStateDiff,
   type MetricsSample,
@@ -314,6 +317,10 @@ export async function main(args: Args): Promise<number> {
 
   if (command === "state") {
     return stateCommand(client, flags);
+  }
+
+  if (command === "network") {
+    return networkCommand(client, flags);
   }
 
   if (command === "tap") {
@@ -1196,6 +1203,59 @@ async function deviceLogsCommand(client: DaemonClient, flags: Map<string, string
 }
 
 /**
+ * What the app asked the network for.
+ *
+ * `--start` brings up the local capture proxy and prints where to point the
+ * simulator's traffic; `--stop` writes the capture out as an artifact. Without
+ * either, the command reports what has been captured so far.
+ */
+async function networkCommand(client: DaemonClient, flags: Map<string, string | boolean>): Promise<number> {
+  const sessionId = requireFlag(flags, "session");
+
+  if (booleanFlag(flags, "start") || booleanFlag(flags, "stop")) {
+    const result = await client.controlNetworkCapture(sessionId, {
+      action: booleanFlag(flags, "stop") ? "stop" : "start",
+      port: numberFlag(flags, "port"),
+      trustSimulator: !booleanFlag(flags, "no-trust")
+    }) as Record<string, unknown>;
+    printJson(result);
+    return 0;
+  }
+
+  const view = await client.getSessionNetwork(sessionId) as {
+    active?: boolean;
+    receiving?: boolean;
+    truncated?: boolean;
+    proxyUrl?: string;
+    alignment?: { steps?: Array<{ actionId: string; exchanges: NetworkExchange[] }>; unattributed?: NetworkExchange[] };
+    exchanges?: NetworkExchange[];
+  };
+
+  const all = Array.isArray(view.exchanges) ? view.exchanges : [];
+  const matched = filterNetworkExchanges(all, {
+    search: stringFlag(flags, "search"),
+    host: stringFlag(flags, "host"),
+    method: stringFlag(flags, "method"),
+    kind: booleanFlag(flags, "problems") ? "problems" : "all"
+  });
+
+  printJson({
+    active: view.active ?? false,
+    proxyUrl: view.proxyUrl,
+    // An empty capture with nothing arriving means the traffic is not routed
+    // here, which is not the same as an app that made no requests.
+    receiving: view.receiving ?? false,
+    ...(view.truncated ? { truncated: true } : {}),
+    summary: summariseNetworkExchanges(matched),
+    ...(matched.length === all.length ? {} : { matched: matched.length, of: all.length }),
+    steps: (view.alignment?.steps ?? []).map((step) => ({ actionId: step.actionId, exchanges: step.exchanges.length })),
+    unattributed: view.alignment?.unattributed?.length ?? 0,
+    ...(booleanFlag(flags, "exchanges") ? { exchanges: matched } : {})
+  });
+  return 0;
+}
+
+/**
  * What the app wrote to disk.
  *
  * `--capture` takes a snapshot of the app's data container and reports the
@@ -1698,6 +1758,9 @@ Usage:
   atlas-loop metrics --session <id|latest> [--samples]
   atlas-loop state --session <id|latest> [--changes] [--area documents,database] [--search name]
   atlas-loop state --session <id|latest> --capture [--label "after checkout"] [--include-volatile]
+  atlas-loop network --session <id|latest> --start [--port 8899] [--no-trust]
+  atlas-loop network --session <id|latest> [--problems] [--host api.example.com] [--exchanges]
+  atlas-loop network --session <id|latest> --stop
   atlas-loop tap --session <id|latest> --x 0.5 --y 0.5
   atlas-loop tap-element --session <id|latest> --id cart.continue [--timeout-ms 5000]
   atlas-loop assert-visible --session <id|latest> --id confirmation [--timeout-ms 5000] [--screen]

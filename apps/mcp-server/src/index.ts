@@ -30,6 +30,9 @@ import {
   filterContainerChanges,
   formatSizeDelta,
   summariseContainerDiff,
+  filterNetworkExchanges,
+  summariseNetworkExchanges,
+  type NetworkExchange,
   type ContainerArea,
   type ContainerStateDiff,
   type MetricsSample,
@@ -73,6 +76,11 @@ interface McpDaemonClient {
   setLocation(sessionId: string, request: unknown): Promise<unknown>;
   getSessionDeviceLogs?(sessionId: string): Promise<unknown>;
   captureSessionState?(sessionId: string, request: { label?: string; includeVolatile?: boolean }): Promise<unknown>;
+  controlNetworkCapture?(
+    sessionId: string,
+    request: { action?: "start" | "stop"; port?: number; trustSimulator?: boolean }
+  ): Promise<unknown>;
+  getSessionNetwork?(sessionId: string): Promise<unknown>;
   getSessionState?(sessionId: string): Promise<unknown>;
   request?<T>(method: string, path: string, body?: unknown): Promise<T>;
 }
@@ -191,6 +199,30 @@ export const tools = [
       level: { type: "string", enum: ["default", "info", "debug", "error", "fault"], description: "Keep only this level." },
       search: { type: "string", description: "Case-insensitive match over message, subsystem, category, and process." },
       entries: { type: "boolean", description: "Include the matching log lines, not just the per-step counts." }
+    })
+  },
+  {
+    name: "atlas.startNetworkCapture",
+    description:
+      "Start the local capture proxy for a session, so the app's HTTP and HTTPS requests are recorded against the step that issued them. Returns the proxy URL and the CA path. Routing the simulator's traffic into the proxy is a separate step — check `receiving` before trusting an empty capture. Pass action:\"stop\" to end the capture and write it out.",
+    inputSchema: objectSchema(["sessionId"], {
+      ...sessionIdProperty(),
+      action: { type: "string", enum: ["start", "stop"], description: "Start (default) or stop the capture." },
+      port: { type: "number", description: "Loopback port for the proxy; omit to let the OS pick one." },
+      trustSimulator: { type: "boolean", description: "Install the capture CA into the simulator's trust store. Default true." }
+    })
+  },
+  {
+    name: "atlas.getNetworkActivity",
+    description:
+      "Requests the app made during a run: method, host, path, status, timing, and bytes, attributed to the step that issued each one. Filter by host, method, or text; problems:true keeps only requests that failed or were refused. `receiving:false` means nothing has reached the proxy, which is different from an app that made no requests.",
+    inputSchema: objectSchema(["sessionId"], {
+      ...sessionIdProperty(),
+      host: { type: "string", description: "Keep only exchanges with this host." },
+      method: { type: "string", description: "Keep only this HTTP method." },
+      search: { type: "string", description: "Case-insensitive match over method, host, path, status, and error." },
+      problems: { type: "boolean", description: "Keep only requests that failed or returned 4xx/5xx." },
+      exchanges: { type: "boolean", description: "Include the matching exchanges, not just the per-step counts." }
     })
   },
   {
@@ -418,6 +450,10 @@ async function callTool(name: string, args: Record<string, unknown>, runtime: To
       return (runtime.doctor ?? defaultDoctor)();
     case "atlas.getDeviceLogs":
       return deviceLogs(client, args);
+    case "atlas.startNetworkCapture":
+      return networkCapture(client, args);
+    case "atlas.getNetworkActivity":
+      return networkActivity(client, args);
     case "atlas.captureSessionState":
       return captureSessionState(client, args);
     case "atlas.getSessionState":
@@ -1210,6 +1246,72 @@ async function deviceLogs(client: McpDaemonClient, args: Record<string, unknown>
       .filter((step) => step.entries > 0),
     unattributed: (view.alignment?.unattributed ?? []).filter((entry) => keep.has(entry)).length,
     ...(args.entries === true ? { entries } : {})
+  };
+}
+
+async function networkCapture(client: McpDaemonClient, args: Record<string, unknown>): Promise<unknown> {
+  if (!client.controlNetworkCapture) {
+    throw new Error("This daemon build does not expose network capture.");
+  }
+  const sessionId = requireString(args, "sessionId");
+  const action = optionalString(args, "action") === "stop" ? "stop" : "start";
+  const result = await client.controlNetworkCapture(sessionId, {
+    action,
+    port: typeof args.port === "number" ? args.port : undefined,
+    trustSimulator: args.trustSimulator !== false
+  }) as Record<string, unknown>;
+
+  return {
+    sessionId,
+    ...result,
+    ...(action === "start" && result.active
+      ? {
+          // Say what still has to happen; a capture nobody routed traffic into
+          // looks exactly like an app that made no requests.
+          routing:
+            "The iOS Simulator takes its proxy configuration from the host's network settings. Point them at proxyUrl, then re-check `receiving`."
+        }
+      : {})
+  };
+}
+
+async function networkActivity(client: McpDaemonClient, args: Record<string, unknown>): Promise<unknown> {
+  if (!client.getSessionNetwork) {
+    throw new Error("This daemon build does not expose network activity.");
+  }
+  const sessionId = requireString(args, "sessionId");
+  const view = await client.getSessionNetwork(sessionId) as {
+    active?: boolean;
+    receiving?: boolean;
+    truncated?: boolean;
+    proxyUrl?: string;
+    alignment?: { steps?: Array<{ actionId: string; exchanges: NetworkExchange[] }>; unattributed?: NetworkExchange[] };
+    exchanges?: NetworkExchange[];
+  };
+
+  const all = Array.isArray(view.exchanges) ? view.exchanges : [];
+  const matched = filterNetworkExchanges(all, {
+    search: optionalString(args, "search"),
+    host: optionalString(args, "host"),
+    method: optionalString(args, "method"),
+    kind: args.problems === true ? "problems" : "all"
+  });
+  const keep = new Set(matched);
+
+  return {
+    sessionId,
+    active: view.active ?? false,
+    receiving: view.receiving ?? false,
+    ...(view.truncated ? { truncated: true } : {}),
+    proxyUrl: view.proxyUrl,
+    summary: summariseNetworkExchanges(matched),
+    matched: matched.length,
+    of: all.length,
+    steps: (view.alignment?.steps ?? [])
+      .map((step) => ({ actionId: step.actionId, exchanges: step.exchanges.filter((entry) => keep.has(entry)).length }))
+      .filter((step) => step.exchanges > 0),
+    unattributed: (view.alignment?.unattributed ?? []).filter((entry) => keep.has(entry)).length,
+    ...(args.exchanges === true ? { exchanges: matched } : {})
   };
 }
 
