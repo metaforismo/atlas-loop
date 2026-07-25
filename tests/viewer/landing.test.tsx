@@ -34,28 +34,44 @@ describe("LandingPage", () => {
     expect(container.querySelector(".ios-device")?.getAttribute("data-device")).toBe("iphone-16-pro");
     expect(container.querySelector(".preview-status-bar")?.textContent).toContain("9:41");
     expect(container.querySelector("[role='tablist'][aria-label='Product preview modes']")).not.toBeNull();
-    expect(container.querySelector("[aria-label='Multi-gesture flow preview']")?.textContent).toContain("Two-finger tap");
-    expect(container.querySelector("[aria-label='Observed app catalog preview']")?.textContent).toContain("Commerce Demo");
-    const appLinks = [...container.querySelectorAll("a")].filter((link) => link.getAttribute("href") === "/?sessionId=latest&workspace=apps");
-    expect(appLinks.some((link) => link.textContent?.includes("observed apps"))).toBe(true);
-    expect(container.querySelector("[aria-label='Local session control plane preview']")?.textContent).toContain("XCUITest");
-    const sessionLinks = [...container.querySelectorAll("a")].filter((link) => link.getAttribute("href") === "/?sessionId=latest&workspace=sessions");
-    expect(sessionLinks.some((link) => link.textContent?.includes("session history"))).toBe(true);
+    // Three parts, each with one lead visual; supporting capabilities keep
+    // their claim and link but give up the full-width visual.
+    expect(container.querySelectorAll(".landing-chapter")).toHaveLength(3);
+    expect(container.querySelectorAll(".landing-feature-visual")).toHaveLength(3);
+    expect(container.querySelectorAll(".landing-theme-support")).toHaveLength(3);
+    expect([...container.querySelectorAll(".landing-chapter")].map((chapter) => chapter.id)).toEqual([
+      "runtime",
+      "tests",
+      "evidence"
+    ]);
+
     expect(container.querySelector("[aria-label='Readable local test compiler preview']")?.textContent).toContain("assertVisible");
     const testLinks = [...container.querySelectorAll("a")].filter((link) => link.getAttribute("href") === "/?sessionId=latest&workspace=tests");
     expect(testLinks.some((link) => link.textContent?.includes("local tests"))).toBe(true);
-    expect(container.querySelector("[aria-label='Reusable local test assets preview']")?.textContent).toContain("ATLAS_LOOP_DEMO_ROUTE");
+
+    // Demoted capabilities keep their claim and their deep link.
+    const supportText = [...container.querySelectorAll(".landing-theme-support")].map((node) => node.textContent).join(" ");
+    expect(supportText).toContain("Test motion, not just destinations");
+    expect(supportText).toContain("Put the device somewhere");
+    expect(supportText).toContain("Reuse the steps and the startup state");
+    expect(supportText).toContain("File the issue from the failure");
     const libraryLinks = [...container.querySelectorAll("a")].filter((link) => link.getAttribute("href") === "/?sessionId=latest&workspace=library");
     expect(libraryLinks.some((link) => link.textContent?.includes("local library"))).toBe(true);
-    expect(container.textContent).toContain("Reuse the steps and the startup state.");
-    expect(container.querySelector("[aria-label='Validated local workflow builder preview']")?.textContent).toContain("Checkout recovery");
-    const workflowLinks = [...container.querySelectorAll("a")].filter((link) => link.getAttribute("href") === "/?sessionId=latest&workspace=workflows");
-    expect(workflowLinks.some((link) => link.textContent?.includes("workflow library"))).toBe(true);
+    const appLinks = [...container.querySelectorAll("a")].filter((link) => link.getAttribute("href") === "/?sessionId=latest&workspace=apps");
+    expect(appLinks.some((link) => link.textContent?.includes("observed apps"))).toBe(true);
+
+    // Every in-page nav link must resolve to a section that exists.
+    const anchors = [...container.querySelectorAll("a")]
+      .map((link) => link.getAttribute("href") ?? "")
+      .filter((href) => href.startsWith("#"));
+    expect(anchors.length).toBeGreaterThan(0);
+    for (const href of anchors) {
+      expect(container.querySelector(href), `${href} has no target`).not.toBeNull();
+    }
+
     const atlasLink = [...container.querySelectorAll("a")].find((link) => link.getAttribute("href") === "/?sessionId=latest&workspace=overview&view=atlas");
     expect(atlasLink?.textContent).toContain("Atlas map");
-    expect(container.querySelector("details.landing-mobile-menu")?.textContent).toContain("Evidence");
-    expect(container.querySelector("details.landing-mobile-menu")?.textContent).toContain("Tests");
-    expect(container.querySelector("details.landing-mobile-menu")?.textContent).toContain("Library");
+    expect(container.querySelector("details.landing-mobile-menu")?.textContent).toContain("Prove");
     expect(container.querySelector(".landing-footer-links")?.textContent).toContain("Protocol");
     expect(container.querySelector("#quickstart")?.textContent).toContain("A useful first run in three steps");
 
