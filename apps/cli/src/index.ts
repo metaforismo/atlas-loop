@@ -15,7 +15,7 @@ import {
   type SessionHandoffBundleResult
 } from "@atlas-loop/artifacts";
 import { createSimulator } from "@atlas-loop/simulator";
-import { parseDeviceLocation, LOCATION_PRESETS } from "@atlas-loop/protocol";
+import { parseDeviceLocation, LOCATION_PRESETS, summariseMetrics, formatBytes, type MetricsSample } from "@atlas-loop/protocol";
 import { loadConfig } from "@atlas-loop/config";
 import {
   buildEvidenceHtmlReport,
@@ -288,6 +288,10 @@ export async function main(args: Args): Promise<number> {
 
   if (command === "location") {
     return locationCommand(client, flags, subcommand);
+  }
+
+  if (command === "metrics") {
+    return metricsCommand(client, flags);
   }
 
   if (command === "tap") {
@@ -1135,6 +1139,31 @@ async function action(client: DaemonClient, flags: Map<string, string | boolean>
 }
 
 /**
+ * Reports what CPU and memory did during a run. The summary is the answer to
+ * "did this spike?"; `--samples` emits the raw series behind it for anything
+ * that wants to plot or diff it.
+ */
+async function metricsCommand(client: DaemonClient, flags: Map<string, string | boolean>): Promise<number> {
+  const view = await client.getSessionMetrics(requireFlag(flags, "session")) as {
+    samples?: MetricsSample[];
+    active?: boolean;
+  };
+  const samples = Array.isArray(view.samples) ? view.samples : [];
+  const summary = summariseMetrics(samples);
+
+  printJson({
+    active: view.active ?? false,
+    ...summary,
+    peak: {
+      cpuPercent: summary.cpuPercent?.max,
+      rss: summary.rssBytes === undefined ? undefined : formatBytes(summary.rssBytes.max)
+    },
+    ...(booleanFlag(flags, "samples") ? { samples } : {})
+  });
+  return 0;
+}
+
+/**
  * `location set` takes either a named preset or an explicit pair, and
  * `location clear` returns the device to its own location. Presets exist so the
  * common cases do not require looking coordinates up.
@@ -1548,6 +1577,7 @@ Usage:
   atlas-loop location set --session <id|latest> --preset tokyo
   atlas-loop location clear --session <id|latest>
   atlas-loop location presets
+  atlas-loop metrics --session <id|latest> [--samples]
   atlas-loop tap --session <id|latest> --x 0.5 --y 0.5
   atlas-loop tap-element --session <id|latest> --id cart.continue [--timeout-ms 5000]
   atlas-loop assert-visible --session <id|latest> --id confirmation [--timeout-ms 5000] [--screen]

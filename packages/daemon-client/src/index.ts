@@ -10,6 +10,7 @@ import type {
   InstallRequest,
   LaunchRequest,
   SetLocationRequest,
+  MetricsSample,
   PerformActionRequest,
   Session,
   SessionHistoryResult,
@@ -431,7 +432,9 @@ export class DaemonClient {
     return this.requestData("POST", `/sessions/${encodeURIComponent(sessionId)}/end`, "ended session");
   }
 
-  getSessionMetrics(sessionId: string): Promise<{ active: boolean; sampleCount: number; samples: EvidenceHtmlMetricsSample[] }> {
+  // The daemon serves full `MetricsSample` records; the narrower report type
+  // was under-describing the wire shape and hid the extra fields from callers.
+  getSessionMetrics(sessionId: string): Promise<{ active: boolean; sampleCount: number; samples: MetricsSample[] }> {
     return this.requestData("GET", `/sessions/${encodeURIComponent(sessionId)}/metrics`, "session metrics");
   }
 

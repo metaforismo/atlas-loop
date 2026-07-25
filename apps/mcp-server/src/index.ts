@@ -20,7 +20,8 @@ import {
 } from "@atlas-loop/daemon-client";
 import { validateActionInput, type ActionInput, type ArtifactRef, type AtlasLoopError, type BuildRequest, type Edge, type LaunchRequest, type TraceEvent } from "@atlas-loop/protocol";
 import { DEFAULT_DIFF_THRESHOLD, diffPngs } from "@atlas-loop/atlas-map";
-import { LOCATION_PRESETS, parseDeviceLocation } from "@atlas-loop/protocol";
+import { LOCATION_PRESETS, parseDeviceLocation, summariseMetrics, formatBytes, type MetricsSample } from "@atlas-loop/protocol";
+import { createSimulator } from "@atlas-loop/simulator";
 
 import { validateArtifactTarget, type ValidationReport } from "../../../scripts/verify-artifacts.ts";
 
@@ -63,6 +64,8 @@ interface ToolRuntime {
   client?: McpDaemonClient;
   loadConfig?: () => Promise<{ daemonUrl: string }>;
   viewerBaseUrl?: string;
+  /** Host toolchain check. Injected in tests; defaults to the real simulator. */
+  doctor?: () => Promise<unknown>;
 }
 
 interface SessionReadiness {
@@ -156,6 +159,21 @@ interface EventExportResult extends EventListResult {
 
 export const tools = [
   { name: "atlas.health", description: "Check local daemon readiness.", inputSchema: objectSchema([]) },
+  {
+    name: "atlas.doctor",
+    description:
+      "Check the host toolchain before starting work: Xcode, simctl, the input helper, the driver runner, and any booted Simulator. Run this first when a session or action fails for an unclear reason.",
+    inputSchema: objectSchema([])
+  },
+  {
+    name: "atlas.getSessionMetrics",
+    description:
+      "CPU and memory recorded during a run, summarised with peaks and the time each peak occurred. Pass samples:true for the raw series.",
+    inputSchema: objectSchema(["sessionId"], {
+      ...sessionIdProperty(),
+      samples: { type: "boolean", description: "Include the raw sample series alongside the summary." }
+    })
+  },
   { name: "atlas.listSessions", description: "List active and persisted local iOS Simulator sessions.", inputSchema: objectSchema([]) },
   {
     name: "atlas.listSessionHistory",
@@ -346,6 +364,10 @@ async function callTool(name: string, args: Record<string, unknown>, runtime: To
   switch (name) {
     case "atlas.health":
       return client.health();
+    case "atlas.doctor":
+      return (runtime.doctor ?? defaultDoctor)();
+    case "atlas.getSessionMetrics":
+      return sessionMetrics(client, requireString(args, "sessionId"), args.samples === true);
     case "atlas.listSessions":
       return client.listSessions();
     case "atlas.listSessionHistory":
@@ -1093,6 +1115,35 @@ function launchRequest(args: Record<string, unknown>): LaunchRequest {
     arguments: optionalStringArray(args, "arguments"),
     environment: optionalStringRecord(args, "environment")
   });
+}
+
+function defaultDoctor(): Promise<unknown> {
+  return createSimulator().doctor();
+}
+
+/**
+ * The summary answers "did this run spike?" without an agent reading a
+ * thousand JSON lines. The raw series stays available behind a flag.
+ */
+async function sessionMetrics(client: McpDaemonClient, sessionId: string, includeSamples: boolean): Promise<unknown> {
+  if (!client.getSessionMetrics) {
+    throw new Error("This daemon build does not expose session metrics.");
+  }
+
+  const view = await client.getSessionMetrics(sessionId);
+  const samples = Array.isArray(view.samples) ? (view.samples as MetricsSample[]) : [];
+  const summary = summariseMetrics(samples);
+
+  return {
+    sessionId,
+    ...summary,
+    peak: {
+      cpuPercent: summary.cpuPercent?.max,
+      rssBytes: summary.rssBytes?.max,
+      rss: summary.rssBytes === undefined ? undefined : formatBytes(summary.rssBytes.max)
+    },
+    ...(includeSamples ? { samples } : {})
+  };
 }
 
 /**

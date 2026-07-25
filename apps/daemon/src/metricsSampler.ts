@@ -1,12 +1,7 @@
 import { appendFile } from "node:fs/promises";
+import type { MetricsSample } from "@atlas-loop/protocol";
 
-export interface MetricsSample {
-  schemaVersion: "atlas-loop.metrics-sample.v1";
-  at: string;
-  pid: number;
-  cpuPercent: number;
-  rssBytes: number;
-}
+export type { MetricsSample };
 
 export interface MetricsRunCommandResult {
   exitCode: number;

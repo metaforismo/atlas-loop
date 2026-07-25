@@ -122,6 +122,15 @@ npm run cli -- location set --session latest --lat 35.689487 --lon 139.691711
 npm run cli -- location clear --session latest
 ```
 
+Every daemon capability is reachable from both the CLI and the MCP server, so an operator and an agent can do the same things. What CPU and memory did during a run is summarised rather than dumped:
+
+```bash
+npm run cli -- metrics --session latest            # peaks, means, and the window
+npm run cli -- metrics --session latest --samples  # the raw series behind them
+```
+
+`atlas.getSessionMetrics` returns the same summary to an agent, and `atlas.doctor` exposes the host toolchain check that was previously CLI-only — an agent that cannot see a missing `simctl` reports it as a product failure. A test pins the mapping: a new daemon route has to gain a CLI command and an MCP tool, or be listed with a reason it does not need one.
+
 Coordinates are validated before they reach `simctl`: both axes are range-checked, both problems are reported together, a blank value is never read as zero, and the pair is always formatted with a dot separator and no exponent notation so a host set to a comma-decimal locale — or a coordinate near the prime meridian — cannot produce a command the device silently misreads. Each change is recorded as a `setLocation` action, so a run states where it believed it was.
 
 ## What is included

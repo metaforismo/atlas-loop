@@ -1746,3 +1746,58 @@ async function writeValidArtifactSession(artifactDir: string, sessionId: string)
   }, null, 2));
   await writeFile(join(artifactDir, "actions.jsonl"), "");
 }
+
+describe("host readiness and run metrics tools", () => {
+  it("reports host toolchain readiness so an agent can check before blaming the app", async () => {
+    const result = await callToolWithEnvelope("atlas.doctor", {}, {
+      doctor: async () => ({ ok: false, checks: [{ name: "simctl", ok: false, message: "xcrun not found" }] })
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.ok && result.data).toMatchObject({ ok: false });
+  });
+
+  it("summarises run metrics with peaks instead of returning the raw series", async () => {
+    const samples = [
+      { schemaVersion: "atlas-loop.metrics-sample.v1", at: "2026-07-24T09:00:00.000Z", pid: 1, cpuPercent: 4, rssBytes: 100_000_000 },
+      { schemaVersion: "atlas-loop.metrics-sample.v1", at: "2026-07-24T09:00:30.000Z", pid: 1, cpuPercent: 89, rssBytes: 686 * 1024 * 1024 }
+    ];
+    const runtime = {
+      client: {
+        getSessionMetrics: async () => ({ active: false, sampleCount: samples.length, samples })
+      } as never
+    };
+
+    const result = await callToolWithEnvelope("atlas.getSessionMetrics", { sessionId: "latest" }, runtime);
+
+    expect(result.ok).toBe(true);
+    const data = result.ok ? (result.data as Record<string, any>) : {};
+    expect(data.peak).toMatchObject({ cpuPercent: 89, rss: "686 MB" });
+    expect(data.cpuPercent.peakAt).toBe("2026-07-24T09:00:30.000Z");
+    expect(data.durationMs).toBe(30_000);
+    // The raw series is opt-in: an agent should not have to page through it.
+    expect(data.samples).toBeUndefined();
+  });
+
+  it("returns the raw series only when asked", async () => {
+    const samples = [
+      { schemaVersion: "atlas-loop.metrics-sample.v1", at: "2026-07-24T09:00:00.000Z", pid: 1, cpuPercent: 4, rssBytes: 10 }
+    ];
+    const runtime = {
+      client: { getSessionMetrics: async () => ({ active: true, sampleCount: 1, samples }) } as never
+    };
+
+    const result = await callToolWithEnvelope("atlas.getSessionMetrics", { sessionId: "latest", samples: true }, runtime);
+
+    expect(result.ok && (result.data as Record<string, any>).samples).toHaveLength(1);
+  });
+
+  it("says so when the daemon build cannot serve metrics", async () => {
+    const result = await callToolWithEnvelope("atlas.getSessionMetrics", { sessionId: "latest" }, {
+      client: {} as never
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.ok === false && result.error.message).toContain("does not expose session metrics");
+  });
+});
