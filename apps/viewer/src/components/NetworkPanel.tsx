@@ -31,11 +31,16 @@ const KINDS: Array<{ id: NetworkFilterKind; label: string }> = [
 export function NetworkPanel({
   params,
   sessionStatus,
-  selectedActionId
+  selectedActionId,
+  embedded,
+  onHeadline
 }: {
   params: ViewerParams;
   sessionStatus: Session["status"] | undefined;
   selectedActionId?: string;
+  /** Rendered inside the evidence tabs, which supply the frame and the title. */
+  embedded?: boolean;
+  onHeadline?: (headline: { count?: string; attention?: number }) => void;
 }) {
   const [exchanges, setExchanges] = useState<NetworkExchange[]>([]);
   const [steps, setSteps] = useState<Array<{ actionId: string; exchanges: NetworkExchange[] }>>([]);
@@ -85,20 +90,31 @@ export function NetworkPanel({
   const scoped = scopeToStep && stepExchanges !== undefined ? stepExchanges : exchanges;
   const visible = useMemo(() => filterNetworkExchanges(scoped, { search: query, kind }), [scoped, query, kind]);
   const summary = useMemo(() => summariseNetworkExchanges(visible), [visible]);
+  // The tab strip reports on the whole capture, not the current filter: a tab
+  // that changed as you typed in the search box would be useless.
+  const whole = useMemo(() => summariseNetworkExchanges(exchanges), [exchanges]);
+  const problems = whole.failed + whole.errors;
+
+  useEffect(() => {
+    if (exchanges.length === 0 && !active) {
+      onHeadline?.({});
+      return;
+    }
+    onHeadline?.({ count: String(whole.total), attention: problems || undefined });
+  }, [exchanges.length, active, whole.total, problems, onHeadline]);
 
   // A capture nobody has routed traffic into looks exactly like an app that
   // stayed quiet, so the panel appears to say which it is.
   if (exchanges.length === 0 && !active) return null;
 
-  return (
-    <section className="network-panel" aria-labelledby="network-title">
-      <div className="panel-title-row">
-        <h2 id="network-title">Network</h2>
-        <span>
-          {summary.total} request{summary.total === 1 ? "" : "s"}
-          {summary.failed + summary.errors > 0 ? ` · ${summary.failed + summary.errors} failed` : ""}
-        </span>
-      </div>
+  const body = (
+    <>
+      {!embedded ? (
+        <div className="panel-title-row">
+          <h2 id="network-title">Network</h2>
+          <span>{describeOutcomes(summary)}</span>
+        </div>
+      ) : null}
 
       {active && !receiving ? (
         <p className="network-caveat">
@@ -173,9 +189,30 @@ export function NetworkPanel({
 
       {summary.slowest && summary.total > 1 ? (
         <p className="network-footnote">
-          Slowest: <strong>{exchangeLabel(summary.slowest)}</strong> at {formatDuration(summary.slowestMs)}
+          {describeOutcomes(summary)} &middot; slowest <strong>{exchangeLabel(summary.slowest)}</strong> at{" "}
+          {formatDuration(summary.slowestMs)}
         </p>
       ) : null}
+    </>
+  );
+
+  return embedded ? (
+    <div className="network-panel embedded">{body}</div>
+  ) : (
+    <section className="network-panel" aria-labelledby="network-title">
+      {body}
     </section>
   );
+}
+
+/**
+ * A server that answered 4xx or 5xx refused the request; one that never
+ * answered leaves the app not knowing what happened. Collapsing both into
+ * "failed" loses the distinction that decides what to do next.
+ */
+function describeOutcomes(summary: { total: number; errors: number; failed: number }): string {
+  const parts = [`${summary.total} request${summary.total === 1 ? "" : "s"}`];
+  if (summary.errors > 0) parts.push(`${summary.errors} refused`);
+  if (summary.failed > 0) parts.push(`${summary.failed} unanswered`);
+  return parts.join(" · ");
 }

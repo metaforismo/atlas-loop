@@ -48,12 +48,10 @@ import { EvidenceHealthPanel } from "./components/EvidenceHealthPanel.js";
 import { FlowRunPanel } from "./components/FlowRunPanel.js";
 import { AgentHandoffPanel } from "./components/HandoffPanel.js";
 import { MetadataGrid, MetadataSkeleton, SummaryEvidence } from "./components/MetadataPanel.js";
-import { MetricsPanel } from "./components/MetricsPanel.js";
 import { ReplayPanel } from "./components/ReplayPanel.js";
 import { ScreenshotView } from "./components/ScreenshotView.js";
 import { RunScrubber } from "./components/RunScrubber.js";
-import { NetworkPanel } from "./components/NetworkPanel.js";
-import { SessionStatePanel } from "./components/SessionStatePanel.js";
+import { EvidencePanels } from "./components/EvidencePanels.js";
 import { SessionBrowserContent } from "./components/SessionBrowser.js";
 import { SessionWorkspace } from "./components/SessionWorkspace.js";
 import { StartSessionPopover } from "./components/StartSessionPopover.js";
@@ -817,12 +815,24 @@ export function App() {
         </div>
 
         <div className="device-workbench">
+          {/* One dense line rather than three tiles: this said "ready / 16:55 /
+              blob" across 52px of the stage's most valuable space, while the
+              device it describes was being squeezed out of view. */}
           <div className="viewport-meta" aria-label="Screenshot metadata">
-            <MetricTile label="Screenshot" value={stageScreenshot.status} tone={stageTone} />
-            <MetricTile label={scrubbing ? "Captured" : "Updated"} value={stageIsDisplayable ? formatTime(stageScreenshot.updatedAt) : "--"} />
-            <MetricTile label="Source" value={scrubbing ? "replay" : stageIsDisplayable ? stageScreenshot.source : "--"} />
+            <span className={`viewport-meta-status tone-${stageTone}`}>{stageScreenshot.status}</span>
+            <span className="viewport-meta-sep" aria-hidden="true">·</span>
+            <span>
+              {scrubbing ? "captured" : "updated"} {stageIsDisplayable ? formatTime(stageScreenshot.updatedAt) : "--"}
+            </span>
+            <span className="viewport-meta-sep" aria-hidden="true">·</span>
+            <span>{scrubbing ? "replay" : stageIsDisplayable ? stageScreenshot.source : "--"}</span>
           </div>
 
+          {/* The device and the evidence sit side by side. Stacked, they shared
+              571px of height and the device collapsed; the column is 1150px
+              wide, so the space to spend was horizontal all along. */}
+          <div className="workbench-main">
+          <div className="device-column">
           <div className="phone-stand">
             <IOSDeviceFrame
               label={`${session?.simulator?.name ?? "iPhone Simulator"} live viewport`}
@@ -859,6 +869,17 @@ export function App() {
               </span>
             ) : null}
           </div>
+          </div>
+
+          <EvidencePanels
+            params={params}
+            session={session}
+            events={events}
+            selectedActionId={selectedActionId}
+            cursorAt={scrubMoment?.at}
+          />
+          </div>
+
           {stageZoomed && stageIsDisplayable ? (
             <ImageLightbox
               src={stageScreenshot.src}
@@ -871,7 +892,10 @@ export function App() {
           {scrubberModel ? (
             <RunScrubber
               model={scrubberModel}
-              fraction={scrubFraction ?? 0}
+              // Following the run means sitting at its newest moment, not its
+              // first; parking the head at zero implied the opposite.
+              fraction={scrubFraction ?? 1}
+              scrubbing={scrubbing}
               onScrub={(next) => {
                 setScrubAtMs(timeOfFraction(scrubberModel, next));
                 // One playhead: the step follows the position too.
@@ -882,9 +906,6 @@ export function App() {
             />
           ) : null}
           {replayModel ? <ReplayPanel replay={replayModel} /> : null}
-          <MetricsPanel params={params} sessionStatus={session?.status} events={events} cursorAt={scrubMoment?.at} />
-          <NetworkPanel params={params} sessionStatus={session?.status} selectedActionId={selectedActionId} />
-          <SessionStatePanel params={params} sessionStatus={session?.status} />
           <DeviceLogsPanel params={params} sessionStatus={session?.status} selectedActionId={selectedActionId} />
         </div>
       </section>

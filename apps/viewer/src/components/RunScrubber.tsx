@@ -13,11 +13,14 @@ const TICK_MS = 100;
 export function RunScrubber({
   model,
   fraction,
+  scrubbing,
   onScrub,
   onExit
 }: {
   model: RunScrubberModel;
   fraction: number;
+  /** False while the workspace is following the run rather than replaying it. */
+  scrubbing: boolean;
   onScrub: (fraction: number) => void;
   /** Leaves replay and returns the workspace to live state. */
   onExit: () => void;
@@ -109,9 +112,13 @@ export function RunScrubber({
         <span className="run-scrubber-time">
           {formatElapsed(moment.elapsedMs)} / {formatElapsed(model.durationMs)}
         </span>
-        <button type="button" className="run-scrubber-exit" onClick={onExit}>
-          Back to live
-        </button>
+        {/* Nothing to go back to while the workspace is already following the
+            run; the button would be a control that does nothing. */}
+        {scrubbing ? (
+          <button type="button" className="run-scrubber-exit" onClick={onExit}>
+            Back to live
+          </button>
+        ) : null}
       </div>
 
       <div
