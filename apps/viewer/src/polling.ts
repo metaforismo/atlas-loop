@@ -39,6 +39,11 @@ export function startPolling(work: () => Promise<void>, options: PollOptions): (
     }
     try {
       await work();
+    } catch {
+      // A poll's job is to keep polling. The work owns its own error
+      // reporting — every caller here already catches and surfaces its own
+      // failure — and letting the rejection escape an unawaited loop would
+      // raise an unhandled rejection on every failed cycle instead.
     } finally {
       schedule();
     }

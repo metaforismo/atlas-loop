@@ -47,9 +47,18 @@ describe("polling that waits for its own work", () => {
     expect(runs[1]! - runs[0]!).toBeGreaterThanOrEqual(140);
   });
 
-  it("keeps looping after the work throws", async () => {
-    // A daemon that blinks out must not silently end the poll for the session.
+  it("keeps looping after the work throws, without leaking the rejection", async () => {
+    // A daemon that blinks out must not end the poll for the session — and the
+    // loop is not awaited by anyone, so an escaping rejection would surface as
+    // an unhandled rejection on every failed cycle.
     vi.useFakeTimers();
+    const unhandled: unknown[] = [];
+    const onUnhandled = (event: PromiseRejectionEvent): void => {
+      event.preventDefault();
+      unhandled.push(event.reason);
+    };
+    window.addEventListener("unhandledrejection", onUnhandled);
+
     let runs = 0;
     const stop = startPolling(async () => {
       runs += 1;
@@ -58,8 +67,11 @@ describe("polling that waits for its own work", () => {
 
     await vi.advanceTimersByTimeAsync(350);
     stop();
+    await vi.runAllTicks?.();
+    window.removeEventListener("unhandledrejection", onUnhandled);
 
     expect(runs).toBeGreaterThan(2);
+    expect(unhandled).toEqual([]);
   });
 
   it("skips a run without ending the loop, and resumes on its own", async () => {
