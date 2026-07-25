@@ -4016,7 +4016,6 @@ h2 {
 
 .landing-nav,
 .landing-hero,
-.landing-manifesto,
 .landing-workflow,
 .landing-evidence,
 .landing-footer {
@@ -4526,13 +4525,6 @@ h2 {
   font-size: 8px;
 }
 
-.landing-manifesto {
-  display: grid;
-  grid-template-columns: minmax(160px, 0.55fr) minmax(480px, 1.45fr);
-  gap: 48px;
-  border-top: 1px solid var(--landing-line);
-  padding-block: 110px;
-}
 
 .landing-section-index {
   margin: 4px 0 0;
@@ -4543,8 +4535,6 @@ h2 {
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
-
-.landing-manifesto h2,
 .landing-evidence h2 {
   max-width: 760px;
   margin: 0;
@@ -4554,8 +4544,6 @@ h2 {
   letter-spacing: -0.055em;
   line-height: 1;
 }
-
-.landing-manifesto > div > p,
 .landing-evidence-copy > p:not(.landing-section-index) {
   max-width: 720px;
   margin: 24px 0 0;
@@ -4767,7 +4755,6 @@ h2 {
 @media (max-width: 760px) {
   .landing-nav,
   .landing-hero,
-  .landing-manifesto,
   .landing-workflow,
   .landing-evidence,
   .landing-footer {
@@ -4815,10 +4802,6 @@ h2 {
     min-height: 430px;
   }
 
-  .landing-manifesto {
-    grid-template-columns: 1fr;
-    padding-block: 78px;
-  }
 
   .landing-workflow {
     grid-template-columns: 1fr;
@@ -6882,8 +6865,6 @@ body::before {
 
 .landing-nav,
 .landing-hero,
-.landing-personas,
-.landing-manifesto,
 .landing-chapters,
 .landing-evidence,
 .landing-quickstart,
@@ -7084,59 +7065,6 @@ body::before {
   color: var(--landing-accent);
   font-weight: 500;
 }
-
-.landing-personas {
-  display: grid;
-  grid-template-columns: 0.55fr repeat(3, 1fr);
-  border: 1px solid var(--landing-line);
-  border-top: 0;
-}
-
-.landing-personas > p,
-.landing-personas > div {
-  min-height: 118px;
-  margin: 0;
-  border-right: 1px solid var(--landing-line);
-  padding: 20px;
-}
-
-.landing-personas > *:last-child {
-  border-right: 0;
-}
-
-.landing-personas > p {
-  color: #69696f;
-  font-family: var(--font-mono);
-  font-size: 9px;
-}
-
-.landing-personas > div {
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.landing-personas span {
-  font-family: var(--font-control);
-  font-size: 15px;
-  font-weight: 600;
-}
-
-.landing-personas small {
-  color: var(--landing-muted);
-  font-family: var(--font-mono);
-  font-size: 8px;
-}
-
-.landing-manifesto {
-  grid-template-columns: 0.42fr 1.58fr;
-  border-top: 0;
-  border-inline: 1px solid var(--landing-line);
-  padding: 140px 32px;
-}
-
-.landing-manifesto h2,
 .landing-evidence h2,
 .landing-chapter h2,
 .landing-closing h2 {
@@ -7144,13 +7072,6 @@ body::before {
   font-weight: 350;
   letter-spacing: -0.045em;
 }
-
-.landing-manifesto h2 {
-  max-width: 1000px;
-  font-size: clamp(45px, 5.4vw, 78px);
-}
-
-.landing-manifesto > div > p,
 .landing-evidence-copy > p:not(.landing-section-index),
 .landing-chapter-copy > p:not(.landing-section-index) {
   color: var(--landing-muted);
@@ -8006,8 +7927,6 @@ body::before {
 
   .landing-nav,
   .landing-hero,
-  .landing-personas,
-  .landing-manifesto,
   .landing-chapters,
   .landing-evidence,
   .landing-quickstart,
@@ -8058,26 +7977,7 @@ body::before {
     border-bottom: 1px solid var(--landing-line);
   }
 
-  .landing-personas {
-    grid-template-columns: 1fr;
-  }
 
-  .landing-personas > p,
-  .landing-personas > div {
-    min-height: 92px;
-    border-right: 0;
-    border-bottom: 1px solid var(--landing-line);
-  }
-
-  .landing-personas > *:last-child {
-    border-bottom: 0;
-  }
-
-  .landing-manifesto {
-    grid-template-columns: 1fr;
-    gap: 44px;
-    padding: 90px 22px;
-  }
 
   .landing-chapter-copy {
     padding: 70px 22px;
@@ -13464,4 +13364,80 @@ body::before {
 .meta-grid-missing .meta-grid,
 .handoff-reference > * + * {
   margin-top: 8px;
+}
+
+/*
+ * Supporting capabilities inside a part. They keep their claim and their link
+ * and give up only the visual, so the page carries three pieces of proof
+ * instead of eight near-identical ones.
+ */
+.landing-theme-support {
+  grid-column: 1 / -1;
+  /*
+   * Reversed chapters put the copy at `order: 2`, so a third child must be
+   * ordered explicitly or it lands between the visual and the copy and breaks
+   * the two-column pairing.
+   */
+  order: 3;
+  display: grid;
+  grid-template-columns: minmax(140px, 0.2fr) minmax(0, 1fr);
+  gap: clamp(20px, 4vw, 56px);
+  border-top: 1px solid var(--landing-line);
+  padding: clamp(24px, 3vw, 40px) clamp(24px, 4vw, 76px);
+}
+
+.landing-theme-support > .landing-section-index {
+  margin: 0;
+}
+
+.landing-theme-support ul {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: clamp(18px, 2.5vw, 40px);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.landing-theme-support li {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+}
+
+.landing-theme-support strong {
+  font-size: 15px;
+  font-weight: 620;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+
+.landing-theme-support p {
+  margin: 0;
+  color: var(--landing-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.landing-theme-support .landing-inline-link {
+  justify-self: start;
+  margin-top: 2px;
+}
+
+/* The hero now states who the page is for instead of a separate band. */
+.landing-audience {
+  max-width: 52ch;
+  margin: 22px 0 0;
+  color: var(--landing-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+@media (max-width: 900px) {
+  .landing-theme-support {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
 }

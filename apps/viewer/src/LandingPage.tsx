@@ -18,12 +18,11 @@ export function LandingPage() {
           <img src="/atlas-loop-mark.png" alt="" />
           <span>Atlas Loop</span>
         </a>
+        {/* Every link resolves to a section that exists on the page. */}
         <div className="landing-nav-links">
-          <a href="#runtime">Runtime</a>
-          <a href="#tests">Tests</a>
-          <a href="#library">Library</a>
-          <a href="#workflows">Workflows</a>
-          <a href="#evidence">Evidence</a>
+          <a href="#runtime">Drive</a>
+          <a href="#tests">Author</a>
+          <a href="#evidence">Prove</a>
           <a href="#atlas">Atlas</a>
           <a href="#quickstart">Quickstart</a>
           <a href={GITHUB_URL} target="_blank" rel="noreferrer">
@@ -33,14 +32,9 @@ export function LandingPage() {
         <details className="landing-mobile-menu">
           <summary>Menu</summary>
           <div>
-            <a href="#runtime">Runtime</a>
-            <a href="#apps">Apps</a>
-            <a href="#sessions">Sessions</a>
-            <a href="#tests">Tests</a>
-            <a href="#library">Library</a>
-            <a href="#gestures">Gestures</a>
-            <a href="#workflows">Workflows</a>
-            <a href="#evidence">Evidence</a>
+            <a href="#runtime">Drive</a>
+            <a href="#tests">Author</a>
+            <a href="#evidence">Prove</a>
             <a href="#atlas">Atlas</a>
             <a href="#quickstart">Quickstart</a>
             <a href={GITHUB_URL} target="_blank" rel="noreferrer">GitHub</a>
@@ -62,7 +56,9 @@ export function LandingPage() {
             <span>OF TRUTH.</span>
           </h1>
           <p className="landing-lede">
-            Give coding agents a real iOS Simulator, durable evidence, and an observed map of every flow—without shipping source code or runtime data to a hosted test cloud.
+            Selectors describe the implementation. Evidence describes the product. Atlas Loop gives coding agents a real
+            iOS Simulator and keeps the observable run—screen, gesture, result, trace, artifacts—so a red state carries
+            enough context to act on, without shipping source code to a hosted test cloud.
           </p>
           <div className="landing-actions">
             <a className="landing-primary-action" href={VIEWER_URL}>
@@ -72,6 +68,10 @@ export function LandingPage() {
               Read the source
             </a>
           </div>
+          <p className="landing-audience">
+            For engineers reproducing failures, QA and product reviewing the real flow, and coding agents that need to
+            observe before they change code.
+          </p>
         </div>
 
         <HeroWorkbench />
@@ -83,108 +83,89 @@ export function LandingPage() {
         </div>
       </section>
 
-      <section className="landing-personas" aria-label="Built for the people and agents shipping mobile software">
-        <p>BUILT FOR</p>
-        <div><span>ENGINEERS</span><small>Reproduce failures with evidence</small></div>
-        <div><span>QA + PRODUCT</span><small>Review the flow humans experience</small></div>
-        <div><span>CODING AGENTS</span><small>Observe before changing code</small></div>
-      </section>
-
-      <section className="landing-manifesto" id="runtime">
-        <p className="landing-section-index">THE PROBLEM</p>
-        <div>
-          <h2>Selectors describe the implementation. Evidence describes the product.</h2>
-          <p>
-            Mobile test suites lose trust when harmless hierarchy changes look like product regressions. Atlas Loop keeps the observable run—the screen, gesture, result, trace, and artifacts—so a red state carries enough context to act on.
-          </p>
-        </div>
-      </section>
-
       <section className="landing-chapters" aria-label="Atlas Loop capabilities">
         <ChapterIndex />
-        <article className="landing-chapter" id="live-device">
+
+        <article className="landing-chapter" id="runtime">
           <div className="landing-chapter-copy">
-            <p className="landing-section-index">LIVE DEVICE CLI</p>
+            <p className="landing-section-index">Drive a real Simulator</p>
             <h2>One local runtime. Every operator.</h2>
             <p>Start a session from the workspace, CLI, or MCP. Build, install, launch, and drive the same Simulator while Atlas Loop keeps the state synchronized.</p>
             <ul><li>Auto-select a booted Simulator</li><li>XCUITest and Core Graphics input</li><li>Deep links to the exact active run</li></ul>
           </div>
           <RuntimeVisual />
-        </article>
-
-        <article className="landing-chapter landing-chapter-reverse" id="apps">
-          <div className="landing-chapter-copy">
-            <p className="landing-section-index">OBSERVED APP CATALOG</p>
-            <h2>Every run should make the next run faster.</h2>
-            <p>Atlas Loop turns app identity already captured in local session evidence into a focused launchpad. Find prior runs, pin the apps that matter, and prefill the next Simulator session without inventing a second registry.</p>
-            <ul><li>Derived from bundle, scheme, or app path</li><li>Failed and blocked runs surface automatically</li><li>Browser-local pins with no hosted account</li></ul>
-            <a className="landing-inline-link" href={APPS_URL}>Browse observed apps →</a>
-          </div>
-          <AppCatalogVisual />
-        </article>
-
-        <article className="landing-chapter" id="sessions">
-          <div className="landing-chapter-copy">
-            <p className="landing-section-index">SESSION CONTROL PLANE</p>
-            <h2>A run should never disappear into a log folder.</h2>
-            <p>See every local run in one focused surface, or open the global Live Monitor without replacing the workspace underneath. Filter history, inspect evidence health, and repeat a run with the captured app already filled in.</p>
-            <ul><li>Live device and workflow activity without account sync</li><li>XCUITest and Core Graphics filters</li><li>Evidence, failures, duration, and Simulator context</li></ul>
-            <a className="landing-inline-link" href={SESSIONS_URL}>Open session history →</a>
-          </div>
-          <SessionControlVisual />
+          <ThemeSupport
+            label="Also in this part"
+            items={[
+              {
+                title: "Test motion, not just destinations",
+                detail: "Pinch, rotate, two-finger tap, long press, and leading-edge navigation—the gestures selectors cannot describe."
+              },
+              {
+                title: "Put the device somewhere",
+                detail: "Place the Simulator at any coordinate or a named city, so business logic that differs by region is actually exercised."
+              }
+            ]}
+          />
         </article>
 
         <article className="landing-chapter landing-chapter-reverse" id="tests">
           <div className="landing-chapter-copy">
-            <p className="landing-section-index">READABLE LOCAL TESTS</p>
+            <p className="landing-section-index">Author tests you can read</p>
             <h2>Readable steps. Exact actions. No hidden planner.</h2>
             <p>Write one command per line and inspect the exact Atlas Loop action it becomes before the Simulator is touched. Invalid lines stay local, point to the source, and block the run.</p>
             <ul><li>Deterministic commands with line-level errors</li><li>Optional app guard prevents wrong-target runs</li><li>Latest results stay beside each browser-local test</li></ul>
             <a className="landing-inline-link" href={TESTS_URL}>Open local tests →</a>
           </div>
           <TestAuthoringVisual />
+          <ThemeSupport
+            label="Also in this part"
+            items={[
+              {
+                title: "Reuse the steps and the startup state",
+                detail: "Proven command blocks and deterministic launch profiles, revalidated at every storage boundary.",
+                href: LIBRARY_URL,
+                linkLabel: "Open the local library"
+              },
+              {
+                title: "Build once, inspect every action",
+                detail: "Compose reusable gesture workflows from a blank start or a proven template, with live protocol validation.",
+                href: WORKFLOW_URL,
+                linkLabel: "Open the workflow library"
+              }
+            ]}
+          />
         </article>
 
-        <article className="landing-chapter" id="library">
+        <article className="landing-chapter" id="evidence">
           <div className="landing-chapter-copy">
-            <p className="landing-section-index">LOCAL TEST ASSETS</p>
-            <h2>Reuse the steps and the startup state.</h2>
-            <p>Keep proven command blocks and deterministic launch profiles in one local library. Tests stay readable, while installed apps can open at the exact fixture a run expects.</p>
-            <ul><li>Built-in and browser-saved step modules</li><li>Exact launch arguments and non-secret environment values</li><li>Validated again at every storage boundary</li></ul>
-            <a className="landing-inline-link" href={LIBRARY_URL}>Open the local library →</a>
-          </div>
-          <ModuleLibraryVisual />
-        </article>
-
-        <article className="landing-chapter landing-chapter-reverse" id="gestures">
-          <div className="landing-chapter-copy">
-            <p className="landing-section-index">MULTI-GESTURE FLOWS</p>
-            <h2>Test motion, not just destinations.</h2>
-            <p>Drive the gestures selectors cannot describe: pinch, rotate, two-finger tap, long press, edge navigation, swipes, waits, and evidence checkpoints.</p>
-            <ul><li>Native XCUITest multi-touch</li><li>Leading-edge iOS navigation</li><li>Per-step failure and cancellation</li></ul>
-          </div>
-          <GestureVisual />
-        </article>
-
-        <article className="landing-chapter" id="workflows">
-          <div className="landing-chapter-copy">
-            <p className="landing-section-index">LOCAL WORKFLOW LIBRARY</p>
-            <h2>Build once. Inspect every action.</h2>
-            <p>Compose reusable workflows where they live. Start blank or from a proven template, configure every gesture and accessibility target, then save the validated flow locally.</p>
-            <ul><li>Focused builder with live protocol validation</li><li>Editable native multi-touch and element actions</li><li>Draft protection and safe browser-local storage</li></ul>
-            <a className="landing-inline-link" href={WORKFLOW_URL}>Open the workflow library →</a>
-          </div>
-          <WorkflowVisual />
-        </article>
-
-        <article className="landing-chapter landing-chapter-reverse" id="evidence">
-          <div className="landing-chapter-copy">
-            <p className="landing-section-index">REPLAYABLE EVIDENCE</p>
+            <p className="landing-section-index">Keep the evidence</p>
             <h2>A failure should explain itself.</h2>
             <p>Every action can be paired with screenshots, video markers, CPU, memory, trace events, and artifact integrity. The handoff view turns that record into reproducible next commands.</p>
             <ul><li>Action-to-artifact correlation</li><li>Visual diff and replay tools</li><li>Portable artifact health reports</li></ul>
           </div>
           <EvidenceVisual />
+          <ThemeSupport
+            label="Also in this part"
+            items={[
+              {
+                title: "A run should never disappear into a log folder",
+                detail: "Every local run in one surface, filtered by status and input path, with the failure reason on the row.",
+                href: SESSIONS_URL,
+                linkLabel: "Open session history"
+              },
+              {
+                title: "Every run makes the next run faster",
+                detail: "App identity already captured in evidence becomes a launchpad that prefills the next session.",
+                href: APPS_URL,
+                linkLabel: "Browse observed apps"
+              },
+              {
+                title: "File the issue from the failure",
+                detail: "Turn a red run into a ticket carrying the failing step, the reason, the device, and a link back to this exact evidence."
+              }
+            ]}
+          />
         </article>
       </section>
 
@@ -233,16 +214,49 @@ export function LandingPage() {
   );
 }
 
+/**
+ * Three parts, in the order the product works: drive the device, author what
+ * it should do, keep what it produced. Eight equally-weighted chapters gave a
+ * first-time reader nothing to hold on to.
+ */
 const CHAPTERS: Array<{ id: string; label: string }> = [
-  { id: "live-device", label: "Live device" },
-  { id: "apps", label: "Apps" },
-  { id: "sessions", label: "Sessions" },
-  { id: "tests", label: "Tests" },
-  { id: "library", label: "Library" },
-  { id: "gestures", label: "Gestures" },
-  { id: "workflows", label: "Workflows" },
-  { id: "evidence", label: "Evidence" }
+  { id: "runtime", label: "Drive" },
+  { id: "tests", label: "Author" },
+  { id: "evidence", label: "Prove" }
 ];
+
+interface ThemeSupportItem {
+  title: string;
+  detail: string;
+  href?: string;
+  linkLabel?: string;
+}
+
+/**
+ * Capabilities that belong to a part but do not lead it. They keep their claim
+ * and their link, and give up only the full-width visual, so the page shows
+ * three pieces of proof instead of eight.
+ */
+function ThemeSupport({ label, items }: { label: string; items: ThemeSupportItem[] }) {
+  return (
+    <aside className="landing-theme-support" aria-label={label}>
+      <p className="landing-section-index">{label}</p>
+      <ul>
+        {items.map((item) => (
+          <li key={item.title}>
+            <strong>{item.title}</strong>
+            <p>{item.detail}</p>
+            {item.href && item.linkLabel ? (
+              <a className="landing-inline-link" href={item.href}>
+                {item.linkLabel} →
+              </a>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+    </aside>
+  );
+}
 
 /**
  * Sticky index for the capability chapters. The active entry is whichever
@@ -404,56 +418,7 @@ function RuntimeVisual() {
   );
 }
 
-function AppCatalogVisual() {
-  const apps = [
-    { initials: "CD", name: "Commerce Demo", id: "app.atlasloop.CommerceDemo", runs: "12", state: "active" },
-    { initials: "GL", name: "Gesture Lab", id: "app.atlasloop.GestureLab", runs: "8", state: "observed" },
-    { initials: "LP", name: "Lantern Pay", id: "dev.lantern.payments", runs: "3", state: "attention" }
-  ];
-  return (
-    <div className="landing-feature-visual app-catalog-visual" aria-label="Observed app catalog preview">
-      <div className="feature-visual-bar"><span>LOCAL APP HISTORY</span><small>3 OBSERVED</small></div>
-      <div className="app-catalog-toolbar"><span>⌕ Search bundle or Simulator</span><b>LAST OBSERVED ↓</b></div>
-      <div className="app-catalog-list">
-        {apps.map((app, index) => (
-          <div className={index === 0 ? "selected" : ""} key={app.id}>
-            <i>{app.initials}</i>
-            <span><strong>{app.name}</strong><small>{app.id}</small></span>
-            <em><b>{app.runs}</b><small>runs</small></em>
-            <mark className={app.state}>{app.state}</mark>
-          </div>
-        ))}
-      </div>
-      <div className="app-catalog-footer"><span><small>SELECTED</small>Commerce Demo · iPhone 16 Pro</span><a href={APPS_URL}>START NEW RUN →</a></div>
-    </div>
-  );
-}
 
-function SessionControlVisual() {
-  const sessions = [
-    { id: "sess_4f8b", app: "Commerce Demo", state: "running", input: "xcuitest", evidence: "14" },
-    { id: "sess_a91e", app: "Gesture Lab", state: "ended", input: "xcuitest", evidence: "9" },
-    { id: "sess_27cd", app: "Lantern Pay", state: "attention", input: "cgevent", evidence: "3" }
-  ];
-  return (
-    <div className="landing-feature-visual session-control-visual" aria-label="Local session control plane preview">
-      <div className="feature-visual-bar"><span>LOCAL SESSION HISTORY</span><small>1 LIVE · 26 TOTAL</small></div>
-      <div className="session-control-live"><i /><span><strong>Commerce Demo is running</strong><small>iPhone 16 Pro · XCUITest</small></span><b>OPEN EVIDENCE →</b></div>
-      <div className="session-control-tabs"><strong>ALL</strong><span>LIVE</span><span>ATTENTION</span><span>COMPLETE</span><small>INPUT: ALL ↓</small></div>
-      <div className="session-control-list">
-        {sessions.map((session) => (
-          <div key={session.id}>
-            <span><strong>{session.app}</strong><small>{session.id}</small></span>
-            <mark className={session.state}>{session.state}</mark>
-            <code>{session.input}</code>
-            <b>{session.evidence}<small> evidence</small></b>
-          </div>
-        ))}
-      </div>
-      <div className="session-control-footer"><span><small>SELECTED</small>sess_4f8b · 1m 42s</span><a href={SESSIONS_URL}>BROWSE RUNS →</a></div>
-    </div>
-  );
-}
 
 function TestAuthoringVisual() {
   const commands = [
@@ -484,67 +449,8 @@ function TestAuthoringVisual() {
   );
 }
 
-function ModuleLibraryVisual() {
-  const modules = [
-    { name: "Checkout handoff", tag: "commerce", steps: "5 steps" },
-    { name: "Settle and capture", tag: "evidence", steps: "2 steps" },
-    { name: "Native canvas stress", tag: "multi-touch", steps: "4 steps" }
-  ];
-  return (
-    <div className="landing-feature-visual module-library-visual" aria-label="Reusable local test assets preview">
-      <div className="feature-visual-bar"><span>LOCAL TEST ASSETS</span><small>6 READY</small></div>
-      <div className="module-library-tabs"><span className="active">STEP MODULES <b>3</b></span><span>LAUNCH PROFILES <b>3</b></span></div>
-      <div className="module-library-body">
-        <div className="module-library-list">
-          <header><span>MODULE</span><small>VISIBLE SOURCE</small></header>
-          {modules.map((module, index) => <div className={index === 0 ? "selected" : ""} key={module.name}><i /><span><strong>{module.name}</strong><small>{module.tag}</small></span><em>{module.steps}</em></div>)}
-        </div>
-        <div className="module-library-insert launch-profile-visual-card">
-          <header><span>DETERMINISTIC STARTUP</span><em>VALID</em></header>
-          <div><small>PROFILE</small><strong>Gesture Lab</strong></div>
-          <code>app.atlasloop.CommerceDemo</code>
-          <code><b>ATLAS_LOOP_DEMO_ROUTE</b>=gesture-lab</code>
-          <small>One click prepares the installed app and native multi-touch canvas. Secret-like keys are never stored.</small>
-        </div>
-      </div>
-      <div className="module-library-footer"><span><i /> Readable source · safe local launch state</span><a href={LIBRARY_URL}>OPEN LIBRARY →</a></div>
-    </div>
-  );
-}
 
-function GestureVisual() {
-  const steps = ["Pinch open", "Rotate clockwise", "Two-finger tap", "Capture checkpoint"];
-  return (
-    <div className="landing-feature-visual gesture-visual" aria-label="Multi-gesture flow preview">
-      <div className="feature-visual-bar"><span>NATIVE GESTURE AUDIT / XCUITEST</span><small>4 STEPS</small></div>
-      <ol>
-        {steps.map((step, index) => <li key={step}><b>{String(index + 1).padStart(2, "0")}</b><span><strong>{step}</strong><small>{index === 0 ? "pinch · scale 1.8" : index === 1 ? "rotate · 1.57 rad" : index === 2 ? "twoFingerTap" : "screenshot"}</small></span><i /></li>)}
-      </ol>
-      <div className="gesture-visual-footer"><span>Native multi-touch</span><a href={WORKFLOW_URL}>OPEN FLOWS →</a></div>
-    </div>
-  );
-}
 
-function WorkflowVisual() {
-  const actions = [
-    { name: "Tap checkout.continue", meta: "tapElement" },
-    { name: "Wait for layout", meta: "wait · 500 ms" },
-    { name: "Pinch confirmation", meta: "pinch · scale 1.8" }
-  ];
-  return (
-    <div className="landing-feature-visual workflow-visual workflow-builder-visual" aria-label="Validated local workflow builder preview">
-      <div className="feature-visual-bar"><span>CREATE LOCAL WORKFLOW</span><small>VALID</small></div>
-      <div className="workflow-builder-visual-summary"><span><small>WORKFLOW</small><strong>Checkout recovery</strong></span><span><small>STEPS</small><strong>3</strong></span><span><small>INPUT</small><strong>XCUITest</strong></span></div>
-      <div className="workflow-builder-visual-body">
-        <ol>
-          {actions.map((action, index) => <li key={action.name}><b>{String(index + 1).padStart(2, "0")}</b><span><strong>{action.name}</strong><small>{action.meta}</small></span><i /></li>)}
-        </ol>
-        <aside><small>ACTION LIBRARY</small><span>Swipe up <b>+</b></span><span>Two-finger tap <b>+</b></span><span>Capture checkpoint <b>+</b></span></aside>
-      </div>
-      <div className="workflow-visual-run"><span><small>VALIDATION</small>Every action compiles</span><a href={WORKFLOW_URL}>SAVE WORKFLOW →</a></div>
-    </div>
-  );
-}
 
 function EvidenceVisual() {
   return (
