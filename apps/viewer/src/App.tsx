@@ -52,6 +52,7 @@ import { ReplayPanel } from "./components/ReplayPanel.js";
 import { ScreenshotView } from "./components/ScreenshotView.js";
 import { RunScrubber } from "./components/RunScrubber.js";
 import { EvidencePanels } from "./components/EvidencePanels.js";
+import { PanelTabs } from "./components/PanelTabs.js";
 import { SessionBrowserContent } from "./components/SessionBrowser.js";
 import { SessionWorkspace } from "./components/SessionWorkspace.js";
 import { StartSessionPopover } from "./components/StartSessionPopover.js";
@@ -133,6 +134,22 @@ function RailNavLink({ label, icon, href }: { label: string; icon: RailIcon; hre
   );
 }
 
+type InspectorTabId = "session" | "actions" | "artifacts" | "handoff";
+
+/**
+ * Which inspector tab owns each deep-link anchor.
+ *
+ * The rail, the command palette, and the workspace overview all scroll to these
+ * ids. Now that the sections are tabs, the tab has to open first — a hidden
+ * panel has no layout to scroll to.
+ */
+const INSPECTOR_TAB_FOR_ANCHOR: Record<string, InspectorTabId> = {
+  "viewer-actions": "actions",
+  "viewer-artifacts": "artifacts",
+  "viewer-handoff": "handoff",
+  "viewer-health": "session"
+};
+
 export function App() {
   const params = useViewerParams();
   const {
@@ -161,6 +178,7 @@ export function App() {
   const [actionForm, setActionForm] = useState<ViewerActionFormState>(DEFAULT_ACTION_FORM);
   const [tapTarget, setTapTarget] = useState<ScreenshotTapTarget | undefined>();
   const [selectedActionId, setSelectedActionId] = useState<string | undefined>();
+  const [inspectorTab, setInspectorTab] = useState<InspectorTabId>("session");
   const [stageZoomed, setStageZoomed] = useState(false);
   const [flowFocus, setFlowFocus] = useState(false);
   const [runtimeSettingsOpen, setRuntimeSettingsOpen] = useState(false);
@@ -440,6 +458,8 @@ export function App() {
 
   const openWorkspaceSection = (id: string): void => {
     openWorkspaceView("evidence");
+    const tab = INSPECTOR_TAB_FOR_ANCHOR[id];
+    if (tab) setInspectorTab(tab);
     window.requestAnimationFrame(() => scrollToWorkspaceSection(id));
   };
 
@@ -545,6 +565,82 @@ export function App() {
       />
     );
   }
+
+  /* Lifted out of the tree so the tab list stays readable; the markup and
+     its `viewer-artifacts` anchor are unchanged. */
+  const artifactsBody = (
+          <section id="viewer-artifacts" className="inspector-section artifact-section">
+              <div className="panel-title-row">
+                <h2>Artifacts</h2>
+                <span>
+                  {artifacts.length > 0 && filteredArtifacts.length !== artifacts.length
+                    ? `${filteredArtifacts.length}/${artifacts.length} shown`
+                    : latestArtifact
+                      ? formatDateTime(latestArtifact.createdAt)
+                      : "--"}
+                </span>
+              </div>
+
+              {artifacts.length > 0 ? (
+                <div className="evidence-controls">
+                  <div className="filter-strip" aria-label="Artifact type filters">
+                    {artifactFilters.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        className={artifactTypeFilter === option.value ? "selected" : ""}
+                        aria-pressed={artifactTypeFilter === option.value}
+                        onClick={() => setArtifactTypeFilter(option.value)}
+                      >
+                        <span>{option.label}</span>
+                        <strong>{option.count}</strong>
+                      </button>
+                    ))}
+                  </div>
+                  <label className="search-field">
+                    <span className="sr-only">Search artifacts</span>
+                    <input value={artifactQuery} onChange={(event) => setArtifactQuery(event.target.value)} placeholder="Search artifacts" />
+                  </label>
+                </div>
+              ) : null}
+
+              <div className="artifact-browser">
+                {artifacts.length === 0 ? (
+                  <EmptyState
+                    title={isLatestFirstRun ? firstRunState.title : "No artifacts yet"}
+                    detail={
+                      isLatestFirstRun
+                        ? firstRunState.detail
+                        : "Screenshots, logs, traces, and bundles will appear here as the daemon reports them."
+                    }
+                  />
+                ) : filteredArtifacts.length === 0 ? (
+                  <EmptyState title="No matching artifacts" detail="Clear the artifact search or switch the type filter to inspect the full evidence set." />
+                ) : (
+                  <>
+                    <div
+                      className="artifact-list"
+                      role="listbox"
+                      aria-label="Artifacts"
+                      aria-orientation="vertical"
+                      onKeyDown={handleArtifactListKeyDown}
+                    >
+                      {filteredArtifacts.map((artifact) => (
+                        <ArtifactRow
+                          key={artifact.id}
+                          id={artifactOptionId(artifact.id)}
+                          artifact={artifact}
+                          selected={selectedArtifact?.id === artifact.id}
+                          onSelect={() => setSelectedArtifactId(artifact.id)}
+                        />
+                      ))}
+                    </div>
+                    <ArtifactDetails artifact={selectedArtifact} />
+                  </>
+                )}
+              </div>
+            </section>
+  );
 
   return (
     <main className={`viewer-shell health-${health} ${railCollapsed ? "rail-collapsed" : ""} ${flowFocus ? "flow-focus" : ""} ${workspaceView === "overview" ? "workspace-overview-active" : ""} ${workspaceView === "tests" ? "workspace-tests-active" : ""} ${workspaceView === "library" ? "workspace-library-active" : ""} ${workspaceView === "sessions" ? "workspace-sessions-active" : ""} ${workspaceView === "apps" ? "workspace-apps-active" : ""} ${workspaceView === "workflows" ? "workspace-workflows-active" : ""}`}>
@@ -911,107 +1007,71 @@ export function App() {
       </section>
 
       <aside className="inspector panel" aria-label="Session metadata and artifacts">
-        <section className="inspector-section session-overview">
-          <div className="panel-title-row">
-            <h2>Evidence inspector</h2>
-            <span>{session?.updatedAt ? formatTime(session.updatedAt) : "--"}</span>
-          </div>
-          {session ? <MetadataGrid session={session} /> : <MetadataSkeleton />}
-          {sessionSummary ? <SummaryEvidence summary={sessionSummary} /> : null}
-          <ActionDetailPanel pairs={actionEvidencePairs} selectedActionId={selectedActionId} onSelect={setSelectedActionId} />
-          <div id="viewer-handoff">
-            <AgentHandoffPanel brief={handoffBrief} />
-            <button type="button" className="issue-export-trigger" onClick={() => setIssueExportOpen(true)}>
-              <span>Create an issue from this run</span>
-              <small>{flowRunSummary.failed > 0 ? `${flowRunSummary.failed} failed action${flowRunSummary.failed === 1 ? "" : "s"} to attach` : "Run context and evidence link attached"}</small>
-            </button>
-          </div>
-          <div id="viewer-health"><EvidenceHealthPanel health={artifactHealth} status={artifactHealthStatus} error={artifactHealthError} /></div>
-          {session?.error ? <ErrorNotice message={session.error.message} compact /> : null}
-        </section>
-
-        <div id="viewer-actions">
-          <DeviceLocationPanel params={params} selectedSessionId={selectedSessionId} mutationState={actionMutationState} />
-          <ActionPanel
-            params={params}
-            selectedSessionId={selectedSessionId}
-            mutationState={actionMutationState}
-            form={actionForm}
-            onFieldChange={updateActionFormField}
-          />
-        </div>
-
-        <section id="viewer-artifacts" className="inspector-section artifact-section">
-          <div className="panel-title-row">
-            <h2>Artifacts</h2>
-            <span>
-              {artifacts.length > 0 && filteredArtifacts.length !== artifacts.length
-                ? `${filteredArtifacts.length}/${artifacts.length} shown`
-                : latestArtifact
-                  ? formatDateTime(latestArtifact.createdAt)
-                  : "--"}
-            </span>
-          </div>
-
-          {artifacts.length > 0 ? (
-            <div className="evidence-controls">
-              <div className="filter-strip" aria-label="Artifact type filters">
-                {artifactFilters.map((option) => (
-                  <button
-                    key={option.value}
-                    type="button"
-                    className={artifactTypeFilter === option.value ? "selected" : ""}
-                    aria-pressed={artifactTypeFilter === option.value}
-                    onClick={() => setArtifactTypeFilter(option.value)}
-                  >
-                    <span>{option.label}</span>
-                    <strong>{option.count}</strong>
-                  </button>
-                ))}
-              </div>
-              <label className="search-field">
-                <span className="sr-only">Search artifacts</span>
-                <input value={artifactQuery} onChange={(event) => setArtifactQuery(event.target.value)} placeholder="Search artifacts" />
-              </label>
-            </div>
-          ) : null}
-
-          <div className="artifact-browser">
-            {artifacts.length === 0 ? (
-              <EmptyState
-                title={isLatestFirstRun ? firstRunState.title : "No artifacts yet"}
-                detail={
-                  isLatestFirstRun
-                    ? firstRunState.detail
-                    : "Screenshots, logs, traces, and bundles will appear here as the daemon reports them."
-                }
-              />
-            ) : filteredArtifacts.length === 0 ? (
-              <EmptyState title="No matching artifacts" detail="Clear the artifact search or switch the type filter to inspect the full evidence set." />
-            ) : (
-              <>
-                <div
-                  className="artifact-list"
-                  role="listbox"
-                  aria-label="Artifacts"
-                  aria-orientation="vertical"
-                  onKeyDown={handleArtifactListKeyDown}
-                >
-                  {filteredArtifacts.map((artifact) => (
-                    <ArtifactRow
-                      key={artifact.id}
-                      id={artifactOptionId(artifact.id)}
-                      artifact={artifact}
-                      selected={selectedArtifact?.id === artifact.id}
-                      onSelect={() => setSelectedArtifactId(artifact.id)}
-                    />
-                  ))}
+        {/* One at a time: stacked, these four cost 4103px inside a 664px column,
+            so reaching the last meant scrolling past the rest every time. */}
+        <PanelTabs
+          label="Inspector section"
+          selected={inspectorTab}
+          onSelect={setInspectorTab}
+          tabs={[
+            {
+              id: "session" as const,
+              label: "Session",
+              attention: artifactHealth?.ok === false || Boolean(session?.error),
+              body: (
+                <section className="inspector-section session-overview">
+                  <div className="panel-title-row">
+                    <h2>Evidence inspector</h2>
+                    <span>{session?.updatedAt ? formatTime(session.updatedAt) : "--"}</span>
+                  </div>
+                  {session ? <MetadataGrid session={session} /> : <MetadataSkeleton />}
+                  {sessionSummary ? <SummaryEvidence summary={sessionSummary} /> : null}
+                  <ActionDetailPanel pairs={actionEvidencePairs} selectedActionId={selectedActionId} onSelect={setSelectedActionId} />
+                  <div id="viewer-health"><EvidenceHealthPanel health={artifactHealth} status={artifactHealthStatus} error={artifactHealthError} /></div>
+                  {session?.error ? <ErrorNotice message={session.error.message} compact /> : null}
+                </section>
+              )
+            },
+            {
+              id: "actions" as const,
+              label: "Actions",
+              body: (
+                <div id="viewer-actions">
+                  {/* Tap and type are reached constantly; location is set once
+                      per run, so it sits below rather than above them. */}
+                  <ActionPanel
+                    params={params}
+                    selectedSessionId={selectedSessionId}
+                    mutationState={actionMutationState}
+                    form={actionForm}
+                    onFieldChange={updateActionFormField}
+                  />
+                  <DeviceLocationPanel params={params} selectedSessionId={selectedSessionId} mutationState={actionMutationState} />
                 </div>
-                <ArtifactDetails artifact={selectedArtifact} />
-              </>
-            )}
-          </div>
-        </section>
+              )
+            },
+            {
+              id: "artifacts" as const,
+              label: "Artifacts",
+              badge: artifacts.length > 0 ? String(artifacts.length) : undefined,
+              body: artifactsBody
+            },
+            {
+              id: "handoff" as const,
+              label: "Handoff",
+              attention: flowRunSummary.failed > 0,
+              body: (
+                <div id="viewer-handoff" className="inspector-section">
+                  <AgentHandoffPanel brief={handoffBrief} />
+                  <button type="button" className="issue-export-trigger" onClick={() => setIssueExportOpen(true)}>
+                    <span>Create an issue from this run</span>
+                    <small>{flowRunSummary.failed > 0 ? `${flowRunSummary.failed} failed action${flowRunSummary.failed === 1 ? "" : "s"} to attach` : "Run context and evidence link attached"}</small>
+                  </button>
+                </div>
+              )
+            }
+          ]}
+        />
       </aside>
 
       <section className="timeline-panel panel" aria-label="Action and artifact timeline">
