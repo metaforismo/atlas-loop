@@ -1,3 +1,4 @@
+import { EventEmitter } from "node:events";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
@@ -1558,6 +1559,77 @@ describe("daemon xcuitest backend wiring", () => {
     ]);
     const metadataText = JSON.parse(await readFile(result.artifacts[0].path, "utf8"));
     expect(metadataText).toMatchObject({ runnerRestarts: 1, driverData: { healed: true } });
+  });
+
+  it("serves captured device logs attributed to the step that was running", async () => {
+    const artifactRoot = await mkdtemp(join(tmpdir(), "atlas-loop-devlogs-"));
+    tempDirs.push(artifactRoot);
+
+    // A fake `log stream` child, driven from the test.
+    const child = new EventEmitter() as EventEmitter & {
+      stdout: EventEmitter & { setEncoding: () => void };
+      stderr: EventEmitter;
+      kill: (signal: string) => boolean;
+    };
+    child.stdout = Object.assign(new EventEmitter(), { setEncoding: () => undefined });
+    child.stderr = new EventEmitter();
+    child.kill = () => true;
+
+    const daemon = await startDaemonServer({
+      port: 0,
+      artifactRoot,
+      autoScreenshot: false,
+      simulator: fakeSimulator(),
+      deviceLogSpawn: (() => child) as never
+    });
+    startedDaemons.push(daemon);
+
+    const created = await requestJson<{ id: string }>(daemon.url, "/sessions", {
+      method: "POST",
+      body: JSON.stringify({ simulator: { name: "iPhone 16", udid: "UDID-LOGS" } })
+    });
+    // Launching starts the capture; the app's process name scopes the stream.
+    await requestJson(daemon.url, `/sessions/${created.id}/launch`, {
+      method: "POST",
+      body: JSON.stringify({ bundleId: "app.atlasloop.CommerceDemo" })
+    });
+
+    const beforeStep = new Date().toISOString();
+    child.stdout.emit("data", `${JSON.stringify({
+      timestamp: beforeStep,
+      messageType: "Info",
+      eventMessage: "before the step",
+      processImagePath: "/CommerceDemo"
+    })}\n`);
+
+    await requestJson(daemon.url, `/sessions/${created.id}/actions`, {
+      method: "POST",
+      body: JSON.stringify({ action: { kind: "wait", durationMs: 20 } })
+    });
+
+    const events = await requestJson<Array<Record<string, any>>>(daemon.url, `/sessions/${created.id}/events`);
+    const completed = events.find((event) => event.type === "action.completed")!;
+    const during = new Date(Date.parse(completed.result.startedAt) + 1).toISOString();
+
+    child.stdout.emit("data", `${JSON.stringify({
+      timestamp: during,
+      messageType: "Error",
+      eventMessage: "inside the step",
+      processImagePath: "/CommerceDemo"
+    })}\n`);
+    // The banner the real stream opens with must not become an entry.
+    child.stdout.emit("data", 'Filtering the log data using "process == \\"CommerceDemo\\""\n');
+
+    await requestJson(daemon.url, `/sessions/${created.id}/end`, { method: "POST" });
+
+    const view = await requestJson<Record<string, any>>(daemon.url, `/sessions/${created.id}/logs`);
+
+    expect(view.summary).toMatchObject({ total: 2, problems: 1 });
+    expect(view.alignment.steps).toHaveLength(1);
+    expect(view.alignment.steps[0].actionId).toBe(completed.result.actionId);
+    expect(view.alignment.steps[0].entries.map((entry: any) => entry.message)).toEqual(["inside the step"]);
+    // A line emitted before any step belongs to no step, not to the nearest one.
+    expect(view.alignment.unattributed.map((entry: any) => entry.message)).toEqual(["before the step"]);
   });
 
   it("places the device at a coordinate and records it as evidence", async () => {

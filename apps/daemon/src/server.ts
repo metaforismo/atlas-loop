@@ -44,6 +44,10 @@ import {
   type LaunchAction,
   type LaunchRequest,
   type PerformActionRequest,
+  alignDeviceLogs,
+  summariseDeviceLogs,
+  type DeviceLogEntry,
+  type DeviceLogWindow,
   type SetLocationAction,
   type SetLocationRequest,
   type AtlasMap,
@@ -59,6 +63,7 @@ import { validateArtifactTarget, type ValidationReport } from "../../../scripts/
 import { deriveAtlasMap, loadHashCache, saveHashCache } from "@atlas-loop/atlas-map";
 import { XcuitestRunnerManager } from "@atlas-loop/xcuitest-client";
 import { parseLaunchPid, startMetricsSampler, type MetricsSample, type MetricsSamplerHandle } from "./metricsSampler.ts";
+import { startDeviceLogStream, type DeviceLogStreamHandle, type DeviceLogStreamOptions } from "./deviceLogStream.ts";
 import { createCgEventBackend } from "./backends/cgevent.ts";
 import { createXcuitestBackend, type XcuitestManagerLike } from "./backends/xcuitest.ts";
 import type { InputAction, InputBackend } from "./backends/types.ts";
@@ -73,6 +78,10 @@ export interface DaemonOptions {
   hidHelperPath?: string;
   autoScreenshot?: boolean;
   metricsIntervalMs?: number;
+  deviceLogMaxEntries?: number;
+  /** Injected in tests so a fake log stream can be driven end to end. */
+  deviceLogSpawn?: DeviceLogStreamOptions["spawnProcess"];
+  deviceLogMaxBytes?: number;
   simulator?: SimulatorApi;
   hidClientFactory?: (options: HidClientOptions) => HidClient;
   xcuitestManagerFactory?: () => XcuitestManagerLike;
@@ -93,6 +102,7 @@ interface SessionState {
   warnings: PersistedSessionWarning[];
   recording?: { handle: RecordingHandle; path: string; startedAt: string };
   metrics?: { handle: MetricsSamplerHandle; path: string; startedAt: string };
+  deviceLogs?: { handle: DeviceLogStreamHandle; path: string; startedAt: string };
 }
 
 interface DaemonState {
@@ -106,6 +116,9 @@ interface DaemonState {
   xcuitestManager?: XcuitestManagerLike;
   xcuitestTargets: Map<string, string>;
   metricsIntervalMs: number;
+  deviceLogMaxEntries: number;
+  deviceLogSpawn?: DeviceLogStreamOptions["spawnProcess"];
+  deviceLogMaxBytes: number;
   sessions: Map<string, SessionState>;
 }
 
@@ -180,6 +193,10 @@ export async function startDaemonServer(options: DaemonOptions = {}): Promise<St
         })),
     xcuitestTargets: new Map(),
     metricsIntervalMs: options.metricsIntervalMs ?? 1_000,
+    // A run's logs are evidence, not an archive; these bound one session.
+    deviceLogMaxEntries: options.deviceLogMaxEntries ?? 20_000,
+    deviceLogSpawn: options.deviceLogSpawn,
+    deviceLogMaxBytes: options.deviceLogMaxBytes ?? 8 * 1024 * 1024,
     sessions: new Map()
   };
 
@@ -380,6 +397,12 @@ async function handleRequest(state: DaemonState, request: IncomingMessage, respo
     if (request.method === "GET" && parts.length === 3 && parts[2] === "metrics") {
       const sessionState = await resolveReadableSessionState(state, sessionId);
       sendJson(response, 200, { ok: true, data: await readSessionMetrics(sessionState) });
+      return;
+    }
+
+    if (request.method === "GET" && parts.length === 3 && parts[2] === "logs") {
+      const sessionState = await resolveReadableSessionState(state, sessionId);
+      sendJson(response, 200, { ok: true, data: await readSessionDeviceLogs(sessionState) });
       return;
     }
 
@@ -661,6 +684,8 @@ async function launchApp(state: DaemonState, sessionState: SessionState, request
     await writeSession(sessionState.layout, sessionState.session);
     await setStatus(sessionState, "running");
     await startSessionMetrics(state, sessionState, parseLaunchPid(result.stdout));
+    // The executable name, not the bundle id: `log stream` matches on process.
+    await startSessionDeviceLogs(state, sessionState, request.bundleId.split(".").pop());
     return artifacts;
   });
 }
@@ -707,6 +732,7 @@ async function startSessionMetrics(state: DaemonState, sessionState: SessionStat
   // A re-launch replaces the previous sampler; its samples become evidence.
   if (sessionState.metrics) {
     await stopSessionMetrics(sessionState);
+    await stopSessionDeviceLogs(sessionState);
   }
   if (pid === undefined) return;
 
@@ -735,6 +761,78 @@ async function stopSessionMetrics(sessionState: SessionState): Promise<void> {
   if (!metrics) return;
   await metrics.handle.stop();
   await finalizeSessionMetrics(sessionState);
+}
+
+/**
+ * Streams the app's own OS log for the life of the run. Started at launch
+ * because that is when the process name is known, and the log of a process
+ * that does not exist yet is the whole system's.
+ */
+async function startSessionDeviceLogs(state: DaemonState, sessionState: SessionState, processName?: string): Promise<void> {
+  if (sessionState.deviceLogs) await stopSessionDeviceLogs(sessionState);
+
+  const udid = sessionState.session.simulator?.udid;
+  // Without a resolved device there is no log to spawn against; the run
+  // continues, and the absence is visible as a missing artifact.
+  if (!udid) return;
+
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const logPath = join(sessionState.layout.logsDir, `device-logs-${stamp}.jsonl`);
+  // The logs directory is created lazily by whichever writer gets there first;
+  // without this the appends fail and the run registers an empty artifact that
+  // looks like "the app logged nothing".
+  await mkdir(sessionState.layout.logsDir, { recursive: true });
+  const startedAt = nowIso();
+  const handle = startDeviceLogStream({
+    udid,
+    logPath,
+    processName,
+    spawnProcess: state.deviceLogSpawn,
+    maxEntries: state.deviceLogMaxEntries,
+    maxBytes: state.deviceLogMaxBytes,
+    onError: (error) => {
+      void recordTrace(sessionState.layout, {
+        type: "error",
+        at: nowIso(),
+        sessionId: sessionState.session.id,
+        error: normalizeError(error, "COMMAND_FAILED")
+      }).catch(() => undefined);
+    }
+  });
+  sessionState.deviceLogs = { handle, path: logPath, startedAt };
+}
+
+async function stopSessionDeviceLogs(sessionState: SessionState): Promise<void> {
+  const logs = sessionState.deviceLogs;
+  if (!logs) return;
+  await logs.handle.stop();
+  await finalizeSessionDeviceLogs(sessionState);
+}
+
+async function finalizeSessionDeviceLogs(sessionState: SessionState): Promise<void> {
+  const logs = sessionState.deviceLogs;
+  if (!logs) return;
+  sessionState.deviceLogs = undefined;
+  if (logs.handle.entryCount() === 0) return;
+
+  try {
+    const artifact = await artifactFromPath(sessionState.layout, "log", logs.path, {
+      kind: "device-logs",
+      entryCount: logs.handle.entryCount(),
+      skippedCount: logs.handle.skippedCount(),
+      // A capped capture is still evidence, but it is partial evidence.
+      truncated: logs.handle.truncated(),
+      logsStartedAt: logs.startedAt
+    });
+    await addArtifact(sessionState, artifact);
+  } catch (error) {
+    await recordTrace(sessionState.layout, {
+      type: "error",
+      at: nowIso(),
+      sessionId: sessionState.session.id,
+      error: normalizeError(error, "ARTIFACT_WRITE_FAILED")
+    }).catch(() => undefined);
+  }
 }
 
 async function finalizeSessionMetrics(sessionState: SessionState): Promise<void> {
@@ -808,6 +906,71 @@ async function readSessionMetrics(sessionState: SessionState): Promise<SessionMe
     active: Boolean(sessionState.metrics),
     sampleCount: samples.length,
     samples
+  };
+}
+
+/**
+ * Reads captured device logs and the action windows needed to attribute them.
+ * Alignment itself lives in the protocol package so every consumer buckets a
+ * line into the same step.
+ */
+async function readSessionDeviceLogs(sessionState: SessionState): Promise<Record<string, unknown>> {
+  const paths: string[] = [];
+  for (const artifact of sessionState.artifacts) {
+    if (artifact.type === "log" && artifact.metadata?.kind === "device-logs") paths.push(artifact.path);
+  }
+  if (sessionState.deviceLogs && !paths.includes(sessionState.deviceLogs.path)) {
+    paths.push(sessionState.deviceLogs.path);
+  }
+
+  const entries: DeviceLogEntry[] = [];
+  let truncated = false;
+  for (const artifact of sessionState.artifacts) {
+    if (artifact.type === "log" && artifact.metadata?.kind === "device-logs" && artifact.metadata.truncated === true) {
+      truncated = true;
+    }
+  }
+  if (sessionState.deviceLogs?.handle.truncated()) truncated = true;
+
+  for (const path of paths) {
+    const safePath = await resolveContainedArtifactPath(sessionState.layout, "log", path);
+    if (!safePath) continue;
+    let text: string;
+    try {
+      text = await readFile(safePath, "utf8");
+    } catch {
+      continue;
+    }
+    for (const line of text.split(/\r?\n/)) {
+      if (!line.trim()) continue;
+      try {
+        const parsed = JSON.parse(line) as DeviceLogEntry;
+        if (parsed.schemaVersion === "atlas-loop.device-log.v1") entries.push(parsed);
+      } catch {
+        // Skip a malformed line; the rest of the capture stays usable.
+      }
+    }
+  }
+  entries.sort((left, right) => left.at.localeCompare(right.at));
+
+  const windows: DeviceLogWindow[] = [];
+  for (const event of await readEvents(sessionState)) {
+    if (event.type !== "action.completed" || !event.result) continue;
+    windows.push({
+      actionId: event.result.actionId,
+      startedAt: event.result.startedAt,
+      endedAt: event.result.endedAt
+    });
+  }
+
+  return {
+    schemaVersion: "atlas-loop.device-logs.v1",
+    sessionId: sessionState.session.id,
+    active: Boolean(sessionState.deviceLogs),
+    truncated,
+    summary: summariseDeviceLogs(entries),
+    alignment: alignDeviceLogs(entries, windows),
+    entries
   };
 }
 
@@ -1598,6 +1761,7 @@ async function setStatus(sessionState: SessionState, status: SessionStatus): Pro
   }
   if ((status === "ended" || status === "failed") && sessionState.metrics) {
     await stopSessionMetrics(sessionState);
+    await stopSessionDeviceLogs(sessionState);
   }
   const from = sessionState.session.status;
   sessionState.session = {

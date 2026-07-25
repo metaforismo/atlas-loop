@@ -13441,3 +13441,123 @@ body::before {
     gap: 16px;
   }
 }
+
+/* Device logs, scoped to the step that was running. */
+.device-logs {
+  display: grid;
+  gap: 9px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 13px;
+}
+
+.device-logs-scope {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.device-logs-scope span {
+  display: grid;
+  gap: 2px;
+  font-size: 11px;
+}
+
+.device-logs-scope small {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+
+.device-logs-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.device-logs-levels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.device-logs-levels button {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 3px 9px;
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  cursor: pointer;
+}
+
+.device-logs-levels button.selected {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.device-logs-truncated {
+  margin: 0;
+  color: var(--warn);
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+
+.device-logs-empty,
+.device-logs-more {
+  margin: 0;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+
+.device-logs-list {
+  display: grid;
+  gap: 1px;
+  max-height: 300px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+  background: var(--line);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.device-logs-list li {
+  display: grid;
+  grid-template-columns: 58px 44px minmax(0, 110px) minmax(0, 1fr);
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 9px;
+  background: #0d1015;
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.device-logs-list time,
+.device-logs-level,
+.device-logs-source {
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.device-logs-list p {
+  margin: 0;
+  overflow: hidden;
+  color: var(--soft);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Only the levels that mean something get colour. */
+.device-logs-list li.tone-error .device-logs-level,
+.device-logs-list li.tone-error p { color: var(--bad); }
+.device-logs-list li.tone-fault .device-logs-level,
+.device-logs-list li.tone-fault p { color: var(--bad); }
+.device-logs-list li.tone-debug p { color: var(--muted); }

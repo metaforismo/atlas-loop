@@ -460,6 +460,11 @@ export class DaemonClient {
     return this.requestData("POST", `/sessions/${encodeURIComponent(sessionId)}/install`, "install result", request);
   }
 
+  /** Device logs captured during the run, aligned to the step that was running. */
+  getSessionDeviceLogs(sessionId: string): Promise<unknown> {
+    return this.requestData("GET", `/sessions/${encodeURIComponent(sessionId)}/logs`, "device logs");
+  }
+
   /** Omit `location` to clear the override and restore the device's own location. */
   setLocation(sessionId: string, request: SetLocationRequest): Promise<unknown> {
     return this.requestData("POST", `/sessions/${encodeURIComponent(sessionId)}/location`, "location result", request);

@@ -25,6 +25,7 @@ Selector-heavy tests often fail when an interface is renamed or rearranged even 
 - **Map real journeys** — derive screens and transitions from captured evidence, with deep links back to the producing session and action.
 - **Hand work forward** — export verifiable local bundles and compact next-step commands for another human or coding agent.
 - **File the issue from the failure** — turn a run into a ready-to-file ticket carrying the failing step, the recorded reason, the device and input backend, the pass count, and a deep link back to this exact evidence. Linear and GitHub open prefilled; the markdown copies for anything else. A draft too long to survive a URL drops the link rather than truncating the part that matters.
+- **Read the device's own logs** — the app's OS log is captured for the life of a run and attributed to the step that was running, so a failure can be read as "what did the app log during the step that broke" rather than as an undifferentiated wall of lines. Capture is bounded and says so when a cap was hit.
 - **Keep evidence local** — the daemon binds to loopback and the source of truth is `artifacts/sessions/<session-id>/`.
 
 ## Quick start
@@ -116,6 +117,8 @@ The bundled demo exposes `gesture-lab.canvas` through the catalog or the determi
 Location is part of the run, not a manual step before it. Business logic that differs by region is otherwise only exercised wherever the machine happens to be:
 
 ```bash
+npm run cli -- logs --session latest
+npm run cli -- logs --session latest --level error --entries
 npm run cli -- location presets
 npm run cli -- location set --session latest --preset tokyo
 npm run cli -- location set --session latest --lat 35.689487 --lon 139.691711
