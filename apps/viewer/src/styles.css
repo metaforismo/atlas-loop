@@ -598,14 +598,18 @@ h2 {
   background: #0d1218;
 }
 
+/*
+ * Quiet by default. A filled accent button here competed with the offline
+ * notices already in the rail, so the panel read as three warnings stacked.
+ */
 .connection-form button {
   height: 34px;
-  border: 1px solid rgba(232, 111, 89, 0.55);
+  border: 1px solid var(--line);
   border-radius: 6px;
-  background: var(--accent-soft);
-  color: #ffd9d0;
+  background: transparent;
+  color: var(--text);
   font-size: 12px;
-  font-weight: 760;
+  font-weight: 700;
   cursor: pointer;
   transition:
     transform 160ms ease,
@@ -614,8 +618,8 @@ h2 {
 }
 
 .connection-form button:hover {
-  border-color: rgba(247, 160, 139, 0.78);
-  background: rgba(232, 111, 89, 0.2);
+  border-color: var(--accent);
+  background: rgba(232, 111, 89, 0.09);
 }
 
 .connection-form button:active {
@@ -628,16 +632,21 @@ h2 {
   min-height: 0;
 }
 
+/*
+ * A row is quiet by default. The left bar and the tint used to be painted on
+ * every row regardless of state, which made the accent decoration rather than
+ * signal — a healthy run and a failed one looked equally alarming.
+ */
 .session-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
   border: 1px solid var(--line);
-  border-left: 3px solid var(--accent);
+  border-left: 3px solid transparent;
   border-radius: 8px;
   padding: 10px;
-  background: linear-gradient(90deg, rgba(232, 111, 89, 0.12), rgba(255, 255, 255, 0.018));
+  background: rgba(255, 255, 255, 0.018);
 }
 
 .session-choice {
@@ -661,9 +670,14 @@ h2 {
   transform: translateY(0) scale(0.995);
 }
 
+/*
+ * Selection is a quiet state, not an alert. The gradient here was strong
+ * enough that a selected row read as a failing one, and the left bar still
+ * carries the row's real status.
+ */
 .session-choice.selected {
-  border-color: rgba(232, 111, 89, 0.7);
-  background: linear-gradient(90deg, rgba(232, 111, 89, 0.2), rgba(255, 255, 255, 0.032));
+  border-color: var(--line-strong);
+  background: rgba(232, 111, 89, 0.06);
 }
 
 .session-row.tone-good {
@@ -3378,15 +3392,18 @@ h2 {
   padding: 12px;
 }
 
+/*
+ * An empty state is not an error. The glyph was accent-tinted, which made a
+ * first run with nothing recorded yet look like something had gone wrong.
+ */
 .empty-glyph {
-  width: 28px;
-  height: 28px;
-  border: 1px solid rgba(232, 111, 89, 0.46);
-  border-radius: 8px;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
   background:
-    linear-gradient(90deg, transparent 42%, rgba(232, 111, 89, 0.44) 42% 58%, transparent 58%),
-    linear-gradient(transparent 42%, rgba(232, 111, 89, 0.36) 42% 58%, transparent 58%),
-    rgba(232, 111, 89, 0.08);
+    linear-gradient(90deg, transparent 45%, rgba(150, 165, 178, 0.4) 45% 55%, transparent 55%),
+    linear-gradient(transparent 45%, rgba(150, 165, 178, 0.3) 45% 55%, transparent 55%);
 }
 
 .empty-state strong {
@@ -7226,7 +7243,12 @@ body::before {
 .landing-chapter {
   display: grid;
   grid-template-columns: minmax(300px, 0.82fr) minmax(520px, 1.18fr);
-  min-height: 650px;
+  /*
+   * Height follows the content. A fixed 650px floor made every chapter the
+   * same size whatever it had to say, which padded the page to eleven
+   * viewports and flattened the difference between them.
+   */
+  min-height: 420px;
   border-top: 1px solid var(--landing-line);
   /* Clears the sticky chapter index when an entry is jumped to. */
   scroll-margin-top: 44px;
