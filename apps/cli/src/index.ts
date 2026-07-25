@@ -15,6 +15,7 @@ import {
   type SessionHandoffBundleResult
 } from "@atlas-loop/artifacts";
 import { createSimulator } from "@atlas-loop/simulator";
+import { parseDeviceLocation, LOCATION_PRESETS } from "@atlas-loop/protocol";
 import { loadConfig } from "@atlas-loop/config";
 import {
   buildEvidenceHtmlReport,
@@ -283,6 +284,10 @@ export async function main(args: Args): Promise<number> {
       arguments: csvFlag(flags, "args")
     }));
     return 0;
+  }
+
+  if (command === "location") {
+    return locationCommand(client, flags, subcommand);
   }
 
   if (command === "tap") {
@@ -1129,6 +1134,50 @@ async function action(client: DaemonClient, flags: Map<string, string | boolean>
   return 0;
 }
 
+/**
+ * `location set` takes either a named preset or an explicit pair, and
+ * `location clear` returns the device to its own location. Presets exist so the
+ * common cases do not require looking coordinates up.
+ */
+async function locationCommand(
+  client: DaemonClient,
+  flags: Map<string, string | boolean>,
+  subcommand: string | undefined
+): Promise<number> {
+  if (subcommand === "presets") {
+    printJson(LOCATION_PRESETS);
+    return 0;
+  }
+
+  if (subcommand === "clear") {
+    printJson(await client.setLocation(requireFlag(flags, "session"), {}));
+    return 0;
+  }
+
+  if (subcommand !== "set") {
+    throw new Error("Usage: location set|clear|presets");
+  }
+
+  const presetId = stringFlag(flags, "preset");
+  if (presetId) {
+    const preset = LOCATION_PRESETS.find((candidate) => candidate.id === presetId);
+    if (!preset) {
+      throw new Error(`Unknown --preset ${presetId}. Run 'location presets' to list them.`);
+    }
+    printJson(await client.setLocation(requireFlag(flags, "session"), {
+      location: { latitude: preset.latitude, longitude: preset.longitude },
+      presetId: preset.id
+    }));
+    return 0;
+  }
+
+  const parsed = parseDeviceLocation(stringFlag(flags, "lat"), stringFlag(flags, "lon"));
+  if (parsed.errors.length > 0) throw new Error(parsed.errors.join(" "));
+
+  printJson(await client.setLocation(requireFlag(flags, "session"), { location: parsed.location }));
+  return 0;
+}
+
 async function doctor(): Promise<number> {
   const config = await loadConfig();
   const simulator = createSimulator();
@@ -1495,6 +1544,10 @@ Usage:
   atlas-loop build --session <id|latest> --project <path> --scheme <scheme>
   atlas-loop install --session <id|latest> --app <path.app>
   atlas-loop launch --session <id|latest> --bundle-id <bundle>
+  atlas-loop location set --session <id|latest> --lat 35.689487 --lon 139.691711
+  atlas-loop location set --session <id|latest> --preset tokyo
+  atlas-loop location clear --session <id|latest>
+  atlas-loop location presets
   atlas-loop tap --session <id|latest> --x 0.5 --y 0.5
   atlas-loop tap-element --session <id|latest> --id cart.continue [--timeout-ms 5000]
   atlas-loop assert-visible --session <id|latest> --id confirmation [--timeout-ms 5000] [--screen]

@@ -7,6 +7,7 @@ import {
   CursorPointer02Icon,
   DashboardSquare01Icon,
   FileVerifiedIcon,
+  SidebarLeft01Icon,
   FolderFileStorageIcon,
   GridViewIcon,
   LibraryIcon,
@@ -36,6 +37,7 @@ import {
 } from "./components/ActionPanel.js";
 import { AtlasView } from "./atlas/AtlasView.js";
 import { ActionDetailPanel } from "./components/ActionDetailPanel.js";
+import { DeviceLocationPanel } from "./components/DeviceLocationPanel.js";
 import { EmptyState, ErrorNotice, MetricTile, StatusRow } from "./components/common.js";
 import { ImageLightbox } from "./components/ImageLightbox.js";
 import { IOSDeviceFrame } from "./components/IOSDeviceFrame.js";
@@ -81,8 +83,52 @@ import {
   type UiTone
 } from "./viewerPresentation.js";
 import { DEFAULT_SESSION_ID, writeViewerSearch } from "./viewerParams.js";
+import { loadRailCollapsed, saveRailCollapsed } from "./railPreference.js";
+import { IssueExportDialog } from "./components/IssueExportDialog.js";
+import { loadIssueRepository, saveIssueRepository } from "./issueRepositoryStorage.js";
 import type { LocalTestModuleSeed } from "./localTestModules.js";
 import type { LocalLaunchProfile } from "./localLaunchProfiles.js";
+
+type RailIcon = Parameters<typeof ProductIcon>[0]["icon"];
+
+/**
+ * Rail entries keep their label in an element rather than a bare text node so
+ * the collapsed rail can hide it, and carry a `title` so the icon-only state
+ * still names its destination on hover.
+ */
+function RailNavButton({
+  label,
+  icon,
+  selected = false,
+  onClick
+}: {
+  label: string;
+  icon: RailIcon;
+  selected?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={`viewer-nav-item ${selected ? "selected" : ""}`}
+      aria-current={selected ? "page" : undefined}
+      title={label}
+      onClick={onClick}
+    >
+      <ProductIcon className="viewer-nav-icon" icon={icon} />
+      <span>{label}</span>
+    </button>
+  );
+}
+
+function RailNavLink({ label, icon, href }: { label: string; icon: RailIcon; href: string }) {
+  return (
+    <a className="viewer-nav-item" href={href} title={label} target="_blank" rel="noreferrer">
+      <ProductIcon className="viewer-nav-icon" icon={icon} />
+      <span>{label}</span>
+    </a>
+  );
+}
 
 export function App() {
   const params = useViewerParams();
@@ -121,11 +167,20 @@ export function App() {
   const [startSessionLaunchProfile, setStartSessionLaunchProfile] = useState<LocalLaunchProfile>();
   const [testComposerSeed, setTestComposerSeed] = useState<LocalTestModuleSeed>();
   const [workflowActivity, setWorkflowActivity] = useState<WorkflowMonitorActivity>({ status: "idle" });
+  const [railCollapsed, setRailCollapsed] = useState(false);
+  const [issueExportOpen, setIssueExportOpen] = useState(false);
+  const [issueRepository, setIssueRepository] = useState("");
   const autoOpenedOverview = useRef(false);
 
   useEffect(() => {
     setDraft(params);
   }, [params]);
+
+  // Read after mount so a blocked or empty store just leaves the rail expanded.
+  useEffect(() => {
+    setRailCollapsed(loadRailCollapsed());
+    setIssueRepository(loadIssueRepository());
+  }, []);
 
   useEffect(() => {
     setWorkspaceView(params.workspace ?? "evidence");
@@ -238,6 +293,10 @@ export function App() {
     window.addEventListener("keydown", exitFocus);
     return () => window.removeEventListener("keydown", exitFocus);
   }, [flowFocus]);
+
+  const toggleRail = (): void => {
+    setRailCollapsed((current) => saveRailCollapsed(!current));
+  };
 
   const toggleFlowFocus = (): void => {
     setFlowFocus((current) => {
@@ -452,11 +511,22 @@ export function App() {
   }
 
   return (
-    <main className={`viewer-shell health-${health} ${flowFocus ? "flow-focus" : ""} ${workspaceView === "overview" ? "workspace-overview-active" : ""} ${workspaceView === "tests" ? "workspace-tests-active" : ""} ${workspaceView === "library" ? "workspace-library-active" : ""} ${workspaceView === "sessions" ? "workspace-sessions-active" : ""} ${workspaceView === "apps" ? "workspace-apps-active" : ""} ${workspaceView === "workflows" ? "workspace-workflows-active" : ""}`}>
+    <main className={`viewer-shell health-${health} ${railCollapsed ? "rail-collapsed" : ""} ${flowFocus ? "flow-focus" : ""} ${workspaceView === "overview" ? "workspace-overview-active" : ""} ${workspaceView === "tests" ? "workspace-tests-active" : ""} ${workspaceView === "library" ? "workspace-library-active" : ""} ${workspaceView === "sessions" ? "workspace-sessions-active" : ""} ${workspaceView === "apps" ? "workspace-apps-active" : ""} ${workspaceView === "workflows" ? "workspace-workflows-active" : ""}`}>
       <a className="skip-link" href={workspaceView === "overview" ? "#workspace-overview" : workspaceView === "tests" ? "#test-workspace" : workspaceView === "library" ? "#library-workspace" : workspaceView === "sessions" ? "#session-workspace" : workspaceView === "apps" ? "#observed-apps-workspace" : workspaceView === "workflows" ? "#workflow-workspace" : "#viewer-stage"}>
         {workspaceView === "overview" ? "Skip to workspace overview" : workspaceView === "tests" ? "Skip to local tests" : workspaceView === "library" ? "Skip to local module library" : workspaceView === "sessions" ? "Skip to session history" : workspaceView === "apps" ? "Skip to observed apps" : workspaceView === "workflows" ? "Skip to workflow library" : "Skip to device viewport"}
       </a>
       <header className="viewer-topbar" aria-label="Viewer navigation">
+        <button
+          type="button"
+          className="rail-collapse-toggle"
+          aria-expanded={!railCollapsed}
+          aria-controls="viewer-connection-panel"
+          title={railCollapsed ? "Expand the workspace rail" : "Collapse the workspace rail"}
+          onClick={toggleRail}
+        >
+          <ProductIcon className="viewer-nav-icon" icon={SidebarLeft01Icon} />
+          <span className="sr-only">{railCollapsed ? "Expand the workspace rail" : "Collapse the workspace rail"}</span>
+        </button>
         <nav className="viewer-breadcrumb" aria-label="Breadcrumb">
           <a href="/">Home</a>
           <span aria-hidden="true">/</span>
@@ -527,65 +597,26 @@ export function App() {
 
         <nav className="viewer-nav" aria-label="Workspace navigation">
           <p>Home</p>
-          <button type="button" className={`viewer-nav-item ${workspaceView === "overview" ? "selected" : ""}`} aria-current={workspaceView === "overview" ? "page" : undefined} onClick={() => openWorkspaceView("overview")}>
-            <ProductIcon className="viewer-nav-icon" icon={DashboardSquare01Icon} />
-            Overview
-          </button>
+          <RailNavButton label="Overview" icon={DashboardSquare01Icon} selected={workspaceView === "overview"} onClick={() => openWorkspaceView("overview")} />
           <p>Workspace</p>
-          <button type="button" className={`viewer-nav-item ${workspaceView === "tests" ? "selected" : ""}`} aria-current={workspaceView === "tests" ? "page" : undefined} onClick={() => openWorkspaceView("tests")}>
-            <ProductIcon className="viewer-nav-icon" icon={CheckListIcon} />
-            Tests
-          </button>
-          <button type="button" className={`viewer-nav-item ${workspaceView === "apps" ? "selected" : ""}`} aria-current={workspaceView === "apps" ? "page" : undefined} onClick={() => openWorkspaceView("apps")}>
-            <ProductIcon className="viewer-nav-icon" icon={GridViewIcon} />
-            Apps
-          </button>
-          <button type="button" className={`viewer-nav-item ${workspaceView === "workflows" ? "selected" : ""}`} aria-current={workspaceView === "workflows" ? "page" : undefined} onClick={() => openWorkspaceView("workflows")}>
-            <ProductIcon className="viewer-nav-icon" icon={WorkflowSquare03Icon} />
-            Workflows
-          </button>
-          <button type="button" className={`viewer-nav-item ${workspaceView === "library" ? "selected" : ""}`} aria-current={workspaceView === "library" ? "page" : undefined} onClick={() => openWorkspaceView("library")}>
-            <ProductIcon className="viewer-nav-icon" icon={BookOpen01Icon} />
-            Library
-          </button>
-          <button type="button" className={`viewer-nav-item ${workspaceView === "sessions" ? "selected" : ""}`} aria-current={workspaceView === "sessions" ? "page" : undefined} onClick={() => openWorkspaceView("sessions")}>
-            <ProductIcon className="viewer-nav-icon" icon={TimelineListIcon} />
-            Sessions
-          </button>
-          <button type="button" className={`viewer-nav-item ${workspaceView === "evidence" ? "selected" : ""}`} aria-current={workspaceView === "evidence" ? "page" : undefined} onClick={() => openWorkspaceSection("viewer-stage")}>
-            <ProductIcon className="viewer-nav-icon" icon={SmartPhone01Icon} />
-            Live evidence
-          </button>
-          <button type="button" className="viewer-nav-item" onClick={() => openWorkspaceSection("viewer-actions")}>
-            <ProductIcon className="viewer-nav-icon" icon={CursorPointer02Icon} />
-            Actions
-          </button>
-          <button
-            type="button"
-            className="viewer-nav-item"
+          <RailNavButton label="Tests" icon={CheckListIcon} selected={workspaceView === "tests"} onClick={() => openWorkspaceView("tests")} />
+          <RailNavButton label="Apps" icon={GridViewIcon} selected={workspaceView === "apps"} onClick={() => openWorkspaceView("apps")} />
+          <RailNavButton label="Workflows" icon={WorkflowSquare03Icon} selected={workspaceView === "workflows"} onClick={() => openWorkspaceView("workflows")} />
+          <RailNavButton label="Library" icon={BookOpen01Icon} selected={workspaceView === "library"} onClick={() => openWorkspaceView("library")} />
+          <RailNavButton label="Sessions" icon={TimelineListIcon} selected={workspaceView === "sessions"} onClick={() => openWorkspaceView("sessions")} />
+          <RailNavButton label="Live evidence" icon={SmartPhone01Icon} selected={workspaceView === "evidence"} onClick={() => openWorkspaceSection("viewer-stage")} />
+          <RailNavButton label="Actions" icon={CursorPointer02Icon} onClick={() => openWorkspaceSection("viewer-actions")} />
+          <RailNavButton
+            label="Atlas map"
+            icon={ChartRelationshipIcon}
             onClick={() => applyViewerParams({ daemonUrl: params.daemonUrl, sessionId: params.sessionId, view: "atlas" })}
-          >
-            <ProductIcon className="viewer-nav-icon" icon={ChartRelationshipIcon} />
-            Atlas map
-          </button>
+          />
           <p>System</p>
-          <button type="button" className="viewer-nav-item" onClick={() => openWorkspaceSection("viewer-artifacts")}>
-            <ProductIcon className="viewer-nav-icon" icon={FolderFileStorageIcon} />
-            Artifacts
-          </button>
-          <button type="button" className="viewer-nav-item" onClick={() => openWorkspaceSection("viewer-health")}>
-            <ProductIcon className="viewer-nav-icon" icon={FileVerifiedIcon} />
-            Evidence health
-          </button>
+          <RailNavButton label="Artifacts" icon={FolderFileStorageIcon} onClick={() => openWorkspaceSection("viewer-artifacts")} />
+          <RailNavButton label="Evidence health" icon={FileVerifiedIcon} onClick={() => openWorkspaceSection("viewer-health")} />
           <p>Resources</p>
-          <a className="viewer-nav-item" href="https://github.com/metaforismo/atlas-loop#readme" target="_blank" rel="noreferrer">
-            <ProductIcon className="viewer-nav-icon" icon={LibraryIcon} />
-            Documentation
-          </a>
-          <a className="viewer-nav-item" href="https://github.com/metaforismo/atlas-loop" target="_blank" rel="noreferrer">
-            <ProductIcon className="viewer-nav-icon" icon={SourceCodeIcon} />
-            Source
-          </a>
+          <RailNavLink label="Documentation" icon={LibraryIcon} href="https://github.com/metaforismo/atlas-loop#readme" />
+          <RailNavLink label="Source" icon={SourceCodeIcon} href="https://github.com/metaforismo/atlas-loop" />
         </nav>
 
         <details className="rail-runtime-settings" open={runtimeSettingsOpen} onToggle={(event) => setRuntimeSettingsOpen(event.currentTarget.open)}>
@@ -811,12 +842,19 @@ export function App() {
           {session ? <MetadataGrid session={session} /> : <MetadataSkeleton />}
           {sessionSummary ? <SummaryEvidence summary={sessionSummary} /> : null}
           <ActionDetailPanel pairs={actionEvidencePairs} selectedActionId={selectedActionId} onSelect={setSelectedActionId} />
-          <div id="viewer-handoff"><AgentHandoffPanel brief={handoffBrief} /></div>
+          <div id="viewer-handoff">
+            <AgentHandoffPanel brief={handoffBrief} />
+            <button type="button" className="issue-export-trigger" onClick={() => setIssueExportOpen(true)}>
+              <span>Create an issue from this run</span>
+              <small>{flowRunSummary.failed > 0 ? `${flowRunSummary.failed} failed action${flowRunSummary.failed === 1 ? "" : "s"} to attach` : "Run context and evidence link attached"}</small>
+            </button>
+          </div>
           <div id="viewer-health"><EvidenceHealthPanel health={artifactHealth} status={artifactHealthStatus} error={artifactHealthError} /></div>
           {session?.error ? <ErrorNotice message={session.error.message} compact /> : null}
         </section>
 
         <div id="viewer-actions">
+          <DeviceLocationPanel params={params} selectedSessionId={selectedSessionId} mutationState={actionMutationState} />
           <ActionPanel
             params={params}
             selectedSessionId={selectedSessionId}
@@ -988,6 +1026,26 @@ export function App() {
           )}
         </div>
       </section>
+
+      {issueExportOpen ? (
+        <IssueExportDialog
+          input={{
+            session,
+            sessionSummary,
+            artifacts,
+            events,
+            artifactHealth,
+            evidenceUrl: `${window.location.origin}${writeViewerSearch({ ...params, sessionId: selectedSessionId })}`
+          }}
+          repository={issueRepository}
+          onRepositoryChange={(value) => setIssueRepository(value)}
+          onClose={() => {
+            // Normalise on close so a half-typed slug is never stored.
+            setIssueRepository(saveIssueRepository(issueRepository));
+            setIssueExportOpen(false);
+          }}
+        />
+      ) : null}
     </main>
   );
 }

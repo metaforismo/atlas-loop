@@ -1560,6 +1560,95 @@ describe("daemon xcuitest backend wiring", () => {
     expect(metadataText).toMatchObject({ runnerRestarts: 1, driverData: { healed: true } });
   });
 
+  it("places the device at a coordinate and records it as evidence", async () => {
+    const artifactRoot = await mkdtemp(join(tmpdir(), "atlas-loop-location-"));
+    tempDirs.push(artifactRoot);
+    const simulator = fakeSimulator();
+    const calls: string[][] = [];
+    simulator.setLocation = async ({ latitude, longitude }) => {
+      const args = ["simctl", "location", "booted", "set", `${latitude},${longitude}`];
+      calls.push(args);
+      return { command: "xcrun", args, stdout: "", stderr: "", exitCode: 0, durationMs: 1 };
+    };
+    simulator.clearLocation = async () => {
+      const args = ["simctl", "location", "booted", "clear"];
+      calls.push(args);
+      return { command: "xcrun", args, stdout: "", stderr: "", exitCode: 0, durationMs: 1 };
+    };
+
+    const daemon = await startDaemonServer({ port: 0, artifactRoot, autoScreenshot: false, simulator });
+    startedDaemons.push(daemon);
+    const created = await requestJson<{ id: string }>(daemon.url, "/sessions", {
+      method: "POST",
+      body: JSON.stringify({ simulator: { name: "iPhone 16" } })
+    });
+
+    const set = await requestJson<{ ok: boolean }>(daemon.url, `/sessions/${created.id}/location`, {
+      method: "POST",
+      body: JSON.stringify({ location: { latitude: 35.689487, longitude: 139.691711 }, presetId: "tokyo" })
+    });
+    expect(set.ok).toBe(true);
+
+    // Omitting the location clears the override rather than meaning 0,0.
+    const cleared = await requestJson<{ ok: boolean }>(daemon.url, `/sessions/${created.id}/location`, {
+      method: "POST",
+      body: JSON.stringify({})
+    });
+    expect(cleared.ok).toBe(true);
+
+    expect(calls).toEqual([
+      ["simctl", "location", "booted", "set", "35.689487,139.691711"],
+      ["simctl", "location", "booted", "clear"]
+    ]);
+
+    // The run must be able to state where it believed it was, so the
+    // coordinate travels with the evidence rather than only the command.
+    const events = await requestJson<Array<Record<string, any>>>(daemon.url, `/sessions/${created.id}/events`);
+    const locationStarts = events.filter(
+      (event) => event.type === "action.started" && event.action?.kind === "setLocation"
+    );
+
+    expect(locationStarts).toHaveLength(2);
+    expect(locationStarts[0]!.action).toMatchObject({
+      kind: "setLocation",
+      location: { latitude: 35.689487, longitude: 139.691711 },
+      presetId: "tokyo"
+    });
+    expect(locationStarts[1]!.action.location).toBeUndefined();
+  });
+
+  it("rejects an out-of-range coordinate as a bad request, not a device failure", async () => {
+    const artifactRoot = await mkdtemp(join(tmpdir(), "atlas-loop-location-invalid-"));
+    tempDirs.push(artifactRoot);
+    const simulator = fakeSimulator();
+    let reached = false;
+    simulator.setLocation = async () => {
+      reached = true;
+      return { command: "xcrun", args: [], stdout: "", stderr: "", exitCode: 0, durationMs: 1 };
+    };
+
+    const daemon = await startDaemonServer({ port: 0, artifactRoot, autoScreenshot: false, simulator });
+    startedDaemons.push(daemon);
+    const created = await requestJson<{ id: string }>(daemon.url, "/sessions", {
+      method: "POST",
+      body: JSON.stringify({ simulator: { name: "iPhone 16" } })
+    });
+
+    const response = await fetch(`${daemon.url}/sessions/${created.id}/location`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ location: { latitude: 91, longitude: 999 } })
+    });
+    const envelope = await response.json() as { ok: boolean; error?: { code?: string; message?: string } };
+
+    expect(envelope.ok).toBe(false);
+    expect(envelope.error?.code).toBe("INVALID_REQUEST");
+    // Both axes are reported together instead of only the first.
+    expect(envelope.error?.message).toContain("Latitude");
+    expect(envelope.error?.message).toContain("Longitude");
+    expect(reached).toBe(false);
+  });
+
   it("resolves a booted simulator udid when the session only has a name", async () => {
     const log: FakeManagerLog = { ensured: [], targets: [], actions: [], closed: false };
     const artifactRoot = await mkdtemp(join(tmpdir(), "atlas-loop-xcuitest-udid-"));
@@ -1773,6 +1862,9 @@ function fakeSimulator(): SimulatorApi {
     boot: async () => result("xcrun", ["simctl", "bootstatus"]),
     install: async () => result("xcrun", ["simctl", "install"]),
     launch: async () => result("xcrun", ["simctl", "launch"]),
+    setLocation: async ({ latitude, longitude }) =>
+      result("xcrun", ["simctl", "location", "booted", "set", `${latitude},${longitude}`]),
+    clearLocation: async () => result("xcrun", ["simctl", "location", "booted", "clear"]),
     screenshot: async ({ outputPath }) => {
       await writeFile(outputPath, Buffer.from("fake png"));
       return result("xcrun", ["simctl", "io", "screenshot", outputPath]);

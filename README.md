@@ -6,11 +6,14 @@ Atlas Loop drives real Simulator flows, records what the app showed after every 
 
 ![Atlas Loop landing page and observed-flow preview](docs/assets/atlas-loop-overview.jpg)
 
+The device frame shared by the landing preview and the live viewport is drawn from the published iPhone 16 Pro specification — a 402 x 874 pt display at 460 ppi inside a 71.5 x 149.6 mm body — rather than from eyeballed pixels. Every dimension is a percentage of the body box, so the bezel, corner radii, Dynamic Island, home indicator, and side controls stay proportional at any rendered size. The artwork is our own; no vendor device asset is bundled.
+
 ## Why Atlas Loop
 
 Selector-heavy tests often fail when an interface is renamed or rearranged even though the user journey still works. Atlas Loop centers the observed flow instead: what action ran, what appeared on screen, what evidence was captured, and whether the outcome held.
 
 - **Drive the Simulator** — build, install, deterministically relaunch, tap, type, swipe, edge-navigate, long-press, pinch, rotate, two-finger tap, wait, and assert through CLI, MCP, or the live viewer.
+- **Put the device somewhere** — place the Simulator at any coordinate, or at one of eleven named presets chosen to cover the differences that actually break apps: both hemispheres, the equator, the date line, right-to-left and non-Latin locales, and half-hour time offsets. Coordinates are validated before they reach `simctl`, and the place a run believed it was in travels with its evidence.
 - **Author readable local tests** — write one deterministic command per line, inspect the exact action payload before execution, and keep the latest result beside the definition. Unsupported lines report their source number, an optional bundle guard blocks wrong-app runs, and saved definitions are recompiled at the storage boundary instead of trusting edited browser data.
 - **Compose visible step modules** — reuse built-in or browser-saved command blocks without introducing hidden runtime references. A module previews its exact actions, then copies its readable source into the test so the resulting definition stays inspectable, editable, and portable.
 - **Launch deterministic app states** — save reusable launch profiles beside step modules, then start an installed app with exact ordered arguments and non-secret environment values. Profiles are revalidated when loaded, malformed records are ignored, and secret-like or prototype-polluting keys are rejected before anything reaches browser storage.
@@ -21,6 +24,7 @@ Selector-heavy tests often fail when an interface is renamed or rearranged even 
 - **See the whole workspace** — start from a locally-derived overview of active runs, failure signals, evidence totals, and readiness. A selected-device cockpit keeps the real Simulator, observed app, runtime, input backend, and next actions in one place; failed or blocked runs become a triage queue, while search, status scopes, sorting, and incremental history keep large local stores usable.
 - **Map real journeys** — derive screens and transitions from captured evidence, with deep links back to the producing session and action.
 - **Hand work forward** — export verifiable local bundles and compact next-step commands for another human or coding agent.
+- **File the issue from the failure** — turn a run into a ready-to-file ticket carrying the failing step, the recorded reason, the device and input backend, the pass count, and a deep link back to this exact evidence. Linear and GitHub open prefilled; the markdown copies for anything else. A draft too long to survive a URL drops the link rather than truncating the part that matters.
 - **Keep evidence local** — the daemon binds to loopback and the source of truth is `artifacts/sessions/<session-id>/`.
 
 ## Quick start
@@ -47,11 +51,13 @@ npm run cli -- doctor
 npm run cli -- session start --simulator "iPhone 16" --viewer
 ```
 
-The root URL is the product landing page. Its interactive quickstart exposes the real verify, service, and first-session commands with copy feedback. Viewer deep links such as `/?sessionId=latest&workspace=overview`, `/?sessionId=latest&workspace=tests`, `/?sessionId=latest&workspace=library`, `/?sessionId=latest&workspace=sessions`, `/?sessionId=latest&workspace=apps`, `/?sessionId=latest&workspace=workflows`, `?actionId=...`, and `?artifactId=...` continue directly into the operational overview, local test authoring, local asset library, session control plane, observed-app catalog, reusable workflow library, or exact runtime evidence. Explicit workspace links remain authoritative even on a disconnected first run.
+The root URL is the product landing page. Its interactive quickstart exposes the real verify, service, and first-session commands with copy feedback. A sticky chapter index pins to the top of the capability section and highlights whichever chapter is crossing the middle of the viewport. Viewer deep links such as `/?sessionId=latest&workspace=overview`, `/?sessionId=latest&workspace=tests`, `/?sessionId=latest&workspace=library`, `/?sessionId=latest&workspace=sessions`, `/?sessionId=latest&workspace=apps`, `/?sessionId=latest&workspace=workflows`, `?actionId=...`, and `?artifactId=...` continue directly into the operational overview, local test authoring, local asset library, session control plane, observed-app catalog, reusable workflow library, or exact runtime evidence. Explicit workspace links remain authoritative even on a disconnected first run.
 
 The viewer opens unscoped first-time and disconnected environments on a purposeful workspace overview. Its counts come from the local daemon: recent sessions, active runs, stored evidence, failures, and four readiness checks. The selected-device cockpit reports the bound Simulator, runtime, observed app, recorded input path, and latest signal without inventing values when the daemon or session is unavailable. Failed runs surface their latest error and evidence count, and the full history can be searched by session, app, Simulator, or error text; scoped to active, attention, or complete runs; and sorted by time, evidence, or status. Overview, tests, library, sessions, apps, workflow, and evidence state is URL-backed, so refresh and browser navigation preserve the selected workspace. From there you can author a test, reuse a visible step module or launch profile, inspect a run, browse observed apps, open Atlas, jump to actions, repair the runtime connection, or create a session without leaving the workspace. Choose the Simulator input backend, provide an installed app bundle ID, and Atlas Loop creates the session, forwards the selected profile's arguments and environment to the real daemon launch endpoint, and follows the new evidence stream inside the same hardware-accurate iPhone 16 Pro frame used by the landing preview. The bundled demo defaults to `app.atlasloop.CommerceDemo`; replace it for your own installed app. Press <kbd>⌘K</kbd> or <kbd>Ctrl K</kbd> to search workspace destinations with the mouse or arrow keys and <kbd>Enter</kbd>. Open Live Monitor from the top bar or with <kbd>⌘⇧M</kbd>/<kbd>Ctrl Shift M</kbd>; it traps focus while open, closes with <kbd>Esc</kbd>, and returns focus to the invoking control.
 
 ![Atlas Loop operational workspace with local runtime health and session evidence](docs/assets/atlas-loop-dashboard.png)
+
+Metric cards carry a week-over-week delta derived from the timestamps the daemon already recorded, comparing the last seven days with the seven before them. A first week has no baseline, so the card reports the raw count instead of a fabricated percentage, and reports nothing at all when neither window contains a dated run. Rising activity reads as good and rising failures read as bad. The workspace rail collapses to an icon strip that returns 172px to the workspace; the choice is remembered per browser, every destination keeps its accessible name, and a runtime error is never hidden by the collapsed state.
 
 Live Monitor sits above the current workspace instead of replacing it. The Devices tab only counts sessions the current daemon can still mutate; stale disk manifests remain historical evidence. The Workflows tab receives real progress from ordered gesture execution, including success, cancellation, and step-level failure, while the selected-run summary keeps artifacts and trace events visible. On narrow screens the drawer becomes a full-width operational surface without horizontal scrolling.
 
@@ -106,6 +112,17 @@ npm run cli -- two-finger-tap --session latest --id gesture-lab.canvas
 ```
 
 The bundled demo exposes `gesture-lab.canvas` through the catalog or the deterministic `gesture-lab` launch route. Atlas relaunches an already-running app before applying launch arguments or environment, so route-dependent tests start from the requested state.
+
+Location is part of the run, not a manual step before it. Business logic that differs by region is otherwise only exercised wherever the machine happens to be:
+
+```bash
+npm run cli -- location presets
+npm run cli -- location set --session latest --preset tokyo
+npm run cli -- location set --session latest --lat 35.689487 --lon 139.691711
+npm run cli -- location clear --session latest
+```
+
+Coordinates are validated before they reach `simctl`: both axes are range-checked, both problems are reported together, a blank value is never read as zero, and the pair is always formatted with a dot separator and no exponent notation so a host set to a comma-decimal locale — or a coordinate near the prime meridian — cannot produce a command the device silently misreads. Each change is recorded as a `setLocation` action, so a run states where it believed it was.
 
 ## What is included
 

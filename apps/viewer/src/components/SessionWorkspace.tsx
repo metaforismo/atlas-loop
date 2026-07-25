@@ -19,6 +19,7 @@ import {
 } from "../sessionCatalog.js";
 import type { HealthState, SessionHistoryItem } from "../types.js";
 import { formatDateTime, sessionUpdatedAt } from "../viewerPresentation.js";
+import { buildSessionTrends, formatTrend, trendTone, type TrendComparison } from "../sessionTrends.js";
 import { ProductIcon } from "./ProductIcon.js";
 
 interface SessionWorkspaceProps {
@@ -76,6 +77,8 @@ export function SessionWorkspace({
     ?? filteredSessions[0]
     ?? sessions[0];
   const activity = sessionActivityWindow(sessions);
+  // One clock reading keeps every card's window boundary identical.
+  const trends = useMemo(() => buildSessionTrends(sessions, Date.now()), [sessions]);
   const hasFilters = query.trim().length > 0 || scope !== "all" || backend !== "all" || sort !== "recent";
 
   useEffect(() => {
@@ -105,10 +108,10 @@ export function SessionWorkspace({
       </header>
 
       <div className="session-workspace-metrics" aria-label="Session metrics">
-        <SessionMetric label="Local sessions" value={status === "ready" ? String(sessions.length) : "--"} detail={`${activity.sevenDays} observed in the last 7 days`} />
+        <SessionMetric label="Local sessions" value={status === "ready" ? String(sessions.length) : "--"} detail={`${activity.sevenDays} observed in the last 7 days`} trend={status === "ready" ? trends.sessions : undefined} risingIsGood />
         <SessionMetric label="Live now" value={status === "ready" ? String(liveSessions.length) : "--"} detail={health === "online" ? "Daemon connected" : "Daemon unavailable"} tone={liveSessions.length > 0 ? "good" : undefined} />
-        <SessionMetric label="Evidence items" value={status === "ready" ? String(evidenceCount) : "--"} detail={`${formatSessionDuration(totalDuration)} recorded runtime`} />
-        <SessionMetric label="Needs attention" value={status === "ready" ? String(attentionSessions.length) : "--"} detail={attentionSessions.length ? "Failed, blocked, or warning runs" : "No flagged runs"} tone={attentionSessions.length ? "bad" : "good"} />
+        <SessionMetric label="Evidence items" value={status === "ready" ? String(evidenceCount) : "--"} detail={`${formatSessionDuration(totalDuration)} recorded runtime`} trend={status === "ready" ? trends.evidence : undefined} risingIsGood />
+        <SessionMetric label="Needs attention" value={status === "ready" ? String(attentionSessions.length) : "--"} detail={attentionSessions.length ? "Failed, blocked, or warning runs" : "No flagged runs"} tone={attentionSessions.length ? "bad" : "good"} trend={status === "ready" ? trends.failures : undefined} />
       </div>
 
       {status === "ready" ? (
@@ -229,8 +232,31 @@ export function SessionWorkspace({
   );
 }
 
-function SessionMetric({ label, value, detail, tone = "neutral" }: { label: string; value: string; detail: string; tone?: "neutral" | "good" | "bad" }) {
-  return <div className={`session-workspace-metric tone-${tone}`}><span>{label}</span><strong>{value}</strong><small>{detail}</small></div>;
+function SessionMetric({
+  label,
+  value,
+  detail,
+  tone = "neutral",
+  trend,
+  risingIsGood = false
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  tone?: "neutral" | "good" | "bad";
+  trend?: TrendComparison;
+  risingIsGood?: boolean;
+}) {
+  // A first week has no baseline, so the delta stays hidden rather than reading 0%.
+  const trendLabel = trend ? formatTrend(trend) : undefined;
+  return (
+    <div className={`session-workspace-metric tone-${tone}`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+      {trendLabel ? <em className={`overview-metric-trend tone-${trendTone(trend!, risingIsGood)}`}>{trendLabel}</em> : null}
+      <small>{detail}</small>
+    </div>
+  );
 }
 
 function SessionEmptyState({ title, detail, action, onAction }: { title: string; detail: string; action: string; onAction: () => void }) {

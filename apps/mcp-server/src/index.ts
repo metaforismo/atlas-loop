@@ -20,6 +20,8 @@ import {
 } from "@atlas-loop/daemon-client";
 import { validateActionInput, type ActionInput, type ArtifactRef, type AtlasLoopError, type BuildRequest, type Edge, type LaunchRequest, type TraceEvent } from "@atlas-loop/protocol";
 import { DEFAULT_DIFF_THRESHOLD, diffPngs } from "@atlas-loop/atlas-map";
+import { LOCATION_PRESETS, parseDeviceLocation } from "@atlas-loop/protocol";
+
 import { validateArtifactTarget, type ValidationReport } from "../../../scripts/verify-artifacts.ts";
 
 const DEFAULT_VIEWER_BASE_URL = "http://127.0.0.1:5173";
@@ -53,6 +55,7 @@ interface McpDaemonClient {
   build(sessionId: string, request: unknown): Promise<unknown>;
   install(sessionId: string, request: unknown): Promise<unknown>;
   launch(sessionId: string, request: unknown): Promise<unknown>;
+  setLocation(sessionId: string, request: unknown): Promise<unknown>;
   request?<T>(method: string, path: string, body?: unknown): Promise<T>;
 }
 
@@ -270,7 +273,13 @@ export const tools = [
   { name: "atlas.endSession", description: "End a local session.", inputSchema: sessionIdSchema() },
   { name: "atlas.build", description: "Build an iOS app through xcodebuild.", inputSchema: buildSchema() },
   { name: "atlas.install", description: "Install a simulator .app.", inputSchema: installSchema() },
-  { name: "atlas.launch", description: "Launch an installed bundle.", inputSchema: launchSchema() }
+  { name: "atlas.launch", description: "Launch an installed bundle.", inputSchema: launchSchema() },
+  {
+    name: "atlas.setLocation",
+    description:
+      "Place the Simulator at a coordinate, or omit latitude and longitude to clear the override and restore the device's own location. Recorded with the run.",
+    inputSchema: setLocationSchema()
+  }
 ];
 
 export function startStdioServer(runtime: ToolRuntime = {}): void {
@@ -430,6 +439,8 @@ async function callTool(name: string, args: Record<string, unknown>, runtime: To
       return client.install(requireString(args, "sessionId"), { appPath: requireString(args, "appPath") });
     case "atlas.launch":
       return client.launch(requireString(args, "sessionId"), launchRequest(args));
+    case "atlas.setLocation":
+      return client.setLocation(requireString(args, "sessionId"), setLocationRequest(args));
     default:
       throw Object.assign(new Error(`Unknown tool ${name}`), { code: "NOT_FOUND" });
   }
@@ -1081,6 +1092,40 @@ function launchRequest(args: Record<string, unknown>): LaunchRequest {
     bundleId: requireString(args, "bundleId"),
     arguments: optionalStringArray(args, "arguments"),
     environment: optionalStringRecord(args, "environment")
+  });
+}
+
+/**
+ * Presets are resolved here so an agent can name a place instead of carrying a
+ * coordinate table. Omitting every coordinate field clears the override.
+ */
+function setLocationRequest(args: Record<string, unknown>): { location?: { latitude: number; longitude: number }; presetId?: string } {
+  const presetId = optionalString(args, "preset");
+  if (presetId) {
+    const preset = LOCATION_PRESETS.find((candidate) => candidate.id === presetId);
+    if (!preset) {
+      throw new Error(`Unknown preset ${presetId}. Known presets: ${LOCATION_PRESETS.map((candidate) => candidate.id).join(", ")}`);
+    }
+    return { location: { latitude: preset.latitude, longitude: preset.longitude }, presetId: preset.id };
+  }
+
+  if (args.latitude === undefined && args.longitude === undefined) return {};
+
+  const parsed = parseDeviceLocation(args.latitude, args.longitude);
+  if (parsed.errors.length > 0) throw new Error(parsed.errors.join(" "));
+  return { location: parsed.location };
+}
+
+function setLocationSchema(): Record<string, unknown> {
+  return objectSchema(["sessionId"], {
+    ...sessionIdProperty(),
+    preset: {
+      type: "string",
+      enum: LOCATION_PRESETS.map((preset) => preset.id),
+      description: "Named place. Takes precedence over latitude and longitude."
+    },
+    latitude: { type: "number", minimum: -90, maximum: 90 },
+    longitude: { type: "number", minimum: -180, maximum: 180 }
   });
 }
 

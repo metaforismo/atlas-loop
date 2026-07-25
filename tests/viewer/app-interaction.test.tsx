@@ -4,6 +4,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../../apps/viewer/src/App.js";
+import { RAIL_COLLAPSED_STORAGE_KEY } from "../../apps/viewer/src/railPreference.js";
 import type { ArtifactHealth, ArtifactRef, Session, SessionSummary } from "../../apps/viewer/src/types.js";
 
 const DAEMON_URL = "http://127.0.0.1:4317";
@@ -158,6 +159,16 @@ describe("viewer app interactions", { timeout: 30_000 }, () => {
     );
     replaceBrowserProperty(window, "cancelAnimationFrame", (id: number): void => window.clearTimeout(id));
     replaceBrowserProperty(window.navigator, "clipboard", { writeText: clipboardWriteText });
+    // Browser-local preferences start empty so one test cannot bias the next.
+    const storedValues = new Map<string, string>();
+    replaceBrowserProperty(window, "localStorage", {
+      get length() { return storedValues.size; },
+      clear: () => storedValues.clear(),
+      getItem: (key: string) => storedValues.get(key) ?? null,
+      key: (index: number) => [...storedValues.keys()][index] ?? null,
+      removeItem: (key: string) => { storedValues.delete(key); },
+      setItem: (key: string, value: string) => { storedValues.set(key, value); }
+    } satisfies Storage);
     replaceBrowserProperty(window, "EventSource", MockEventSource as unknown as typeof EventSource);
     replaceBrowserProperty(globalThis, "EventSource", MockEventSource as unknown as typeof EventSource);
     vi.stubGlobal("fetch", vi.fn(fetchResponse));
@@ -236,6 +247,37 @@ describe("viewer app interactions", { timeout: 30_000 }, () => {
       expect(selected.textContent).toContain("debug.log");
       return selected;
     }, "deep-linked artifact selection");
+  });
+
+  it("collapses the workspace rail to an icon strip and remembers the choice", async () => {
+    await act(async () => root?.render(<App />));
+
+    const host = container!;
+    const shell = host.querySelector<HTMLElement>(".viewer-shell")!;
+    const toggle = host.querySelector<HTMLButtonElement>(".rail-collapse-toggle")!;
+    expect(shell.classList.contains("rail-collapsed")).toBe(false);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(toggle.getAttribute("aria-controls")).toBe("viewer-connection-panel");
+    expect(toggle.textContent).toBe("Collapse the workspace rail");
+
+    await act(async () => toggle.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true })));
+
+    expect(shell.classList.contains("rail-collapsed")).toBe(true);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(toggle.textContent).toBe("Expand the workspace rail");
+    expect(window.localStorage.getItem(RAIL_COLLAPSED_STORAGE_KEY)).toBe("true");
+
+    // Every destination keeps an accessible name once its label is hidden.
+    const navItems = [...host.querySelectorAll<HTMLElement>(".viewer-nav-item")];
+    expect(navItems.length).toBeGreaterThan(0);
+    expect(navItems.every((item) => (item.getAttribute("title") ?? "").length > 0)).toBe(true);
+    expect(navItems.every((item) => item.querySelector("span")?.textContent === item.getAttribute("title"))).toBe(true);
+
+    // A stored preference is honoured on the next visit.
+    await act(async () => root?.unmount());
+    root = createRoot(host);
+    await act(async () => root?.render(<App />));
+    expect(host.querySelector(".viewer-shell")?.classList.contains("rail-collapsed")).toBe(true);
   });
 
   it("renders compact evidence chips from session history rows", async () => {

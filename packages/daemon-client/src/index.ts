@@ -9,6 +9,7 @@ import type {
   CreateSessionRequest,
   InstallRequest,
   LaunchRequest,
+  SetLocationRequest,
   PerformActionRequest,
   Session,
   SessionHistoryResult,
@@ -454,6 +455,11 @@ export class DaemonClient {
 
   install(sessionId: string, request: InstallRequest): Promise<unknown> {
     return this.requestData("POST", `/sessions/${encodeURIComponent(sessionId)}/install`, "install result", request);
+  }
+
+  /** Omit `location` to clear the override and restore the device's own location. */
+  setLocation(sessionId: string, request: SetLocationRequest): Promise<unknown> {
+    return this.requestData("POST", `/sessions/${encodeURIComponent(sessionId)}/location`, "location result", request);
   }
 
   launch(sessionId: string, request: LaunchRequest): Promise<unknown> {

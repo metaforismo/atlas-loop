@@ -28,8 +28,11 @@ describe("LandingPage", () => {
     expect(container.querySelector("[aria-label='Atlas Loop product preview']")?.textContent).toContain("Checkout still works");
     expect(container.querySelector("[role='group'][aria-label='Checkout running on an iPhone Simulator']")).not.toBeNull();
     expect(container.querySelector(".ios-device-island")).not.toBeNull();
-    expect(container.querySelector(".ios-device-button-camera")).not.toBeNull();
+    expect(container.querySelector(".ios-device-button-camera-control")).not.toBeNull();
+    expect(container.querySelectorAll(".ios-device-button")).toHaveLength(5);
     expect(container.querySelectorAll(".ios-device-antenna")).toHaveLength(4);
+    expect(container.querySelector(".ios-device")?.getAttribute("data-device")).toBe("iphone-16-pro");
+    expect(container.querySelector(".preview-status-bar")?.textContent).toContain("9:41");
     expect(container.querySelector("[role='tablist'][aria-label='Product preview modes']")).not.toBeNull();
     expect(container.querySelector("[aria-label='Multi-gesture flow preview']")?.textContent).toContain("Two-finger tap");
     expect(container.querySelector("[aria-label='Observed app catalog preview']")?.textContent).toContain("Commerce Demo");

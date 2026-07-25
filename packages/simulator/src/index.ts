@@ -1,10 +1,13 @@
 import { spawn } from "node:child_process";
-import type {
-  AtlasLoopError,
-  AtlasLoopErrorCode,
-  BuildRequest,
-  LaunchRequest,
-  SimulatorRef
+import {
+  locationClearArgs,
+  locationSetArgs,
+  type AtlasLoopError,
+  type AtlasLoopErrorCode,
+  type BuildRequest,
+  type DeviceLocation,
+  type LaunchRequest,
+  type SimulatorRef
 } from "@atlas-loop/protocol";
 
 export interface SimulatorCommandResult {
@@ -53,6 +56,8 @@ export interface LaunchOptions extends SimulatorTargetOptions, LaunchRequest {}
 export interface ScreenshotOptions extends SimulatorTargetOptions {
   outputPath: string;
 }
+
+export interface SetLocationOptions extends SimulatorTargetOptions, DeviceLocation {}
 
 export interface RecordVideoOptions extends SimulatorTargetOptions {
   outputPath: string;
@@ -183,6 +188,29 @@ export function createSimulator(options: SimulatorOptions = {}) {
         "screenshot",
         options.outputPath
       ], { timeoutMs: options.timeoutMs });
+    },
+
+    /**
+     * Places the device at a coordinate. Callers validate with
+     * `parseDeviceLocation` first; this method only formats and runs.
+     */
+    async setLocation(options: SetLocationOptions): Promise<SimulatorCommandResult> {
+      return checked(
+        "COMMAND_FAILED",
+        "xcrun",
+        locationSetArgs(simulatorTarget(options.simulator), {
+          latitude: options.latitude,
+          longitude: options.longitude
+        }),
+        { timeoutMs: options.timeoutMs }
+      );
+    },
+
+    /** Returns the device to its own location, whatever that is. */
+    async clearLocation(options: SimulatorTargetOptions = {}): Promise<SimulatorCommandResult> {
+      return checked("COMMAND_FAILED", "xcrun", locationClearArgs(simulatorTarget(options.simulator)), {
+        timeoutMs: options.timeoutMs
+      });
     },
 
     async recordVideo(options: RecordVideoOptions): Promise<SimulatorCommandResult> {

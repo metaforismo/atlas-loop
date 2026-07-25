@@ -66,6 +66,7 @@ export type ActionKind =
   | "screenshot"
   | "install"
   | "launch"
+  | "setLocation"
   | "wait";
 
 export interface BaseAction {
@@ -168,6 +169,23 @@ export interface WaitAction extends BaseAction {
   durationMs: number;
 }
 
+/**
+ * Places the device at a coordinate, or returns it to its own location when
+ * `location` is absent. Recorded as an action so a run states where it
+ * believed it was rather than leaving geo behaviour unexplained.
+ */
+export interface SetLocationAction extends BaseAction {
+  kind: "setLocation";
+  location?: DeviceCoordinate;
+  /** Preset id when the coordinate came from a named place. */
+  presetId?: string;
+}
+
+export interface DeviceCoordinate {
+  latitude: number;
+  longitude: number;
+}
+
 export type Action =
   | TapAction
   | TypeTextAction
@@ -182,6 +200,7 @@ export type Action =
   | ScreenshotAction
   | InstallAction
   | LaunchAction
+  | SetLocationAction
   | WaitAction;
 
 export type ArtifactType =
@@ -314,6 +333,15 @@ export interface LaunchRequest {
   bundleId: string;
   arguments?: string[];
   environment?: Record<string, string>;
+}
+
+/**
+ * Omit `location` to clear the override and return the device to its own
+ * location. The daemon validates the coordinate before it reaches simctl.
+ */
+export interface SetLocationRequest {
+  location?: DeviceCoordinate;
+  presetId?: string;
 }
 
 export interface PerformActionRequest {
@@ -496,3 +524,5 @@ export function materializeAction(sessionId: string, sequence: number, input: Ac
     createdAt: nowIso()
   } as Action;
 }
+
+export * from "./location.js";

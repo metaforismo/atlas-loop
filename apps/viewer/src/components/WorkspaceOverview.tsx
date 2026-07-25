@@ -8,6 +8,7 @@ import type {
   SessionHistoryItem
 } from "../types.js";
 import { formatDateTime, sessionSignal, sessionTone, sessionUpdatedAt, type UiTone } from "../viewerPresentation.js";
+import { buildSessionTrends, formatTrend, trendTone, type TrendComparison } from "../sessionTrends.js";
 import { ProductIcon } from "./ProductIcon.js";
 
 export type OverviewDestination = "evidence" | "tests" | "library" | "sessions" | "apps" | "workflows" | "actions" | "atlas" | "runtime" | "start";
@@ -69,6 +70,8 @@ export function WorkspaceOverview({
   const sessionArtifactCount = sessions.reduce((total, candidate) => total + (candidate.artifacts?.total ?? 0), 0);
   const evidenceCount = Math.max(artifacts.length, sessionArtifactCount);
   const healthySessions = sessions.filter((candidate) => candidate.ready || (candidate.hasScreenshot && (candidate.artifacts?.total ?? 0) > 0)).length;
+  // One clock reading keeps every card's window boundary identical.
+  const trends = useMemo(() => buildSessionTrends(sessions, Date.now()), [sessions]);
   const readiness = buildReadiness({ health, session, screenshotStatus, artifactHealth, artifactHealthStatus });
   const readyChecks = readiness.filter((item) => item.tone === "good").length;
   const nextStep = deriveNextStep({ health, session, artifacts, artifactHealth, artifactHealthStatus });
@@ -109,10 +112,28 @@ export function WorkspaceOverview({
       <SelectedDeviceCockpit health={health} session={session} onOpen={onOpen} onStartSession={onStartSession} />
 
       <div className="workspace-overview-metrics" aria-label="Workspace metrics">
-        <OverviewMetric label="Local sessions" value={sessionListStatus === "ready" ? String(sessions.length) : "--"} detail={sessionListStatus === "loading" ? "Loading history" : "Stored by the daemon"} />
+        <OverviewMetric
+          label="Local sessions"
+          value={sessionListStatus === "ready" ? String(sessions.length) : "--"}
+          detail={sessionListStatus === "loading" ? "Loading history" : "Stored by the daemon"}
+          trend={sessionListStatus === "ready" ? trends.sessions : undefined}
+          risingIsGood
+        />
         <OverviewMetric label="Active now" value={sessionListStatus === "ready" ? String(activeSessions) : "--"} detail={activeSessions === 0 ? "No mutable sessions" : activeSessions === 1 ? "1 mutable session" : `${activeSessions} mutable sessions`} tone={activeSessions > 0 ? "good" : "neutral"} />
-        <OverviewMetric label="Evidence items" value={sessionListStatus === "ready" ? String(evidenceCount) : "--"} detail={session ? `${eventCount} events in selected run` : "No selected run"} />
-        <OverviewMetric label="Needs attention" value={sessionListStatus === "ready" ? String(failedSessions) : "--"} detail={failedSessions > 0 ? "Failed or blocked runs" : "No failed runs found"} tone={failedSessions > 0 ? "bad" : "good"} />
+        <OverviewMetric
+          label="Evidence items"
+          value={sessionListStatus === "ready" ? String(evidenceCount) : "--"}
+          detail={session ? `${eventCount} events in selected run` : "No selected run"}
+          trend={sessionListStatus === "ready" ? trends.evidence : undefined}
+          risingIsGood
+        />
+        <OverviewMetric
+          label="Needs attention"
+          value={sessionListStatus === "ready" ? String(failedSessions) : "--"}
+          detail={failedSessions > 0 ? "Failed or blocked runs" : "No failed runs found"}
+          tone={failedSessions > 0 ? "bad" : "good"}
+          trend={sessionListStatus === "ready" ? trends.failures : undefined}
+        />
       </div>
 
       <div className="workspace-overview-grid">
@@ -308,8 +329,33 @@ function SelectedDeviceCockpit({
   );
 }
 
-function OverviewMetric({ label, value, detail, tone = "neutral" }: { label: string; value: string; detail: string; tone?: UiTone }) {
-  return <div className={`overview-metric tone-${tone}`}><span>{label}</span><strong>{value}</strong><small>{detail}</small></div>;
+function OverviewMetric({
+  label,
+  value,
+  detail,
+  tone = "neutral",
+  trend,
+  risingIsGood = false
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  tone?: UiTone;
+  trend?: TrendComparison;
+  risingIsGood?: boolean;
+}) {
+  // A first week has no baseline, so the delta stays hidden rather than reading 0%.
+  const trendLabel = trend ? formatTrend(trend) : undefined;
+  return (
+    <div className={`overview-metric tone-${tone}`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+      {trendLabel ? (
+        <em className={`overview-metric-trend tone-${trendTone(trend!, risingIsGood)}`}>{trendLabel}</em>
+      ) : null}
+      <small>{detail}</small>
+    </div>
+  );
 }
 
 function OverviewRowsSkeleton() {

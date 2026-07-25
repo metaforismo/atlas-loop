@@ -256,6 +256,32 @@ export async function performViewerAction(params: ViewerParams, draft: ViewerAct
   }
 }
 
+/**
+ * Places the device at a coordinate. Omitting `location` clears the override
+ * and returns the device to its own location.
+ */
+export async function setViewerLocation(
+  params: ViewerParams,
+  request: { location?: { latitude: number; longitude: number }; presetId?: string },
+  signal?: AbortSignal
+): Promise<ActionResultLike> {
+  const response = await fetch(buildSessionUrl(params, "location"), {
+    method: "POST",
+    signal,
+    cache: "no-store",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify(request)
+  });
+  const text = await response.text();
+  const payload = parseActionResponseBody(text, response.status);
+
+  if (!response.ok) throw apiErrorFromPayload(payload, response);
+
+  const result = unwrapEnvelope<ActionResultLike>(payload);
+  if (!isActionResultLike(result)) throw new ApiError("Daemon returned an invalid action result", response.status);
+  return result;
+}
+
 export function buildViewerActionRequest(draft: ViewerActionDraft): ViewerActionRequest {
   switch (draft.kind) {
     case "screenshot": {

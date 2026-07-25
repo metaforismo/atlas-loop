@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { IOSDeviceFrame } from "./components/IOSDeviceFrame.js";
 
 const VIEWER_URL = "/?sessionId=latest&workspace=overview";
@@ -101,7 +101,8 @@ export function LandingPage() {
       </section>
 
       <section className="landing-chapters" aria-label="Atlas Loop capabilities">
-        <article className="landing-chapter">
+        <ChapterIndex />
+        <article className="landing-chapter" id="live-device">
           <div className="landing-chapter-copy">
             <p className="landing-section-index">02 / LIVE DEVICE CLI</p>
             <h2>One local runtime. Every operator.</h2>
@@ -229,6 +230,73 @@ export function LandingPage() {
         </div>
       </footer>
     </main>
+  );
+}
+
+const CHAPTERS: Array<{ id: string; label: string }> = [
+  { id: "live-device", label: "Live device" },
+  { id: "apps", label: "Apps" },
+  { id: "sessions", label: "Sessions" },
+  { id: "tests", label: "Tests" },
+  { id: "library", label: "Library" },
+  { id: "gestures", label: "Gestures" },
+  { id: "workflows", label: "Workflows" },
+  { id: "evidence", label: "Evidence" }
+];
+
+/**
+ * Sticky index for the capability chapters. The active entry is whichever
+ * chapter currently crosses the middle of the viewport, which tracks reading
+ * position more honestly than "last heading scrolled past".
+ */
+function ChapterIndex() {
+  const [activeId, setActiveId] = useState(CHAPTERS[0]!.id);
+  const visibleIds = useRef(new Set<string>());
+
+  useEffect(() => {
+    // jsdom and very old browsers have no observer; the index still navigates.
+    if (typeof IntersectionObserver !== "function") return;
+
+    const sections = CHAPTERS
+      .map((chapter) => document.getElementById(chapter.id))
+      .filter((node): node is HTMLElement => node !== null);
+    if (sections.length === 0) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) visibleIds.current.add(entry.target.id);
+          else visibleIds.current.delete(entry.target.id);
+        }
+        const firstVisible = CHAPTERS.find((chapter) => visibleIds.current.has(chapter.id));
+        if (firstVisible) setActiveId(firstVisible.id);
+      },
+      // Only the chapter crossing the middle band counts as current.
+      { rootMargin: "-45% 0px -50% 0px", threshold: 0 }
+    );
+
+    sections.forEach((section) => observer.observe(section));
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <nav className="landing-chapter-index" aria-label="Capability chapters">
+      <span>Chapters</span>
+      <ol>
+        {CHAPTERS.map((chapter, index) => (
+          <li key={chapter.id}>
+            <a
+              href={`#${chapter.id}`}
+              className={chapter.id === activeId ? "active" : undefined}
+              aria-current={chapter.id === activeId ? "true" : undefined}
+            >
+              <b>{String(index + 2).padStart(2, "0")}</b>
+              {chapter.label}
+            </a>
+          </li>
+        ))}
+      </ol>
+    </nav>
   );
 }
 
@@ -605,6 +673,23 @@ const HERO_PREVIEWS: Array<{
   }
 ];
 
+/**
+ * The iOS status bar straddles the Dynamic Island, so it reuses the island's
+ * geometry variables from the device frame instead of a hand-tuned offset.
+ */
+function DeviceStatusBar() {
+  return (
+    <div className="preview-status-bar" aria-hidden="true">
+      <span>9:41</span>
+      <span className="preview-status-icons">
+        <i className="preview-status-cellular" />
+        <i className="preview-status-wifi" />
+        <i className="preview-status-battery" />
+      </span>
+    </div>
+  );
+}
+
 function HeroWorkbench() {
   const [selectedMode, setSelectedMode] = useState<HeroPreviewMode>("flow");
   const preview = HERO_PREVIEWS.find((candidate) => candidate.id === selectedMode) ?? HERO_PREVIEWS[0]!;
@@ -637,6 +722,7 @@ function HeroWorkbench() {
             variant="hero"
           >
             <div className="preview-device-screen">
+              <DeviceStatusBar />
               <div className="preview-app-bar"><span>{preview.appTitle}</span><small>{preview.appMeta}</small></div>
               <div className="preview-order-card">
                 <span>{preview.cardLabel}</span>
@@ -644,8 +730,10 @@ function HeroWorkbench() {
                 <p>{preview.cardDetail}</p>
                 <div><span>{preview.metricLabel}</span><strong>{preview.metricValue}</strong></div>
               </div>
-              <div className="preview-device-action">{preview.action}</div>
-              <span className="preview-tap-target" />
+              <div className="preview-device-action">
+                {preview.action}
+                <span className="preview-tap-target" aria-hidden="true" />
+              </div>
             </div>
           </IOSDeviceFrame>
         </div>

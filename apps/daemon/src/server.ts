@@ -28,6 +28,7 @@ import {
   makeId,
   materializeAction,
   nowIso,
+  parseDeviceLocation,
   type Action,
   type ActionInput,
   type ActionResult,
@@ -43,6 +44,8 @@ import {
   type LaunchAction,
   type LaunchRequest,
   type PerformActionRequest,
+  type SetLocationAction,
+  type SetLocationRequest,
   type AtlasMap,
   type Session,
   type SessionHistoryItem,
@@ -326,6 +329,13 @@ async function handleRequest(state: DaemonState, request: IncomingMessage, respo
       const sessionState = resolveActiveSessionState(state, sessionId);
       const body = await readJsonBody<LaunchRequest>(request);
       sendJson(response, 200, { ok: true, data: await launchApp(state, sessionState, body) });
+      return;
+    }
+
+    if (request.method === "POST" && parts.length === 3 && parts[2] === "location") {
+      const sessionState = resolveActiveSessionState(state, sessionId);
+      const body = await readJsonBody<SetLocationRequest>(request);
+      sendJson(response, 200, { ok: true, data: await setSessionLocation(state, sessionState, body) });
       return;
     }
 
@@ -652,6 +662,44 @@ async function launchApp(state: DaemonState, sessionState: SessionState, request
     await setStatus(sessionState, "running");
     await startSessionMetrics(state, sessionState, parseLaunchPid(result.stdout));
     return artifacts;
+  });
+}
+
+/**
+ * Places the device at a coordinate, or clears the override when no location
+ * is given. Validation happens here rather than at the simctl boundary so an
+ * out-of-range coordinate reads as a bad request instead of a device failure.
+ */
+async function setSessionLocation(
+  state: DaemonState,
+  sessionState: SessionState,
+  request: SetLocationRequest
+): Promise<ActionResult> {
+  const clearing = request.location === undefined;
+  const parsed = clearing
+    ? { location: undefined, errors: [] as string[] }
+    : parseDeviceLocation(request.location?.latitude, request.location?.longitude);
+
+  if (parsed.errors.length > 0) {
+    throw atlasError("INVALID_REQUEST", parsed.errors.join(" "), { errors: parsed.errors });
+  }
+
+  const action: SetLocationAction = {
+    id: makeId("act"),
+    sessionId: sessionState.session.id,
+    kind: "setLocation",
+    location: parsed.location,
+    presetId: request.presetId,
+    sequence: ++sessionState.sequence,
+    createdAt: nowIso()
+  };
+
+  return executeAction(sessionState, action, async () => {
+    const simulator = sessionState.session.simulator;
+    const result = parsed.location
+      ? await state.simulator.setLocation({ simulator, ...parsed.location })
+      : await state.simulator.clearLocation({ simulator });
+    return recordCommandArtifacts(sessionState, "location", result, action);
   });
 }
 
