@@ -88,6 +88,7 @@ import {
 import { DEFAULT_SESSION_ID, writeViewerSearch, normalizeEvidenceTab, normalizeInspectorTab } from "./viewerParams.js";
 import { loadRailCollapsed, saveRailCollapsed } from "./railPreference.js";
 import { buildRunScrubberModel, fractionOfItem, fractionOfTime, resolveRunMoment, timeOfFraction } from "./runScrubber.js";
+import { capList } from "./cappedList.js";
 import { IssueExportDialog } from "./components/IssueExportDialog.js";
 import { loadIssueRepository, saveIssueRepository } from "./issueRepositoryStorage.js";
 import type { LocalTestModuleSeed } from "./localTestModules.js";
@@ -141,6 +142,15 @@ function RailNavLink({ label, icon, href }: { label: string; icon: RailIcon; hre
  * ids. Now that the sections are tabs, the tab has to open first — a hidden
  * panel has no layout to scroll to.
  */
+/**
+ * How many rows each long list renders before holding the rest back.
+ *
+ * Measured on a six hundred artifact session: mounting every row cost a 22.6
+ * second first paint and 1.2 to 3.5 seconds of lag per keystroke in the filter.
+ */
+const ARTIFACT_PAGE = 60;
+const TIMELINE_PAGE = 80;
+
 const INSPECTOR_TAB_FOR_ANCHOR: Record<string, InspectorTab> = {
   "viewer-actions": "actions",
   "viewer-artifacts": "artifacts",
@@ -231,11 +241,26 @@ export function App() {
     () => filterArtifacts(artifacts, { type: artifactTypeFilter, query: artifactQuery }),
     [artifacts, artifactTypeFilter, artifactQuery]
   );
+  const [artifactLimit, setArtifactLimit] = useState(ARTIFACT_PAGE);
+  const [timelineLimit, setTimelineLimit] = useState(TIMELINE_PAGE);
   const timelineFilters = useMemo(() => timelineFilterOptions(timeline), [timeline]);
   const visibleTimeline = useMemo(
     () => filterTimelineItems(timeline, { filter: timelineFilter, query: timelineQuery }),
     [timeline, timelineFilter, timelineQuery]
   );
+  const cappedArtifacts = useMemo(
+    () => capList(filteredArtifacts, { limit: artifactLimit, page: ARTIFACT_PAGE, noun: "artifact" }),
+    [filteredArtifacts, artifactLimit]
+  );
+  const cappedTimeline = useMemo(
+    () => capList(visibleTimeline, { limit: timelineLimit, page: TIMELINE_PAGE, noun: "item" }),
+    [visibleTimeline, timelineLimit]
+  );
+
+  // Narrowing a list is a fresh look at it, so the page count starts over.
+  useEffect(() => setArtifactLimit(ARTIFACT_PAGE), [artifactTypeFilter, artifactQuery, params.sessionId]);
+  useEffect(() => setTimelineLimit(TIMELINE_PAGE), [timelineFilter, timelineQuery, params.sessionId]);
+
   const selectedSessionId = session?.id ?? params.sessionId;
   const isFollowingLatest = params.sessionId === DEFAULT_SESSION_ID;
   const hasDraftChanges = draft.daemonUrl !== params.daemonUrl || draft.sessionId !== params.sessionId;
@@ -635,7 +660,7 @@ export function App() {
                       aria-orientation="vertical"
                       onKeyDown={handleArtifactListKeyDown}
                     >
-                      {filteredArtifacts.map((artifact) => (
+                      {cappedArtifacts.visible.map((artifact) => (
                         <ArtifactRow
                           key={artifact.id}
                           id={artifactOptionId(artifact.id)}
@@ -645,6 +670,11 @@ export function App() {
                         />
                       ))}
                     </div>
+                    {cappedArtifacts.moreLabel ? (
+                      <button type="button" className="list-more" onClick={() => setArtifactLimit(cappedArtifacts.nextLimit)}>
+                        {cappedArtifacts.moreLabel}
+                      </button>
+                    ) : null}
                     <ArtifactDetails artifact={selectedArtifact} />
                   </>
                 )}
@@ -1141,7 +1171,7 @@ export function App() {
           ) : visibleTimeline.length === 0 ? (
             <EmptyState title="No matching actions" detail="Clear the timeline search or switch the filter to bring the action stream back." horizontal />
           ) : (
-            visibleTimeline.map((item) => {
+            cappedTimeline.visible.map((item) => {
               const artifactId = timelineArtifactId(item, artifacts);
               const artifact = artifactId ? artifacts.find((candidate) => candidate.id === artifactId) : undefined;
               const kindClassName = artifact ? artifactKindClassName(artifact) : timelineKindClassName(item);
